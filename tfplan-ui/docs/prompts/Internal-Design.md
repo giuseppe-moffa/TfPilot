@@ -1,8 +1,8 @@
-# InfraForge — Internal Design Document
+# tfplan — Internal Design Document
 
 ## System Overview
 
-InfraForge is an agentic infrastructure automation platform where multiple AI agents collaborate under a central controller. The architecture follows a **supervisor-first** pattern: a Master Superprompt (acting as a supervisor agent) receives user goals and delegates tasks to specialized agents. The Terraform Generator Agent handles creating new infrastructure code, the Terraform Modules Agent manages reusable component libraries, and the GitHub Worker Agent automates code repository tasks. Agents operate with awareness of the real infrastructure state (Terraform state, cloud environment) so that changes are applied consistently. This design resembles a distributed engineering team, where each agent has a domain expertise, and the Master enforces a research-first, safety-first doctrine.
+tfplan is an agentic infrastructure automation platform where multiple AI agents collaborate under a central controller. The architecture follows a **supervisor-first** pattern: a Master Superprompt (acting as a supervisor agent) receives user goals and delegates tasks to specialized agents. The Terraform Generator Agent handles creating new infrastructure code, the Terraform Modules Agent manages reusable component libraries, and the GitHub Worker Agent automates code repository tasks. Agents operate with awareness of the real infrastructure state (Terraform state, cloud environment) so that changes are applied consistently. This design resembles a distributed engineering team, where each agent has a domain expertise, and the Master enforces a research-first, safety-first doctrine.
 
 ## Terraform Generation Workflow
 
@@ -33,15 +33,15 @@ Using GitOps practices ensures every infrastructure change is reviewed and autom
 
 ## STS AssumeRole Model
 
-InfraForge employs AWS STS AssumeRole for secure, ephemeral credentials. For example, GitHub Actions workflows use OIDC to obtain tokens and assume IAM roles with branch-specific scopes. AWS IAM trust policies are configured to allow only this mechanism: they define GitHub’s OIDC provider as a trusted source and restrict role assumption by repository and branch. Similarly, any service running as an agent can assume a pre-defined role to perform actions. This model ensures credentials are short-lived and constrained by policy.
+tfplan employs AWS STS AssumeRole for secure, ephemeral credentials. For example, GitHub Actions workflows use OIDC to obtain tokens and assume IAM roles with branch-specific scopes. AWS IAM trust policies are configured to allow only this mechanism: they define GitHub’s OIDC provider as a trusted source and restrict role assumption by repository and branch. Similarly, any service running as an agent can assume a pre-defined role to perform actions. This model ensures credentials are short-lived and constrained by policy.
 
 ## Multi-Tenant and RBAC Design
 
-InfraForge supports multiple tenants or projects with strict access controls. Each tenant’s resources are isolated (e.g. by AWS account, VPC, or workspace). User identities (via SSO or GitHub accounts) are mapped to IAM or Vault roles; agents enforce these roles so that actions are scoped per-user/project. The OIDC trust policy ensures only authorized repos/branches can assume tenant-specific roles. All agent actions are logged and auditable, maintaining a clear RBAC model.
+tfplan supports multiple tenants or projects with strict access controls. Each tenant’s resources are isolated (e.g. by AWS account, VPC, or workspace). User identities (via SSO or GitHub accounts) are mapped to IAM or Vault roles; agents enforce these roles so that actions are scoped per-user/project. The OIDC trust policy ensures only authorized repos/branches can assume tenant-specific roles. All agent actions are logged and auditable, maintaining a clear RBAC model.
 
 ## Security Model
 
-InfraForge’s security model is “zero trust” and audit-driven. Agents authenticate via OIDC or Vault-issued tokens; no static credentials are used. All secrets (API keys, database passwords) are stored in Vault or GitHub Secrets, and never embedded in prompts or code. Agent actions are authorized according to corporate policies: for example, policy engines may enforce “no public S3 buckets” or least-privilege IAM before any change. Every action is logged. HashiCorp’s secure AI framework also prescribes using Vault and JWT tokens for agent identity.
+tfplan’s security model is “zero trust” and audit-driven. Agents authenticate via OIDC or Vault-issued tokens; no static credentials are used. All secrets (API keys, database passwords) are stored in Vault or GitHub Secrets, and never embedded in prompts or code. Agent actions are authorized according to corporate policies: for example, policy engines may enforce “no public S3 buckets” or least-privilege IAM before any change. Every action is logged. HashiCorp’s secure AI framework also prescribes using Vault and JWT tokens for agent identity.
 
 ## Best Practices
 

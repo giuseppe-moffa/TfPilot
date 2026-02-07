@@ -50,7 +50,7 @@ async function resolveCredentials(body: RequestBody) {
     const assumeResp = await baseClient.send(
       new AssumeRoleCommand({
         RoleArn: body.assumeRoleArn,
-        RoleSessionName: "infraforge-session",
+        RoleSessionName: "tfplan-session",
         DurationSeconds: 3600,
       })
     )

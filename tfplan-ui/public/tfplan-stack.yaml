@@ -1,0 +1,88 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Creates a GitHub OIDC-backed IAM role that tfplan can assume to manage
+  infrastructure in this AWS account. The template is repository-aware and
+  avoids hardcoded app names.
+
+Parameters:
+  RoleName:
+    Type: String
+    Default: tfplan-connector
+    Description: Name for the IAM role tfplan will assume.
+  GitHubOrg:
+    Type: String
+    Default: giuseppe-moffa
+    Description: GitHub organization or user that owns the repository.
+  GitHubRepo:
+    Type: String
+    Default: TfPilot
+    Description: GitHub repository name.
+  GitHubBranch:
+    Type: String
+    Default: main
+    Description: Git reference (branch) allowed to assume the role.
+  ManagedPolicyArn:
+    Type: String
+    Default: arn:aws:iam::aws:policy/AdministratorAccess
+    Description: Managed policy ARN to attach to the role. Adjust for least privilege.
+  SessionDurationSeconds:
+    Type: Number
+    Default: 3600
+    MinValue: 900
+    MaxValue: 43200
+    Description: Maximum session duration for the role (in seconds).
+  ExistingOidcProviderArn:
+    Type: String
+    Default: ""
+    Description: >
+      ARN of an existing GitHub OIDC provider (token.actions.githubusercontent.com).
+      Leave blank to let this stack create one.
+
+Conditions:
+  CreateOidcProvider: !Equals [!Ref ExistingOidcProviderArn, ""]
+
+Resources:
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: CreateOidcProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+      ThumbprintList:
+        # SHA-1 thumbprint for the GitHub Actions root certificate
+        - 6938fd4d98bab03faadb97b34396831e3780aea1
+
+  TfplanExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref RoleName
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !If [CreateOidcProvider, !Ref GitHubOidcProvider, !Ref ExistingOidcProviderArn]
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+              StringLike:
+                token.actions.githubusercontent.com:sub: !Sub "repo:${GitHubOrg}/${GitHubRepo}:ref:refs/heads/${GitHubBranch}"
+      ManagedPolicyArns:
+        - !Ref ManagedPolicyArn
+      MaxSessionDuration: !Ref SessionDurationSeconds
+      Tags:
+        - Key: app
+          Value: tfplan
+
+Outputs:
+  RoleArn:
+    Description: ARN of the IAM role tfplan will assume.
+    Value: !GetAtt TfplanExecutionRole.Arn
+  OidcProviderArn:
+    Description: ARN of the GitHub OIDC provider used by the role.
+    Value: !If [CreateOidcProvider, !Ref GitHubOidcProvider, !Ref ExistingOidcProviderArn]
+  RepositoryScope:
+    Description: Repository and branch permitted to assume the role.
+    Value: !Sub "${GitHubOrg}/${GitHubRepo}@${GitHubBranch}"

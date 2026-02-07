@@ -1,10 +1,10 @@
 Overview
 
-InfraForge provides an internal platform for managing infrastructure requests. The design adopts a minimal, Vercel-like aesthetic with neutral tones and clear spacing. All pages use a centered container (max-w-4xl or max-w-7xl) for content, with a light background and subtle borders/shadows on cards. Use shadcn/ui components (Cards, Forms, Tables, etc.) to build layouts.
+tfplan provides an internal platform for managing infrastructure requests. The design adopts a minimal, Vercel-like aesthetic with neutral tones and clear spacing. All pages use a centered container (max-w-4xl or max-w-7xl) for content, with a light background and subtle borders/shadows on cards. Use shadcn/ui components (Cards, Forms, Tables, etc.) to build layouts.
 
 Navigation & Layout
 
-Main Nav: A simple top navigation bar with the InfraForge logo on the left and key links (e.g. Environments, Requests, Modules, AWS Connect) on the right. Use a <nav> with horizontal <Button> or <Link> items.
+Main Nav: A simple top navigation bar with the tfplan logo on the left and key links (e.g. Environments, Requests, Modules, AWS Connect) on the right. Use a <nav> with horizontal <Button> or <Link> items.
 
 Global Container: All pages use <main class="min-h-screen p-8"> and a centered inner <div class="max-w-4xl mx-auto"> (or max-w-7xl for wider views) for content.
 
@@ -67,7 +67,7 @@ Modules List (/modules): Display available infrastructure modules/templates. Eac
 
 AWS Connection Flow (/aws/connect)
 
-Overview Text: A short explanation card: “To connect your AWS account, run the provided CloudFormation stack which will create a role for InfraForge.”
+Overview Text: A short explanation card: “To connect your AWS account, run the provided CloudFormation stack which will create a role for tfplan.”
 
 External ID: Prominently display the External ID inside a read-only <Input> or <Code> box with a copy button. This should stand out (e.g. with a shaded background). Label it “External ID for AWS Console”.
 

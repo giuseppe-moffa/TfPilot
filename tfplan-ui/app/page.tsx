@@ -10,7 +10,7 @@ export default function Home() {
   const { isConnected } = useAwsConnection()
 
   React.useEffect(() => {
-    router.replace(isConnected ? "/requests" : "/connect/aws")
+    router.replace(isConnected ? "/requests" : "/aws/connect")
   }, [isConnected, router])
 
   return null

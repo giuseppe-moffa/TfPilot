@@ -18,8 +18,8 @@ const geistMono = Geist_Mono({
 })
 
 export const metadata: Metadata = {
-  title: "InfraForge",
-  description: "InfraForge infrastructure management console",
+  title: "tfplan",
+  description: "tfplan infrastructure management console",
 }
 
 const navItems = [
@@ -47,7 +47,7 @@ export default function RootLayout({
                   href="/"
                   className="text-lg font-semibold text-slate-900 hover:text-slate-700"
                 >
-                  InfraForge
+                  tfplan
                 </Link>
                 <div className="flex items-center gap-4">
                   <nav className="flex items-center gap-2">
