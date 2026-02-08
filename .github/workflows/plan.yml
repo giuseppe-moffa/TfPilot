@@ -14,6 +14,9 @@ jobs:
   terraform:
     name: Terraform Plan
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra
 
     steps:
       - name: Checkout code
@@ -23,13 +26,13 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v2
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          aws-region: eu-west-2
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
 
       - name: Initialize Terraform
-        run: terraform init
+        run: terraform init -input=false
 
       - name: Run Terraform Plan
-        run: terraform plan
+        run: terraform plan -input=false -no-color
