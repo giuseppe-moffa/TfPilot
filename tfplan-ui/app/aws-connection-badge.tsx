@@ -16,9 +16,5 @@ export default function AwsConnectionBadge() {
     )
   }
 
-  return (
-    <Button variant="outline" size="sm" asChild className="text-xs">
-      <Link href="/aws/connect">Connect AWS</Link>
-    </Button>
-  )
+  return null
 }

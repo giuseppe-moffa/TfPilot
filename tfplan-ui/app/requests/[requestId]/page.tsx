@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import Link from "next/link"
 import { CheckCircle2, Github, Loader2, Link as LinkIcon } from "lucide-react"
 import { useParams } from "next/navigation"
 
@@ -32,17 +33,17 @@ import {
 
 const steps = [
   { key: "submitted", label: "Submitted" },
-  { key: "approved", label: "Approved" },
+  { key: "planned", label: "Plan Ready" },
   { key: "merged", label: "Merged" },
   { key: "applied", label: "Applied" },
 ] as const
 
 const statusBadgeVariant: Record<
-  "submitted" | "approved" | "merged" | "applied",
+  "submitted" | "planned" | "merged" | "applied",
   "warning" | "info" | "success"
 > = {
   submitted: "warning",
-  approved: "warning",
+  planned: "warning",
   merged: "warning",
   applied: "success",
 }
@@ -75,6 +76,16 @@ function formatDate(iso: string) {
   })
 }
 
+function getServiceName(config?: Record<string, unknown>) {
+  if (!config) return null
+  const keys = ["name", "serviceName", "service_name", "bucket_name", "queue_name"]
+  for (const key of keys) {
+    const val = config[key]
+    if (typeof val === "string" && val.trim()) return val
+  }
+  return null
+}
+
 export default function RequestDetailPage() {
   const routeParams = useParams()
   const requestId =
@@ -99,13 +110,32 @@ export default function RequestDetailPage() {
     "idle" | "pending" | "success" | "error"
   >("idle")
   const [mergeModalOpen, setMergeModalOpen] = React.useState(false)
+  const [actionError, setActionError] = React.useState<string | null>(null)
   const [request, setRequest] = React.useState<{
     id: string
     project: string
     environment: string
-    status: "pending" | "planned" | "approved" | "applied"
+    module?: string
+    config?: Record<string, unknown>
+    status:
+      | "created"
+      | "pr_open"
+      | "planning"
+      | "plan_ready"
+      | "awaiting_approval"
+      | "merged"
+      | "applying"
+      | "complete"
+      | "failed"
+      | "pending"
+      | "planned"
+      | "approved"
+      | "applied"
     createdAt?: string
     updatedAt?: string
+    prUrl?: string
+    branchName?: string
+    workflowRunId?: number
     plan?: { diff?: string }
     pullRequest?: {
       title: string
@@ -172,6 +202,14 @@ export default function RequestDetailPage() {
     void refreshRequest()
   }, [refreshRequest])
 
+  React.useEffect(() => {
+    if (!requestId) return
+    const id = setInterval(() => {
+      void refreshRequest()
+    }, 5000)
+    return () => clearInterval(id)
+  }, [refreshRequest, requestId])
+
   async function handleApproveApply() {
     if (!requestId || !request || request.status !== "planned") return
     setIsApplying(true)
@@ -208,6 +246,29 @@ export default function RequestDetailPage() {
       console.error("[request apply] error", err)
       setRequest({ ...request, status: prevStatus })
       setApplyStatus("error")
+    } finally {
+      setIsApplying(false)
+    }
+  }
+
+  async function handleApplyDispatch() {
+    if (!requestId || !request || request.status !== "merged") return
+    setIsApplying(true)
+    setActionError(null)
+    try {
+      const res = await fetch("/api/github/apply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ requestId }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err?.error || "Failed to dispatch apply")
+      }
+      setRequest({ ...(request as any), status: "applying" })
+      await refreshRequest()
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Failed to dispatch apply")
     } finally {
       setIsApplying(false)
     }
@@ -293,10 +354,18 @@ export default function RequestDetailPage() {
   }
 
   const requestStatus = request.status
-  const pullRequestStatus = request.pullRequest?.status
-  const isApplied = requestStatus === "applied"
-  const isMerged = pullRequestStatus === "merged" || isApplied
-  const isApproved = requestStatus === "approved" || isMerged
+  const isApplied = requestStatus === "complete" || requestStatus === "applied"
+  const isMerged = requestStatus === "merged" || requestStatus === "applying" || isApplied
+  const isPlanReady =
+    requestStatus === "plan_ready" ||
+    requestStatus === "planned" ||
+    requestStatus === "approved" ||
+    requestStatus === "awaiting_approval" ||
+    isMerged ||
+    isApplied
+  const isPlanning =
+    requestStatus === "planning" || requestStatus === "pr_open" || requestStatus === "created" || requestStatus === "pending"
+  const isFailed = requestStatus === "failed"
 
   function computeStepInfo() {
     if (isApplied) {
@@ -313,17 +382,31 @@ export default function RequestDetailPage() {
         subtitle: "Pull request merged",
       }
     }
-    if (isApproved) {
+    if (isPlanReady) {
       return {
-        key: "merged" as const,
+        key: "planned" as const,
         state: "pending" as const,
         subtitle: "Waiting for PR merge",
       }
     }
+    if (isPlanning) {
+      return {
+        key: "planned" as const,
+        state: "pending" as const,
+        subtitle: "Planning in progress",
+      }
+    }
+    if (isFailed) {
+      return {
+        key: "submitted" as const,
+        state: "pending" as const,
+        subtitle: "Failed",
+      }
+    }
     return {
-      key: "approved" as const,
+      key: "submitted" as const,
       state: "pending" as const,
-      subtitle: "Waiting for PR approval",
+      subtitle: "Submitted",
     }
   }
 
@@ -332,8 +415,8 @@ export default function RequestDetailPage() {
     switch (stepKey) {
       case "submitted":
         return "done"
-      case "approved":
-        return requestStatus === "approved" || isMerged || isApplied ? "done" : "pending"
+      case "planned":
+        return isPlanReady ? "done" : "pending"
       case "merged":
         return isMerged ? "done" : "pending"
       case "applied":
@@ -347,8 +430,8 @@ export default function RequestDetailPage() {
     switch (stepKey) {
       case "submitted":
         return "Request created"
-      case "approved":
-        return state === "done" ? "Request approved" : "Waiting for PR approval"
+      case "planned":
+        return state === "done" ? "Plan ready" : "Waiting for plan"
       case "merged":
         return state === "done" ? "Pull request merged" : "Waiting for PR merge"
       case "applied":
@@ -381,11 +464,46 @@ export default function RequestDetailPage() {
             </p>
           </div>
           <div className="space-y-2">
+            <p className="text-sm text-muted-foreground">Service</p>
+            <p className="text-base font-medium">{getServiceName(request.config as any) ?? "—"}</p>
+          </div>
+          <div className="space-y-2">
+            <p className="text-sm text-muted-foreground">Module</p>
+            <p className="text-base font-medium">{request.module ?? "—"}</p>
+          </div>
+          <div className="space-y-2">
             <p className="text-sm text-muted-foreground">Submitted</p>
             <p className="text-base font-medium">
               {formatDate(request.createdAt ?? request.updatedAt ?? "")}
             </p>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="border-b">
+          <CardTitle className="text-lg font-semibold">Actions</CardTitle>
+          <CardDescription>Manage merge and apply steps for this request.</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-wrap items-center gap-3 pt-4">
+          {(request.pullRequest?.url || request.prUrl) && (
+            <Button asChild variant="outline" size="sm">
+              <Link href={request.pullRequest?.url ?? request.prUrl!} target="_blank" rel="noreferrer">
+                View PR
+              </Link>
+            </Button>
+          )}
+          <Button size="sm" variant="outline" disabled>
+            Merge (requires plan_ready)
+          </Button>
+          <Button
+            size="sm"
+            onClick={handleApplyDispatch}
+            disabled={request.status !== "merged" || isApplying}
+          >
+            {isApplying ? "Applying..." : "Apply"}
+          </Button>
+          {actionError && <p className="text-xs text-destructive">{actionError}</p>}
         </CardContent>
       </Card>
 

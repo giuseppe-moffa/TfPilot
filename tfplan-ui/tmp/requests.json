@@ -490,5 +490,79 @@
       ],
       "planOutput": "Plan for req-req_153F0D:\n+ queue"
     }
+  },
+  {
+    "id": "req_681409",
+    "project": "core",
+    "environment": "dev",
+    "module": "sqs-queue",
+    "config": {
+      "name": "dev-sqs.fifo",
+      "region": "eu-west-2",
+      "fifo_queue": true,
+      "message_retention_seconds": 60,
+      "visibility_timeout_seconds": 20
+    },
+    "receivedAt": "2026-02-08T18:11:00.005Z",
+    "updatedAt": "2026-02-08T18:11:03.098Z",
+    "status": "planned",
+    "plan": {
+      "diff": "+ aws_null_resource.default"
+    },
+    "pullRequest": {
+      "url": "https://github.com/infraforge/infraforge-iac/pull/263",
+      "number": 263,
+      "branch": "req-req_681409",
+      "status": "open",
+      "title": "chore: request req_681409 (sqs-queue)",
+      "files": [
+        {
+          "path": "infra/req-req_681409/main.tf",
+          "diff": "+ resource \"aws_null_resource\" \"req-req_681409\" {}"
+        }
+      ],
+      "planOutput": "Plan for req-req_681409:\n+ sqs-queue"
+    },
+    "planRun": {
+      "generatedPath": "/Users/giuseppemoffa/Desktop/Projects/TfPilot/infra/generated/req_681409/main.tf",
+      "triggeredAt": "2026-02-08T18:11:00.034Z"
+    }
+  },
+  {
+    "id": "req_5B5998",
+    "project": "core",
+    "environment": "dev",
+    "module": "s3-bucket",
+    "config": {
+      "bucket_name": "dev-g-bucket",
+      "region": "eu-west-2",
+      "versioning_enabled": true,
+      "block_public_access": true,
+      "server_side_encryption_enabled": false
+    },
+    "receivedAt": "2026-02-08T18:53:43.700Z",
+    "updatedAt": "2026-02-08T18:53:46.707Z",
+    "status": "planned",
+    "plan": {
+      "diff": "+ aws_null_resource.default"
+    },
+    "pullRequest": {
+      "url": "https://github.com/infraforge/infraforge-iac/pull/493",
+      "number": 493,
+      "branch": "req-req_5B5998",
+      "status": "open",
+      "title": "chore: request req_5B5998 (s3-bucket)",
+      "files": [
+        {
+          "path": "infra/req-req_5B5998/main.tf",
+          "diff": "+ resource \"aws_null_resource\" \"req-req_5B5998\" {}"
+        }
+      ],
+      "planOutput": "Plan for req-req_5B5998:\n+ s3-bucket"
+    },
+    "planRun": {
+      "generatedPath": "/Users/giuseppemoffa/Desktop/Projects/TfPilot/infra/generated/req_5B5998/main.tf",
+      "triggeredAt": "2026-02-08T18:53:43.702Z"
+    }
   }
 ]

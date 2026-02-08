@@ -2,6 +2,21 @@
 
 import * as React from "react"
 
+type AuthUser = {
+  login: string
+  name: string | null
+  avatarUrl: string | null
+}
+
+type AuthContextValue = {
+  user: AuthUser | null
+  loading: boolean
+  refresh: () => Promise<void>
+  logout: () => Promise<void>
+}
+
+const AuthContext = React.createContext<AuthContextValue | null>(null)
+
 type AwsConnectionState = {
   isConnected: boolean
   accountId: string | null
@@ -16,6 +31,67 @@ type AwsConnectionContextValue = AwsConnectionState & {
 const AwsConnectionContext = React.createContext<AwsConnectionContextValue | null>(null)
 
 const STORAGE_KEY = "awsConnection"
+
+async function fetchSession(): Promise<AuthUser | null> {
+  try {
+    const res = await fetch("/api/auth/me", { credentials: "include" })
+    if (!res.ok) return null
+    const data = (await res.json()) as { authenticated: boolean; user?: AuthUser }
+    if (!data.authenticated || !data.user) return null
+    return data.user
+  } catch {
+    return null
+  }
+}
+
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const [user, setUser] = React.useState<AuthUser | null>(null)
+  const [loading, setLoading] = React.useState(true)
+
+  const refresh = React.useCallback(async () => {
+    setLoading(true)
+    const sessionUser = await fetchSession()
+    setUser(sessionUser)
+    setLoading(false)
+  }, [])
+
+  React.useEffect(() => {
+    void refresh()
+  }, [refresh])
+
+  const logout = React.useCallback(async () => {
+    try {
+      await fetch("/api/auth/logout", { method: "POST", credentials: "include" })
+    } finally {
+      setUser(null)
+      setLoading(false)
+      if (typeof window !== "undefined") {
+        window.location.href = "/login"
+      }
+    }
+  }, [])
+
+  return (
+    <AuthContext.Provider
+      value={{
+        user,
+        loading,
+        refresh,
+        logout,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
+  )
+}
+
+export function useAuth() {
+  const ctx = React.useContext(AuthContext)
+  if (!ctx) {
+    throw new Error("useAuth must be used within AuthProvider")
+  }
+  return ctx
+}
 
 function loadFromStorage(): AwsConnectionState {
   if (typeof window === "undefined") {
