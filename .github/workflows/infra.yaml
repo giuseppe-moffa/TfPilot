@@ -23,7 +23,7 @@ jobs:
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v2
         with:
-          role-to-assume: arn:aws:iam::<ACCOUNT_ID>:role/tfplan-connector
+          role-to-assume: arn:aws:iam::420259807324:role/tfplan-connector
           aws-region: eu-west-2
           role-session-name: tfplan-gha
 
