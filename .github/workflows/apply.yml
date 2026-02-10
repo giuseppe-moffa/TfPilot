@@ -1,48 +1,46 @@
-name: Terraform Plan
+name: Apply
 
 on:
-  push:
-    branches:
-      - main
-  pull_request:
   workflow_dispatch:
     inputs:
       request_id:
-        description: "Request ID (optional)"
-        required: false
+        description: "Request ID"
+        required: true
         type: string
       environment:
-        description: "Environment (optional)"
-        required: false
+        description: "Target environment"
+        required: true
         type: string
 
 permissions:
   id-token: write
   contents: read
+  pull-requests: read
 
 jobs:
-  terraform:
-    name: Terraform Plan
+  apply:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: infra
-
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
 
-      - name: Configure AWS credentials via OIDC
+      - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v2
         with:
           role-to-assume: arn:aws:iam::420259807324:role/tfplan-connector
           aws-region: eu-west-2
+          role-session-name: tfplan-gha-apply
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
 
-      - name: Initialize Terraform
+      - name: Terraform init
+        working-directory: infra
         run: terraform init -input=false
 
-      - name: Run Terraform Plan
-        run: terraform plan -input=false -no-color
+      - name: Terraform apply
+        working-directory: infra
+        run: terraform apply -input=false -auto-approve

@@ -49,7 +49,7 @@ export default function RootLayout({
                     href="/"
                     className="text-lg font-semibold text-slate-900 hover:text-slate-700"
                   >
-                    tfplan
+                    TfPlan
                   </Link>
                   <NavBar />
                 </div>

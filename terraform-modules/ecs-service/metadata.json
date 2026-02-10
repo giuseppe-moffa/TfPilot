@@ -1,0 +1,69 @@
+{
+  "name": "ecs-service",
+  "description": "ECS service with task definition, scaling, and launch type options.",
+  "category": "compute",
+  "inputs": [
+    {
+      "name": "service_name",
+      "type": "string",
+      "description": "ECS service name."
+    },
+    {
+      "name": "cluster_arn",
+      "type": "string",
+      "description": "ARN of the ECS cluster."
+    },
+    {
+      "name": "task_definition",
+      "type": "string",
+      "description": "ARN or family:revision of the task definition."
+    },
+    {
+      "name": "desired_count",
+      "type": "number",
+      "default": 1,
+      "description": "Number of tasks to run."
+    },
+    {
+      "name": "launch_type",
+      "type": "string",
+      "default": "FARGATE",
+      "description": "Launch type (FARGATE or EC2)."
+    },
+    {
+      "name": "platform_version",
+      "type": "string",
+      "default": "LATEST",
+      "description": "Fargate platform version."
+    },
+    {
+      "name": "network_configuration",
+      "type": "object({ subnets = list(string), security_groups = list(string), assign_public_ip = bool })",
+      "description": "VPC networking for the service tasks."
+    },
+    {
+      "name": "load_balancer",
+      "type": "object({ target_group_arn = string, container_name = string, container_port = number })",
+      "default": null,
+      "description": "Optional load balancer target group binding."
+    },
+    {
+      "name": "autoscaling",
+      "type": "object({ enabled = bool, min_capacity = number, max_capacity = number, cpu_target = number, memory_target = number })",
+      "default": {
+        "enabled": false,
+        "min_capacity": 1,
+        "max_capacity": 3,
+        "cpu_target": 70,
+        "memory_target": 75
+      },
+      "description": "Application Auto Scaling targets and thresholds."
+    },
+    {
+      "name": "tags",
+      "type": "map(string)",
+      "default": {},
+      "description": "Tags to apply to the service."
+    }
+  ]
+}

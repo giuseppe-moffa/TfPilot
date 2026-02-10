@@ -6052,5 +6052,24 @@
         "content": "eu-west-2"
       }
     ]
+  },
+  {
+    "timestamp": "2026-02-10T12:37:44.494Z",
+    "project": "analytics",
+    "environment": "dev",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are an AI Infrastructure Assistant inside a Terraform self-service platform. Help the developer provision infrastructure modules in the selected project and environment. Ask what they want to create, and guide them step-by-step with simple questions. Don't require them to know Terraform."
+      },
+      {
+        "role": "user",
+        "content": "Project: analytics\nEnvironment: dev"
+      },
+      {
+        "role": "user",
+        "content": "MODE=INTERVIEW\nPROJECT=analytics\nENVIRONMENT=dev\nMODULE_SELECTED=s3-bucket"
+      }
+    ]
   }
 ]
