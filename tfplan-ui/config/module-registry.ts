@@ -7,6 +7,7 @@ export type ModuleRegistryEntry = {
   defaults?: Record<string, unknown>
   strip?: string[]
   compute?: (config: Record<string, unknown>, ctx: { requestId: string; project: string; environment: string }) => Record<string, unknown>
+  fieldTypes?: Record<string, "string" | "number" | "boolean" | "map" | "list">
 }
 
 export const moduleRegistry: ModuleRegistryEntry[] = [
@@ -18,6 +19,17 @@ export const moduleRegistry: ModuleRegistryEntry[] = [
     optional: ["bucket_name", "versioning_enabled", "force_destroy", "kms_key_arn"],
     defaults: { versioning_enabled: true },
     strip: ["region", "acl", "encryption_enabled", "encryption_type", "block_public_access", "public"],
+    fieldTypes: {
+      name: "string",
+      project: "string",
+      environment: "string",
+      request_id: "string",
+      bucket_name: "string",
+      versioning_enabled: "boolean",
+      force_destroy: "boolean",
+      kms_key_arn: "string",
+      tags: "map",
+    },
     compute: (config, ctx) => {
       const nameFromConfig = typeof config.name === "string" && config.name.trim() ? config.name.trim() : undefined
       const bucketFromConfig =
@@ -63,6 +75,21 @@ export const moduleRegistry: ModuleRegistryEntry[] = [
       visibility_timeout_seconds: 30,
       receive_wait_time_seconds: 20,
     },
+    fieldTypes: {
+      name: "string",
+      project: "string",
+      environment: "string",
+      request_id: "string",
+      fifo: "boolean",
+      dlq_enabled: "boolean",
+      max_receive_count: "number",
+      message_retention_seconds: "number",
+      dlq_message_retention_seconds: "number",
+      visibility_timeout_seconds: "number",
+      receive_wait_time_seconds: "number",
+      kms_key_id: "string",
+      tags: "map",
+    },
     strip: [],
     compute: (config, ctx) => {
       const nameFromConfig = typeof config.name === "string" && config.name.trim() ? config.name.trim() : undefined
@@ -91,6 +118,23 @@ export const moduleRegistry: ModuleRegistryEntry[] = [
     required: ["name", "project", "environment", "request_id", "cluster_arn", "container_image", "cpu", "memory", "container_port", "subnet_ids", "security_group_ids", "aws_region", "tags"],
     optional: ["desired_count", "environment_variables"],
     defaults: { desired_count: 1 },
+    fieldTypes: {
+      name: "string",
+      project: "string",
+      environment: "string",
+      request_id: "string",
+      cluster_arn: "string",
+      container_image: "string",
+      cpu: "number",
+      memory: "number",
+      container_port: "number",
+      subnet_ids: "list",
+      security_group_ids: "list",
+      aws_region: "string",
+      desired_count: "number",
+      environment_variables: "map",
+      tags: "map",
+    },
     strip: [],
     compute: (config, ctx) => {
       const nameFromConfig = typeof config.name === "string" && config.name.trim() ? config.name.trim() : undefined
@@ -119,6 +163,16 @@ export const moduleRegistry: ModuleRegistryEntry[] = [
     required: ["name", "project", "environment", "request_id", "assume_role_policy_json"],
     optional: ["inline_policies", "managed_policy_arns", "tags"],
     defaults: {},
+    fieldTypes: {
+      name: "string",
+      project: "string",
+      environment: "string",
+      request_id: "string",
+      assume_role_policy_json: "string",
+      inline_policies: "map",
+      managed_policy_arns: "list",
+      tags: "map",
+    },
     strip: [],
     compute: (config, ctx) => {
       const nameFromConfig = typeof config.name === "string" && config.name.trim() ? config.name.trim() : undefined

@@ -8652,5 +8652,1022 @@
         "content": "no"
       }
     ]
+  },
+  {
+    "timestamp": "2026-02-11T19:06:14.144Z",
+    "project": "core",
+    "environment": "dev",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are an AI Infrastructure Assistant inside a Terraform self-service platform. Help the developer provision infrastructure modules in the selected project and environment. Ask what they want to create, and guide them step-by-step with simple questions. Don't require them to know Terraform."
+      },
+      {
+        "role": "user",
+        "content": "Project: core\nEnvironment: dev"
+      },
+      {
+        "role": "user",
+        "content": "MODE=INTERVIEW\nPROJECT=core\nENVIRONMENT=dev\nMODULE_SELECTED=s3-bucket"
+      }
+    ]
+  },
+  {
+    "timestamp": "2026-02-11T19:06:26.829Z",
+    "project": "core",
+    "environment": "dev",
+    "module": "s3-bucket",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are an AI Infrastructure Assistant inside a Terraform self-service platform. Help the developer provision infrastructure modules in the selected project and environment. Ask what they want to create, and guide them step-by-step with simple questions. Don't require them to know Terraform."
+      },
+      {
+        "role": "user",
+        "content": "Project: core\nEnvironment: dev"
+      },
+      {
+        "role": "assistant",
+        "content": "What would you like to provision? Select a resource to get started:"
+      },
+      {
+        "role": "user",
+        "content": "s3-bucket"
+      },
+      {
+        "role": "assistant",
+        "content": "What should the S3 bucket name be (must be globally unique, e.g., `core-dev-app-logs-1234`)?"
+      },
+      {
+        "role": "user",
+        "content": "core-dev-assets"
+      }
+    ]
+  },
+  {
+    "timestamp": "2026-02-11T19:06:30.737Z",
+    "project": "core",
+    "environment": "dev",
+    "module": "s3-bucket",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are an AI Infrastructure Assistant inside a Terraform self-service platform. Help the developer provision infrastructure modules in the selected project and environment. Ask what they want to create, and guide them step-by-step with simple questions. Don't require them to know Terraform."
+      },
+      {
+        "role": "user",
+        "content": "Project: core\nEnvironment: dev"
+      },
+      {
+        "role": "assistant",
+        "content": "What would you like to provision? Select a resource to get started:"
+      },
+      {
+        "role": "user",
+        "content": "s3-bucket"
+      },
+      {
+        "role": "assistant",
+        "content": "What should the S3 bucket name be (must be globally unique, e.g., `core-dev-app-logs-1234`)?"
+      },
+      {
+        "role": "user",
+        "content": "core-dev-assets"
+      },
+      {
+        "role": "assistant",
+        "content": "Do you want to enable versioning on the bucket? (true/false)"
+      },
+      {
+        "role": "user",
+        "content": "yes"
+      }
+    ]
+  },
+  {
+    "timestamp": "2026-02-11T19:06:34.977Z",
+    "project": "core",
+    "environment": "dev",
+    "module": "s3-bucket",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are an AI Infrastructure Assistant inside a Terraform self-service platform. Help the developer provision infrastructure modules in the selected project and environment. Ask what they want to create, and guide them step-by-step with simple questions. Don't require them to know Terraform."
+      },
+      {
+        "role": "user",
+        "content": "Project: core\nEnvironment: dev"
+      },
+      {
+        "role": "assistant",
+        "content": "What would you like to provision? Select a resource to get started:"
+      },
+      {
+        "role": "user",
+        "content": "s3-bucket"
+      },
+      {
+        "role": "assistant",
+        "content": "What should the S3 bucket name be (must be globally unique, e.g., `core-dev-app-logs-1234`)?"
+      },
+      {
+        "role": "user",
+        "content": "core-dev-assets"
+      },
+      {
+        "role": "assistant",
+        "content": "Do you want to enable versioning on the bucket? (true/false)"
+      },
+      {
+        "role": "user",
+        "content": "yes"
+      },
+      {
+        "role": "assistant",
+        "content": "Please answer with `true` or `false`: enable versioning?"
+      },
+      {
+        "role": "user",
+        "content": "true"
+      }
+    ]
+  },
+  {
+    "timestamp": "2026-02-11T19:06:40.536Z",
+    "project": "core",
+    "environment": "dev",
+    "module": "s3-bucket",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are an AI Infrastructure Assistant inside a Terraform self-service platform. Help the developer provision infrastructure modules in the selected project and environment. Ask what they want to create, and guide them step-by-step with simple questions. Don't require them to know Terraform."
+      },
+      {
+        "role": "user",
+        "content": "Project: core\nEnvironment: dev"
+      },
+      {
+        "role": "assistant",
+        "content": "What would you like to provision? Select a resource to get started:"
+      },
+      {
+        "role": "user",
+        "content": "s3-bucket"
+      },
+      {
+        "role": "assistant",
+        "content": "What should the S3 bucket name be (must be globally unique, e.g., `core-dev-app-logs-1234`)?"
+      },
+      {
+        "role": "user",
+        "content": "core-dev-assets"
+      },
+      {
+        "role": "assistant",
+        "content": "Do you want to enable versioning on the bucket? (true/false)"
+      },
+      {
+        "role": "user",
+        "content": "yes"
+      },
+      {
+        "role": "assistant",
+        "content": "Please answer with `true` or `false`: enable versioning?"
+      },
+      {
+        "role": "user",
+        "content": "true"
+      },
+      {
+        "role": "assistant",
+        "content": "Do you want to enable server-side encryption (SSE) by default? (true/false)"
+      },
+      {
+        "role": "user",
+        "content": "true"
+      }
+    ]
+  },
+  {
+    "timestamp": "2026-02-11T19:06:47.289Z",
+    "project": "core",
+    "environment": "dev",
+    "module": "s3-bucket",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are an AI Infrastructure Assistant inside a Terraform self-service platform. Help the developer provision infrastructure modules in the selected project and environment. Ask what they want to create, and guide them step-by-step with simple questions. Don't require them to know Terraform."
+      },
+      {
+        "role": "user",
+        "content": "Project: core\nEnvironment: dev"
+      },
+      {
+        "role": "assistant",
+        "content": "What would you like to provision? Select a resource to get started:"
+      },
+      {
+        "role": "user",
+        "content": "s3-bucket"
+      },
+      {
+        "role": "assistant",
+        "content": "What should the S3 bucket name be (must be globally unique, e.g., `core-dev-app-logs-1234`)?"
+      },
+      {
+        "role": "user",
+        "content": "core-dev-assets"
+      },
+      {
+        "role": "assistant",
+        "content": "Do you want to enable versioning on the bucket? (true/false)"
+      },
+      {
+        "role": "user",
+        "content": "yes"
+      },
+      {
+        "role": "assistant",
+        "content": "Please answer with `true` or `false`: enable versioning?"
+      },
+      {
+        "role": "user",
+        "content": "true"
+      },
+      {
+        "role": "assistant",
+        "content": "Do you want to enable server-side encryption (SSE) by default? (true/false)"
+      },
+      {
+        "role": "user",
+        "content": "true"
+      },
+      {
+        "role": "assistant",
+        "content": "Which encryption type should be used? (`SSE-S3` or `SSE-KMS`)"
+      },
+      {
+        "role": "user",
+        "content": "sse-s3"
+      }
+    ]
+  },
+  {
+    "timestamp": "2026-02-11T19:06:54.506Z",
+    "project": "core",
+    "environment": "dev",
+    "module": "s3-bucket",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are an AI Infrastructure Assistant inside a Terraform self-service platform. Help the developer provision infrastructure modules in the selected project and environment. Ask what they want to create, and guide them step-by-step with simple questions. Don't require them to know Terraform."
+      },
+      {
+        "role": "user",
+        "content": "Project: core\nEnvironment: dev"
+      },
+      {
+        "role": "assistant",
+        "content": "What would you like to provision? Select a resource to get started:"
+      },
+      {
+        "role": "user",
+        "content": "s3-bucket"
+      },
+      {
+        "role": "assistant",
+        "content": "What should the S3 bucket name be (must be globally unique, e.g., `core-dev-app-logs-1234`)?"
+      },
+      {
+        "role": "user",
+        "content": "core-dev-assets"
+      },
+      {
+        "role": "assistant",
+        "content": "Do you want to enable versioning on the bucket? (true/false)"
+      },
+      {
+        "role": "user",
+        "content": "yes"
+      },
+      {
+        "role": "assistant",
+        "content": "Please answer with `true` or `false`: enable versioning?"
+      },
+      {
+        "role": "user",
+        "content": "true"
+      },
+      {
+        "role": "assistant",
+        "content": "Do you want to enable server-side encryption (SSE) by default? (true/false)"
+      },
+      {
+        "role": "user",
+        "content": "true"
+      },
+      {
+        "role": "assistant",
+        "content": "Which encryption type should be used? (`SSE-S3` or `SSE-KMS`)"
+      },
+      {
+        "role": "user",
+        "content": "sse-s3"
+      },
+      {
+        "role": "assistant",
+        "content": "Should the bucket block all public access? (true/false)"
+      },
+      {
+        "role": "user",
+        "content": "false"
+      }
+    ]
+  },
+  {
+    "timestamp": "2026-02-11T19:07:00.528Z",
+    "project": "core",
+    "environment": "dev",
+    "module": "s3-bucket",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are an AI Infrastructure Assistant inside a Terraform self-service platform. Help the developer provision infrastructure modules in the selected project and environment. Ask what they want to create, and guide them step-by-step with simple questions. Don't require them to know Terraform."
+      },
+      {
+        "role": "user",
+        "content": "Project: core\nEnvironment: dev"
+      },
+      {
+        "role": "assistant",
+        "content": "What would you like to provision? Select a resource to get started:"
+      },
+      {
+        "role": "user",
+        "content": "s3-bucket"
+      },
+      {
+        "role": "assistant",
+        "content": "What should the S3 bucket name be (must be globally unique, e.g., `core-dev-app-logs-1234`)?"
+      },
+      {
+        "role": "user",
+        "content": "core-dev-assets"
+      },
+      {
+        "role": "assistant",
+        "content": "Do you want to enable versioning on the bucket? (true/false)"
+      },
+      {
+        "role": "user",
+        "content": "yes"
+      },
+      {
+        "role": "assistant",
+        "content": "Please answer with `true` or `false`: enable versioning?"
+      },
+      {
+        "role": "user",
+        "content": "true"
+      },
+      {
+        "role": "assistant",
+        "content": "Do you want to enable server-side encryption (SSE) by default? (true/false)"
+      },
+      {
+        "role": "user",
+        "content": "true"
+      },
+      {
+        "role": "assistant",
+        "content": "Which encryption type should be used? (`SSE-S3` or `SSE-KMS`)"
+      },
+      {
+        "role": "user",
+        "content": "sse-s3"
+      },
+      {
+        "role": "assistant",
+        "content": "Should the bucket block all public access? (true/false)"
+      },
+      {
+        "role": "user",
+        "content": "false"
+      },
+      {
+        "role": "assistant",
+        "content": "Do you want to enable access logging to another S3 bucket? (true/false)"
+      },
+      {
+        "role": "user",
+        "content": "false"
+      }
+    ]
+  },
+  {
+    "timestamp": "2026-02-11T19:07:11.061Z",
+    "project": "core",
+    "environment": "dev",
+    "module": "s3-bucket",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are an AI Infrastructure Assistant inside a Terraform self-service platform. Help the developer provision infrastructure modules in the selected project and environment. Ask what they want to create, and guide them step-by-step with simple questions. Don't require them to know Terraform."
+      },
+      {
+        "role": "user",
+        "content": "Project: core\nEnvironment: dev"
+      },
+      {
+        "role": "assistant",
+        "content": "What would you like to provision? Select a resource to get started:"
+      },
+      {
+        "role": "user",
+        "content": "s3-bucket"
+      },
+      {
+        "role": "assistant",
+        "content": "What should the S3 bucket name be (must be globally unique, e.g., `core-dev-app-logs-1234`)?"
+      },
+      {
+        "role": "user",
+        "content": "core-dev-assets"
+      },
+      {
+        "role": "assistant",
+        "content": "Do you want to enable versioning on the bucket? (true/false)"
+      },
+      {
+        "role": "user",
+        "content": "yes"
+      },
+      {
+        "role": "assistant",
+        "content": "Please answer with `true` or `false`: enable versioning?"
+      },
+      {
+        "role": "user",
+        "content": "true"
+      },
+      {
+        "role": "assistant",
+        "content": "Do you want to enable server-side encryption (SSE) by default? (true/false)"
+      },
+      {
+        "role": "user",
+        "content": "true"
+      },
+      {
+        "role": "assistant",
+        "content": "Which encryption type should be used? (`SSE-S3` or `SSE-KMS`)"
+      },
+      {
+        "role": "user",
+        "content": "sse-s3"
+      },
+      {
+        "role": "assistant",
+        "content": "Should the bucket block all public access? (true/false)"
+      },
+      {
+        "role": "user",
+        "content": "false"
+      },
+      {
+        "role": "assistant",
+        "content": "Do you want to enable access logging to another S3 bucket? (true/false)"
+      },
+      {
+        "role": "user",
+        "content": "false"
+      },
+      {
+        "role": "assistant",
+        "content": "Do you want to add any tags? If yes, provide as `key=value` pairs separated by commas (or type `none`)."
+      },
+      {
+        "role": "user",
+        "content": "dev=assets"
+      }
+    ]
+  },
+  {
+    "timestamp": "2026-02-11T19:53:29.028Z",
+    "project": "core",
+    "environment": "dev",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are an AI Infrastructure Assistant inside a Terraform self-service platform. Help the developer provision infrastructure modules in the selected project and environment. Ask what they want to create, and guide them step-by-step with simple questions. Don't require them to know Terraform."
+      },
+      {
+        "role": "user",
+        "content": "Project: core\nEnvironment: dev"
+      },
+      {
+        "role": "user",
+        "content": "MODE=INTERVIEW\nPROJECT=core\nENVIRONMENT=dev\nMODULE_SELECTED=s3-bucket"
+      }
+    ]
+  },
+  {
+    "timestamp": "2026-02-11T19:53:38.038Z",
+    "project": "core",
+    "environment": "dev",
+    "module": "s3-bucket",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are an AI Infrastructure Assistant inside a Terraform self-service platform. Help the developer provision infrastructure modules in the selected project and environment. Ask what they want to create, and guide them step-by-step with simple questions. Don't require them to know Terraform."
+      },
+      {
+        "role": "user",
+        "content": "Project: core\nEnvironment: dev"
+      },
+      {
+        "role": "assistant",
+        "content": "What would you like to provision? Select a resource to get started:"
+      },
+      {
+        "role": "user",
+        "content": "s3-bucket"
+      },
+      {
+        "role": "assistant",
+        "content": "What should the S3 bucket be named?"
+      },
+      {
+        "role": "user",
+        "content": "dev-assets"
+      }
+    ]
+  },
+  {
+    "timestamp": "2026-02-11T19:53:50.330Z",
+    "project": "core",
+    "environment": "dev",
+    "module": "s3-bucket",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are an AI Infrastructure Assistant inside a Terraform self-service platform. Help the developer provision infrastructure modules in the selected project and environment. Ask what they want to create, and guide them step-by-step with simple questions. Don't require them to know Terraform."
+      },
+      {
+        "role": "user",
+        "content": "Project: core\nEnvironment: dev"
+      },
+      {
+        "role": "assistant",
+        "content": "What would you like to provision? Select a resource to get started:"
+      },
+      {
+        "role": "user",
+        "content": "s3-bucket"
+      },
+      {
+        "role": "assistant",
+        "content": "What should the S3 bucket be named?"
+      },
+      {
+        "role": "user",
+        "content": "dev-assets"
+      },
+      {
+        "role": "assistant",
+        "content": "Which AWS region should this bucket be created in (e.g., `us-east-1`)?"
+      },
+      {
+        "role": "user",
+        "content": "eu-west-2"
+      }
+    ]
+  },
+  {
+    "timestamp": "2026-02-11T19:53:56.587Z",
+    "project": "core",
+    "environment": "dev",
+    "module": "s3-bucket",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are an AI Infrastructure Assistant inside a Terraform self-service platform. Help the developer provision infrastructure modules in the selected project and environment. Ask what they want to create, and guide them step-by-step with simple questions. Don't require them to know Terraform."
+      },
+      {
+        "role": "user",
+        "content": "Project: core\nEnvironment: dev"
+      },
+      {
+        "role": "assistant",
+        "content": "What would you like to provision? Select a resource to get started:"
+      },
+      {
+        "role": "user",
+        "content": "s3-bucket"
+      },
+      {
+        "role": "assistant",
+        "content": "What should the S3 bucket be named?"
+      },
+      {
+        "role": "user",
+        "content": "dev-assets"
+      },
+      {
+        "role": "assistant",
+        "content": "Which AWS region should this bucket be created in (e.g., `us-east-1`)?"
+      },
+      {
+        "role": "user",
+        "content": "eu-west-2"
+      },
+      {
+        "role": "assistant",
+        "content": "Should the bucket have versioning enabled? (yes/no)"
+      },
+      {
+        "role": "user",
+        "content": "yes"
+      }
+    ]
+  },
+  {
+    "timestamp": "2026-02-11T19:54:02.317Z",
+    "project": "core",
+    "environment": "dev",
+    "module": "s3-bucket",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are an AI Infrastructure Assistant inside a Terraform self-service platform. Help the developer provision infrastructure modules in the selected project and environment. Ask what they want to create, and guide them step-by-step with simple questions. Don't require them to know Terraform."
+      },
+      {
+        "role": "user",
+        "content": "Project: core\nEnvironment: dev"
+      },
+      {
+        "role": "assistant",
+        "content": "What would you like to provision? Select a resource to get started:"
+      },
+      {
+        "role": "user",
+        "content": "s3-bucket"
+      },
+      {
+        "role": "assistant",
+        "content": "What should the S3 bucket be named?"
+      },
+      {
+        "role": "user",
+        "content": "dev-assets"
+      },
+      {
+        "role": "assistant",
+        "content": "Which AWS region should this bucket be created in (e.g., `us-east-1`)?"
+      },
+      {
+        "role": "user",
+        "content": "eu-west-2"
+      },
+      {
+        "role": "assistant",
+        "content": "Should the bucket have versioning enabled? (yes/no)"
+      },
+      {
+        "role": "user",
+        "content": "yes"
+      },
+      {
+        "role": "assistant",
+        "content": "Should the bucket block all public access? (yes/no)"
+      },
+      {
+        "role": "user",
+        "content": "no"
+      }
+    ]
+  },
+  {
+    "timestamp": "2026-02-11T19:54:05.595Z",
+    "project": "core",
+    "environment": "dev",
+    "module": "s3-bucket",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are an AI Infrastructure Assistant inside a Terraform self-service platform. Help the developer provision infrastructure modules in the selected project and environment. Ask what they want to create, and guide them step-by-step with simple questions. Don't require them to know Terraform."
+      },
+      {
+        "role": "user",
+        "content": "Project: core\nEnvironment: dev"
+      },
+      {
+        "role": "assistant",
+        "content": "What would you like to provision? Select a resource to get started:"
+      },
+      {
+        "role": "user",
+        "content": "s3-bucket"
+      },
+      {
+        "role": "assistant",
+        "content": "What should the S3 bucket be named?"
+      },
+      {
+        "role": "user",
+        "content": "dev-assets"
+      },
+      {
+        "role": "assistant",
+        "content": "Which AWS region should this bucket be created in (e.g., `us-east-1`)?"
+      },
+      {
+        "role": "user",
+        "content": "eu-west-2"
+      },
+      {
+        "role": "assistant",
+        "content": "Should the bucket have versioning enabled? (yes/no)"
+      },
+      {
+        "role": "user",
+        "content": "yes"
+      },
+      {
+        "role": "assistant",
+        "content": "Should the bucket block all public access? (yes/no)"
+      },
+      {
+        "role": "user",
+        "content": "no"
+      },
+      {
+        "role": "assistant",
+        "content": "Do you want to enable server-side encryption? (yes/no)"
+      },
+      {
+        "role": "user",
+        "content": "yes"
+      }
+    ]
+  },
+  {
+    "timestamp": "2026-02-11T19:54:11.432Z",
+    "project": "core",
+    "environment": "dev",
+    "module": "s3-bucket",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are an AI Infrastructure Assistant inside a Terraform self-service platform. Help the developer provision infrastructure modules in the selected project and environment. Ask what they want to create, and guide them step-by-step with simple questions. Don't require them to know Terraform."
+      },
+      {
+        "role": "user",
+        "content": "Project: core\nEnvironment: dev"
+      },
+      {
+        "role": "assistant",
+        "content": "What would you like to provision? Select a resource to get started:"
+      },
+      {
+        "role": "user",
+        "content": "s3-bucket"
+      },
+      {
+        "role": "assistant",
+        "content": "What should the S3 bucket be named?"
+      },
+      {
+        "role": "user",
+        "content": "dev-assets"
+      },
+      {
+        "role": "assistant",
+        "content": "Which AWS region should this bucket be created in (e.g., `us-east-1`)?"
+      },
+      {
+        "role": "user",
+        "content": "eu-west-2"
+      },
+      {
+        "role": "assistant",
+        "content": "Should the bucket have versioning enabled? (yes/no)"
+      },
+      {
+        "role": "user",
+        "content": "yes"
+      },
+      {
+        "role": "assistant",
+        "content": "Should the bucket block all public access? (yes/no)"
+      },
+      {
+        "role": "user",
+        "content": "no"
+      },
+      {
+        "role": "assistant",
+        "content": "Do you want to enable server-side encryption? (yes/no)"
+      },
+      {
+        "role": "user",
+        "content": "yes"
+      },
+      {
+        "role": "assistant",
+        "content": "Which encryption type should be used? (`SSE-S3` or `SSE-KMS`)"
+      },
+      {
+        "role": "user",
+        "content": "sse-s3"
+      }
+    ]
+  },
+  {
+    "timestamp": "2026-02-11T19:54:14.893Z",
+    "project": "core",
+    "environment": "dev",
+    "module": "s3-bucket",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are an AI Infrastructure Assistant inside a Terraform self-service platform. Help the developer provision infrastructure modules in the selected project and environment. Ask what they want to create, and guide them step-by-step with simple questions. Don't require them to know Terraform."
+      },
+      {
+        "role": "user",
+        "content": "Project: core\nEnvironment: dev"
+      },
+      {
+        "role": "assistant",
+        "content": "What would you like to provision? Select a resource to get started:"
+      },
+      {
+        "role": "user",
+        "content": "s3-bucket"
+      },
+      {
+        "role": "assistant",
+        "content": "What should the S3 bucket be named?"
+      },
+      {
+        "role": "user",
+        "content": "dev-assets"
+      },
+      {
+        "role": "assistant",
+        "content": "Which AWS region should this bucket be created in (e.g., `us-east-1`)?"
+      },
+      {
+        "role": "user",
+        "content": "eu-west-2"
+      },
+      {
+        "role": "assistant",
+        "content": "Should the bucket have versioning enabled? (yes/no)"
+      },
+      {
+        "role": "user",
+        "content": "yes"
+      },
+      {
+        "role": "assistant",
+        "content": "Should the bucket block all public access? (yes/no)"
+      },
+      {
+        "role": "user",
+        "content": "no"
+      },
+      {
+        "role": "assistant",
+        "content": "Do you want to enable server-side encryption? (yes/no)"
+      },
+      {
+        "role": "user",
+        "content": "yes"
+      },
+      {
+        "role": "assistant",
+        "content": "Which encryption type should be used? (`SSE-S3` or `SSE-KMS`)"
+      },
+      {
+        "role": "user",
+        "content": "sse-s3"
+      },
+      {
+        "role": "assistant",
+        "content": "Do you want to enable access logging for this bucket? (yes/no)"
+      },
+      {
+        "role": "user",
+        "content": "no"
+      }
+    ]
+  },
+  {
+    "timestamp": "2026-02-11T19:54:20.241Z",
+    "project": "core",
+    "environment": "dev",
+    "module": "s3-bucket",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are an AI Infrastructure Assistant inside a Terraform self-service platform. Help the developer provision infrastructure modules in the selected project and environment. Ask what they want to create, and guide them step-by-step with simple questions. Don't require them to know Terraform."
+      },
+      {
+        "role": "user",
+        "content": "Project: core\nEnvironment: dev"
+      },
+      {
+        "role": "assistant",
+        "content": "What would you like to provision? Select a resource to get started:"
+      },
+      {
+        "role": "user",
+        "content": "s3-bucket"
+      },
+      {
+        "role": "assistant",
+        "content": "What should the S3 bucket be named?"
+      },
+      {
+        "role": "user",
+        "content": "dev-assets"
+      },
+      {
+        "role": "assistant",
+        "content": "Which AWS region should this bucket be created in (e.g., `us-east-1`)?"
+      },
+      {
+        "role": "user",
+        "content": "eu-west-2"
+      },
+      {
+        "role": "assistant",
+        "content": "Should the bucket have versioning enabled? (yes/no)"
+      },
+      {
+        "role": "user",
+        "content": "yes"
+      },
+      {
+        "role": "assistant",
+        "content": "Should the bucket block all public access? (yes/no)"
+      },
+      {
+        "role": "user",
+        "content": "no"
+      },
+      {
+        "role": "assistant",
+        "content": "Do you want to enable server-side encryption? (yes/no)"
+      },
+      {
+        "role": "user",
+        "content": "yes"
+      },
+      {
+        "role": "assistant",
+        "content": "Which encryption type should be used? (`SSE-S3` or `SSE-KMS`)"
+      },
+      {
+        "role": "user",
+        "content": "sse-s3"
+      },
+      {
+        "role": "assistant",
+        "content": "Do you want to enable access logging for this bucket? (yes/no)"
+      },
+      {
+        "role": "user",
+        "content": "no"
+      },
+      {
+        "role": "assistant",
+        "content": "Do you want to add any tags? If yes, provide as `key=value` pairs separated by commas (or type `no`)."
+      },
+      {
+        "role": "user",
+        "content": "no"
+      }
+    ]
+  },
+  {
+    "timestamp": "2026-02-11T19:58:28.525Z",
+    "project": "core",
+    "environment": "dev",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are an AI Infrastructure Assistant inside a Terraform self-service platform. Help the developer provision infrastructure modules in the selected project and environment. Ask what they want to create, and guide them step-by-step with simple questions. Don't require them to know Terraform."
+      },
+      {
+        "role": "user",
+        "content": "Project: core\nEnvironment: dev"
+      },
+      {
+        "role": "user",
+        "content": "MODE=INTERVIEW\nPROJECT=core\nENVIRONMENT=dev\nMODULE_SELECTED=sqs-queue"
+      }
+    ]
   }
 ]

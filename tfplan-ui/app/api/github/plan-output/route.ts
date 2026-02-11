@@ -9,15 +9,28 @@ const STORAGE_FILE = path.join(process.cwd(), "tmp", "requests.json")
 
 function extractPlan(log: string) {
   const lower = log.toLowerCase()
-  const start = lower.indexOf("terraform plan")
-  if (start === -1) return null
-  // capture until the summary line "Plan: X to add, Y to change, Z to destroy"
-  const summaryIdx = lower.indexOf("plan:", start)
-  if (summaryIdx === -1) {
-    return log.slice(start)
+  const planIdx = lower.indexOf("terraform plan")
+  if (planIdx !== -1) {
+    const summaryIdx = lower.lastIndexOf("plan:", lower.length)
+    if (summaryIdx !== -1 && summaryIdx > planIdx) {
+      const endLine = log.indexOf("\n", summaryIdx + 5)
+      return log.slice(planIdx, endLine === -1 ? undefined : endLine + 1)
+    }
+    return log.slice(planIdx)
   }
-  const endLine = log.indexOf("\n", summaryIdx + 5)
-  return endLine === -1 ? log.slice(start) : log.slice(start, endLine + 1)
+  // fallback: return last 120 lines
+  const lines = log.trim().split("\n")
+  return lines.slice(-120).join("\n")
+}
+
+async function fetchJobLogs(token: string, owner: string, repo: string, runId: number): Promise<string> {
+  const jobsRes = await gh(token, `/repos/${owner}/${repo}/actions/runs/${runId}/jobs`)
+  const jobsJson = (await jobsRes.json()) as { jobs?: Array<{ id: number; name?: string }> }
+  const jobId = jobsJson.jobs?.[0]?.id
+  if (!jobId) throw new Error("No jobs found for workflow run")
+
+  const logsRes = await gh(token, `/repos/${owner}/${repo}/actions/jobs/${jobId}/logs`)
+  return await logsRes.text()
 }
 
 export async function GET(req: NextRequest) {
@@ -38,17 +51,25 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "No requests found" }, { status: 404 })
     }
     const match = requests.find((r: any) => r.id === requestId)
-    if (!match || !match.planRunId || !match.targetOwner || !match.targetRepo) {
+    const runId = match?.planRun?.runId ?? match?.planRunId
+    if (!match || !runId || !match.targetOwner || !match.targetRepo) {
       return NextResponse.json({ error: "Plan run not found" }, { status: 404 })
     }
 
-    const res = await gh(token, `/repos/${match.targetOwner}/${match.targetRepo}/actions/runs/${match.planRunId}/logs`)
-    const logText = await res.text()
+    const runRes = await gh(token, `/repos/${match.targetOwner}/${match.targetRepo}/actions/runs/${runId}`)
+    const runJson = (await runRes.json()) as { status?: string; conclusion?: string }
+
+    const logText = await fetchJobLogs(token, match.targetOwner, match.targetRepo, runId)
     const planText = extractPlan(logText)
 
-    const rawLogUrl = `https://github.com/${match.targetOwner}/${match.targetRepo}/actions/runs/${match.planRunId}`
+    const rawLogUrl = `https://github.com/${match.targetOwner}/${match.targetRepo}/actions/runs/${runId}`
 
-    return NextResponse.json({ planText, rawLogUrl })
+    return NextResponse.json({
+      planText,
+      rawLogUrl,
+      status: runJson.status,
+      conclusion: runJson.conclusion,
+    })
   } catch (error) {
     console.error("[api/github/plan-output] error", error)
     return NextResponse.json({ error: "Failed to load plan output" }, { status: 500 })

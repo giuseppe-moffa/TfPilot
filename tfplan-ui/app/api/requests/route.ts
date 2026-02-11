@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto"
+import { randomUUID } from "node:crypto"
 import { NextRequest, NextResponse } from "next/server"
 
 import { gh } from "@/lib/github/client"
@@ -48,6 +48,8 @@ type StoredRequest = {
 const PLAN_WORKFLOW = env.GITHUB_PLAN_WORKFLOW_FILE
 logEnvDebug()
 
+type FieldType = "string" | "number" | "boolean" | "map" | "list"
+
 function validatePayload(body: RequestPayload) {
   const errors: string[] = []
 
@@ -95,6 +97,20 @@ function renderHclValue(value: unknown): string {
   return `"${String(value)}"`
 }
 
+function toSnakeCase(key: string) {
+  return key.replace(/([A-Z])/g, "_$1").replace(/-/g, "_").toLowerCase()
+}
+
+function normalizeConfigKeys(raw: Record<string, unknown>): Record<string, unknown> {
+  if (!raw || typeof raw !== "object") return {}
+  const out: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(raw)) {
+    const snake = toSnakeCase(k)
+    out[snake] = v
+  }
+  return out
+}
+
 async function fetchRepoFile(token: string, owner: string, repo: string, filePath: string): Promise<string | null> {
   try {
     const res = await gh(token, `/repos/${owner}/${repo}/contents/${encodeURIComponent(filePath)}`)
@@ -134,9 +150,19 @@ function upsertRequestBlock(existing: string | null, requestId: string, blockBod
 }
 
 function renderModuleBlock(request: StoredRequest, moduleSource: string) {
-  const renderedInputs = Object.entries(request.config).map(([key, val]) => `  ${key} = ${renderHclValue(val)}`)
+  const renderedInputs = Object.entries(request.config).map(([key, val]) => {
+    if (key === "tags" && val && typeof val === "object" && !Array.isArray(val)) {
+      const tagEntries = Object.entries(val as Record<string, unknown>).map(
+        ([k, v]) => `    ${k} = ${renderHclValue(v)}`
+      )
+      return `  tags = {\n${tagEntries.join("\n")}\n  }`
+    }
+    return `  ${key} = ${renderHclValue(val)}`
+  })
 
-  return `module "tfpilot_${request.id}" {
+  const safeModuleName = `tfpilot_${request.id}`.replace(/[^a-zA-Z0-9_]/g, "_")
+
+  return `module "${safeModuleName}" {
   source = "${moduleSource}"
 ${renderedInputs.join("\n")}
 }`
@@ -144,6 +170,31 @@ ${renderedInputs.join("\n")}
 
 function buildModuleConfig(entry: ModuleRegistryEntry, rawConfig: Record<string, unknown>, ctx: { requestId: string; project: string; environment: string }) {
   const cfg: Record<string, unknown> = { ...(rawConfig ?? {}) }
+
+function coerceByType(type: FieldType | undefined, value: unknown): unknown {
+    switch (type) {
+      case "string":
+        return value === undefined || value === null ? undefined : String(value)
+      case "number":
+        return typeof value === "number" ? value : value === undefined || value === null ? undefined : Number(value)
+      case "boolean":
+        return typeof value === "boolean" ? value : value === undefined || value === null ? undefined : Boolean(value)
+      case "map":
+        if (value && typeof value === "object" && !Array.isArray(value)) {
+          const out: Record<string, string> = {}
+          for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+            if (v === undefined || v === null) continue
+            out[k] = String(v)
+          }
+          return out
+        }
+        return undefined
+      case "list":
+        return Array.isArray(value) ? value : undefined
+      default:
+        return value
+    }
+  }
 
   // strip unwanted keys
   for (const key of entry.strip ?? []) {
@@ -172,7 +223,8 @@ function buildModuleConfig(entry: ModuleRegistryEntry, rawConfig: Record<string,
   const finalConfig: Record<string, unknown> = {}
   for (const [k, v] of Object.entries(merged)) {
     if (allowed.has(k)) {
-      finalConfig[k] = v
+      const fieldType = (entry.fieldTypes as Record<string, FieldType> | undefined)?.[k as string]
+      finalConfig[k] = coerceByType(fieldType, v)
     }
   }
 
@@ -197,6 +249,11 @@ async function generateTerraformFiles(
   const moduleSource = `../../modules/${request.module}`
 
   const existing = await fetchRepoFile(token, owner, repo, targetFile)
+  const beginMarker = `# --- tfpilot:begin:${request.id} ---`
+  if (existing && existing.includes(beginMarker)) {
+    throw new Error(`Request ${request.id} already exists in ${targetFile}`)
+  }
+
   const block = renderModuleBlock(request, moduleSource)
   const updated = upsertRequestBlock(existing, request.id, block)
 
@@ -351,7 +408,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: "GitHub not connected" }, { status: 401 })
     }
 
-    const requestId = `req_${randomBytes(3).toString("hex").toUpperCase()}`
+    const requestId = randomUUID()
 
     console.log("[api/requests] received payload:", body)
     console.log("[api/requests] Triggering generation for", requestId)
@@ -363,12 +420,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: "No infra repo configured for project/environment" }, { status: 400 })
     }
 
+  const normalizedConfig = normalizeConfigKeys(body.config as Record<string, unknown>)
+
     const newRequest: StoredRequest = {
       id: requestId,
       project: body.project!,
       environment: body.environment!,
       module: body.module!,
-      config: body.config as Record<string, unknown>,
+    config: normalizedConfig,
       receivedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       status: "created",

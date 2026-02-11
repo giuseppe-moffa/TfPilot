@@ -29,6 +29,19 @@ type PendingRequest = {
   summary?: string
 }
 
+function toSnakeCase(key: string) {
+  return key.replace(/([A-Z])/g, "_$1").replace(/-/g, "_").toLowerCase()
+}
+
+function normalizeConfigKeys(raw: Record<string, any> = {}) {
+  const out: Record<string, any> = {}
+  for (const [k, v] of Object.entries(raw)) {
+    const snake = toSnakeCase(k)
+    out[snake] = v
+  }
+  return out
+}
+
 const bubble =
   "max-w-[80%] rounded-2xl px-4 py-3 shadow-sm text-sm leading-relaxed transition-all duration-200"
 
@@ -278,11 +291,14 @@ export function AgentChat({
                 setCreateError(null)
                 setIsCreatingRequest(true)
                 try {
+                  const normalized = pendingRequest
+                    ? { ...pendingRequest, config: normalizeConfigKeys(pendingRequest.config) }
+                    : pendingRequest
                   const res = await fetch("/api/requests", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     credentials: "include",
-                    body: JSON.stringify(pendingRequest),
+                    body: JSON.stringify(normalized),
                   })
                   if (!res.ok) {
                     const err = await res.json().catch(() => ({}))

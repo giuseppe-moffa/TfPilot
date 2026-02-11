@@ -7,6 +7,16 @@ import { gh } from "@/lib/github/client"
 
 const STORAGE_FILE = path.join(process.cwd(), "tmp", "requests.json")
 
+async function fetchJobLogs(token: string, owner: string, repo: string, runId: number): Promise<string> {
+  const jobsRes = await gh(token, `/repos/${owner}/${repo}/actions/runs/${runId}/jobs`)
+  const jobsJson = (await jobsRes.json()) as { jobs?: Array<{ id: number; name?: string }> }
+  const jobId = jobsJson.jobs?.[0]?.id
+  if (!jobId) throw new Error("No jobs found for workflow run")
+
+  const logsRes = await gh(token, `/repos/${owner}/${repo}/actions/jobs/${jobId}/logs`)
+  return await logsRes.text()
+}
+
 export async function GET(req: NextRequest) {
   try {
     const requestId = req.nextUrl.searchParams.get("requestId")
@@ -25,15 +35,23 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "No requests found" }, { status: 404 })
     }
     const match = requests.find((r: any) => r.id === requestId)
-    if (!match || !match.applyRunId || !match.targetOwner || !match.targetRepo) {
+    const runId = match?.applyRun?.runId ?? match?.applyRunId
+    if (!match || !runId || !match.targetOwner || !match.targetRepo) {
       return NextResponse.json({ error: "Apply run not found" }, { status: 404 })
     }
 
-    const res = await gh(token, `/repos/${match.targetOwner}/${match.targetRepo}/actions/runs/${match.applyRunId}/logs`)
-    const logText = await res.text()
-    const rawLogUrl = `https://github.com/${match.targetOwner}/${match.targetRepo}/actions/runs/${match.applyRunId}`
+    const runRes = await gh(token, `/repos/${match.targetOwner}/${match.targetRepo}/actions/runs/${runId}`)
+    const runJson = (await runRes.json()) as { status?: string; conclusion?: string }
 
-    return NextResponse.json({ applyText: logText, rawLogUrl })
+    const logText = await fetchJobLogs(token, match.targetOwner, match.targetRepo, runId)
+    const rawLogUrl = `https://github.com/${match.targetOwner}/${match.targetRepo}/actions/runs/${runId}`
+
+    return NextResponse.json({
+      applyText: logText,
+      rawLogUrl,
+      status: runJson.status,
+      conclusion: runJson.conclusion,
+    })
   } catch (error) {
     console.error("[api/github/apply-output] error", error)
     return NextResponse.json({ error: "Failed to load apply output" }, { status: 500 })

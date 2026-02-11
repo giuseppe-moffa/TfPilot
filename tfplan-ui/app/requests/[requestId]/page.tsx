@@ -831,6 +831,15 @@ export default function RequestDetailPage() {
                 <Button size="sm" variant="outline" onClick={() => setShowPlanOutput((v) => !v)} disabled={!planRunId}>
                   {showPlanOutput ? "Hide" : "Load"}
                 </Button>
+                {planOutput?.status && (
+                  <p className="text-xs text-muted-foreground">
+                    Status: {planOutput.status}
+                    {planOutput.conclusion ? ` · Conclusion: ${planOutput.conclusion}` : ""}
+                  </p>
+                )}
+                {planOutput?.conclusion === "failure" && (
+                  <p className="text-xs text-destructive">Plan failed. See excerpt below or open full logs.</p>
+                )}
               </div>
               {showPlanOutput ? (
                 planOutput?.planText ? (
@@ -855,6 +864,15 @@ export default function RequestDetailPage() {
                 <Button size="sm" variant="outline" onClick={() => setShowApplyOutput((v) => !v)} disabled={!applyRunId}>
                   {showApplyOutput ? "Hide" : "Load"}
                 </Button>
+                {applyOutput?.status && (
+                  <p className="text-xs text-muted-foreground">
+                    Status: {applyOutput.status}
+                    {applyOutput.conclusion ? ` · Conclusion: ${applyOutput.conclusion}` : ""}
+                  </p>
+                )}
+                {applyOutput?.conclusion === "failure" && (
+                  <p className="text-xs text-destructive">Apply failed. See excerpt below or open full logs.</p>
+                )}
               </div>
               {showApplyOutput ? (
                 applyOutput?.applyText ? (
