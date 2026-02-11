@@ -6,6 +6,7 @@ import { CheckCircle2, Github, Loader2, Link as LinkIcon } from "lucide-react"
 import useSWR from "swr"
 import { useParams } from "next/navigation"
 
+import { useRequestStatus } from "@/hooks/use-request-status"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -87,7 +88,11 @@ function getServiceName(config?: Record<string, unknown>) {
   return null
 }
 
-export default function RequestDetailPage() {
+function shallowEqual(a: any, b: any) {
+  return JSON.stringify(a ?? {}) === JSON.stringify(b ?? {})
+}
+
+function RequestDetailPage() {
   const routeParams = useParams()
   const requestId =
     typeof routeParams?.requestId === "string"
@@ -111,50 +116,10 @@ export default function RequestDetailPage() {
   >("idle")
   const [mergeModalOpen, setMergeModalOpen] = React.useState(false)
   const [actionError, setActionError] = React.useState<string | null>(null)
-  const [showDiff, setShowDiff] = React.useState(false)
-  const [showPlanOutput, setShowPlanOutput] = React.useState(false)
   const [showApplyOutput, setShowApplyOutput] = React.useState(false)
-  const [requestState, setRequestState] = React.useState<{
-    id: string
-    project: string
-    environment: string
-    module?: string
-    config?: Record<string, unknown>
-    status:
-      | "created"
-      | "pr_open"
-      | "planning"
-      | "plan_ready"
-      | "awaiting_approval"
-      | "merged"
-      | "applying"
-      | "complete"
-      | "failed"
-      | "pending"
-      | "planned"
-      | "approved"
-      | "applied"
-    createdAt?: string
-    updatedAt?: string
-    targetOwner?: string
-    targetRepo?: string
-    targetBase?: string
-    targetEnvPath?: string
-    targetFiles?: string[]
-    prUrl?: string
-    branchName?: string
-    workflowRunId?: number
-    plan?: { diff?: string }
-    pullRequest?: {
-      title: string
-      url: string
-      number: number
-      files?: Array<{ path: string; diff: string }>
-      planOutput?: string
-      status?: string
-    }
-    pr?: { url: string; branch: string; status: string }
-  } | null>(null)
+  const [initialRequest, setInitialRequest] = React.useState<any>(null)
+  const [initialLoading, setInitialLoading] = React.useState<boolean>(true)
+  const [statusSlice, setStatusSlice] = React.useState<any>(null)
 
   const fetcher = React.useCallback(async (url: string) => {
     const res = await fetch(url)
@@ -162,62 +127,70 @@ export default function RequestDetailPage() {
     return res.json()
   }, [])
 
-  const requestFetcher = React.useCallback(async () => {
-    if (!requestId) return null
-    const data = await fetcher("/api/requests")
-    const match = (data.requests as any[])?.find((r) => r.id === requestId) ?? null
-    return match
-  }, [fetcher, requestId])
-
-  const { data: liveRequest, isLoading: requestLoading, mutate: mutateRequest } = useSWR(
-    requestId ? ["request", requestId] : null,
-    requestFetcher,
-    {
-      refreshInterval: 5000,
-      dedupingInterval: 4000,
-      keepPreviousData: true,
-      revalidateOnFocus: false,
+  React.useEffect(() => {
+    if (!requestId) return
+    let cancelled = false
+    const load = async () => {
+      try {
+        const res = await fetch(`/api/requests/${requestId}`)
+        if (!res.ok) return
+        const data = await res.json()
+        if (!cancelled) setInitialRequest(data.request)
+      } catch {
+        /* ignore */
+      } finally {
+        if (!cancelled) setInitialLoading(false)
+      }
     }
-  )
+    void load()
+    return () => {
+      cancelled = true
+    }
+  }, [requestId])
+
+  const { request, mutate: mutateStatus } = useRequestStatus(requestId, initialRequest)
 
   React.useEffect(() => {
-    if (!requestState && liveRequest) {
-      setRequestState({
-        ...liveRequest,
-        status: liveRequest.status ?? "pending",
-        createdAt: liveRequest.receivedAt,
-        updatedAt: liveRequest.updatedAt,
-        pullRequest: liveRequest.pullRequest,
-        pr: liveRequest.pr,
-      })
+    if (!request) return
+    const next = {
+      status: request.status,
+      statusDerivedAt: request.statusDerivedAt,
+      planRun: request.planRun,
+      applyRun: request.applyRun,
+      approval: request.approval,
+      pr: request.pr ?? request.pullRequest,
+      plan: request.plan,
     }
-  }, [liveRequest, requestState])
+    setStatusSlice((prev: any) => {
+      if (shallowEqual(prev, next)) return prev
+      return next
+    })
+  }, [request])
 
-  const request = (liveRequest as any) ?? requestState
+  const memoStatusSlice = React.useMemo(() => statusSlice, [statusSlice])
 
-  const planRunId = liveRequest?.planRunId ?? liveRequest?.planRun?.runId ?? request?.planRunId ?? request?.planRun?.runId
-  const applyRunId = liveRequest?.applyRunId ?? request?.applyRunId
-  const prNumber = liveRequest?.prNumber ?? request?.pullRequest?.number
+  const planRunId = memoStatusSlice?.planRun?.runId ?? request?.planRun?.runId ?? request?.planRunId
+  const applyRunId = memoStatusSlice?.applyRun?.runId ?? request?.applyRun?.runId ?? request?.applyRunId
+  const prNumber = memoStatusSlice?.pr?.number ?? request?.pullRequest?.number ?? request?.pr?.number
 
-  const { data: approvalStatus } = useSWR(
-    requestId ? [`approval`, requestId, prNumber] : null,
-    () => fetcher(`/api/github/approval-status?requestId=${requestId}`),
-    { refreshInterval: 5000, dedupingInterval: 4000, keepPreviousData: true, revalidateOnFocus: false }
-  )
-
-  const diffKey = showDiff && prNumber ? [`pr-diff`, requestId, prNumber] : null
-  const { data: prDiff } = useSWR(diffKey, () => fetcher(`/api/github/pr-diff?requestId=${requestId}`), {
-    keepPreviousData: true,
-    dedupingInterval: 5000,
-    revalidateOnFocus: false,
-  })
-
-  const planKey = showPlanOutput && planRunId ? [`plan-output`, requestId, planRunId] : null
+  const planKey = planRunId && !(memoStatusSlice?.plan?.output) ? [`plan-output`, requestId, planRunId] : null
   const { data: planOutput } = useSWR(planKey, () => fetcher(`/api/github/plan-output?requestId=${requestId}`), {
     keepPreviousData: true,
     dedupingInterval: 5000,
     revalidateOnFocus: false,
   })
+
+  const prFilesKey = prNumber ? [`pr-files`, requestId, prNumber] : null
+  const { data: prFiles, error: prFilesError } = useSWR(
+    prFilesKey,
+    () => fetcher(`/api/github/pr-diff?requestId=${requestId}`),
+    {
+      keepPreviousData: true,
+      dedupingInterval: 5000,
+      revalidateOnFocus: false,
+      onErrorRetry: () => {}, // don't spam retries for missing PRs
+    }
+  )
 
   const applyKey = showApplyOutput && applyRunId ? [`apply-output`, requestId, applyRunId] : null
   const { data: applyOutput } = useSWR(applyKey, () => fetcher(`/api/github/apply-output?requestId=${requestId}`), {
@@ -226,41 +199,18 @@ export default function RequestDetailPage() {
     revalidateOnFocus: false,
   })
 
-  async function handleApproveApply() {
-    if (!requestId || !request || request.status !== "planned") return
-    setIsApplying(true)
-    setApplyStatus("pending")
-    setApplyModalOpen(true)
-    const prevStatus = request?.status
-    if (request) setRequestState({ ...request, status: "applied" })
-    try {
-      await fetch(`/api/requests/${requestId}/approve`, { method: "POST" })
-      setApplyStatus("success")
-      setTimeout(() => setApplyModalOpen(false), 2000)
-    } catch (err) {
-      console.error("[request approve] error", err)
-      if (request && prevStatus) setRequestState({ ...request, status: prevStatus })
-      setApplyStatus("error")
-    } finally {
-      setIsApplying(false)
-    }
-  }
-
   async function handleApplyOnly() {
-    if (!requestId || !request || request.status !== "approved") return
+    if (!requestId || !memoStatusSlice || memoStatusSlice.status !== "approved") return
     setIsApplying(true)
     setApplyStatus("pending")
     setApplyModalOpen(true)
-    const prevStatus = request?.status
-    if (request) setRequestState({ ...request, status: "applied" })
     try {
       await fetch(`/api/requests/${requestId}/apply`, { method: "POST" })
-      await mutateRequest()
+      await mutateStatus(undefined, true)
       setApplyStatus("success")
       setTimeout(() => setApplyModalOpen(false), 2000)
     } catch (err) {
       console.error("[request apply] error", err)
-      if (request && prevStatus) setRequestState({ ...request, status: prevStatus })
       setApplyStatus("error")
     } finally {
       setIsApplying(false)
@@ -268,7 +218,7 @@ export default function RequestDetailPage() {
   }
 
   async function handleApplyDispatch() {
-    if (!requestId || !request || request.status !== "merged") return
+    if (!requestId || !memoStatusSlice || memoStatusSlice.status !== "merged") return
     setIsApplying(true)
     setActionError(null)
     try {
@@ -281,8 +231,7 @@ export default function RequestDetailPage() {
         const err = await res.json().catch(() => ({}))
         throw new Error(err?.error || "Failed to dispatch apply")
       }
-      if (request) setRequestState({ ...(request as any), status: "applying" })
-      await mutateRequest()
+      await mutateStatus(undefined, true)
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Failed to dispatch apply")
     } finally {
@@ -291,26 +240,10 @@ export default function RequestDetailPage() {
   }
 
   async function handleMerge() {
-    if (!requestId || !request || request.status !== "approved") return
+    if (!requestId || !statusSlice || statusSlice.status !== "approved") return
     try {
       setMergeStatus("pending")
-      const updated = {
-        ...request,
-        pullRequest: {
-          ...request.pullRequest,
-          status: "merged",
-        },
-        timeline: [
-          ...(Array.isArray((request as any).timeline) ? (request as any).timeline : []),
-          {
-            step: "Merged",
-            status: "Complete",
-            message: "Pull request merged",
-            at: new Date().toISOString(),
-          },
-        ],
-      }
-      setRequestState(updated as any)
+      await mutateStatus(undefined, true)
       setMergeStatus("success")
       setTimeout(() => setMergeModalOpen(false), 2000)
     } catch (err) {
@@ -320,7 +253,7 @@ export default function RequestDetailPage() {
   }
 
   async function handleApprove() {
-    if (!requestId || !request || request.status === "approved" || request.status === "applied") return
+    if (!requestId || !memoStatusSlice || memoStatusSlice.status === "approved" || memoStatusSlice.status === "applied") return
     setIsApproving(true)
     setApproveStatus("pending")
     setApproveModalOpen(true)
@@ -329,7 +262,7 @@ export default function RequestDetailPage() {
         method: "POST",
       })
       if (!res.ok) throw new Error("Approve failed")
-      await mutateRequest()
+      await mutateStatus(undefined, true)
       setApproveStatus("success")
       setTimeout(() => setApproveModalOpen(false), 2000)
     } catch (err) {
@@ -340,7 +273,7 @@ export default function RequestDetailPage() {
     }
   }
 
-  if (requestLoading && !request) {
+  if (initialLoading && !request) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center text-muted-foreground">
         Loading request...
@@ -369,7 +302,7 @@ export default function RequestDetailPage() {
     )
   }
 
-  const requestStatus = request.status
+  const requestStatus = memoStatusSlice?.status ?? request?.status
   const isApplied = requestStatus === "complete" || requestStatus === "applied"
   const isMerged = requestStatus === "merged" || requestStatus === "applying" || isApplied
   const isPlanReady =
@@ -379,7 +312,7 @@ export default function RequestDetailPage() {
     requestStatus === "awaiting_approval" ||
     isMerged ||
     isApplied
-  const isApproved = approvalStatus?.approved ?? false
+  const isApproved = memoStatusSlice?.approval?.approved ?? false
   const isPlanning =
     requestStatus === "planning" || requestStatus === "pr_open" || requestStatus === "created" || requestStatus === "pending"
   const isFailed = requestStatus === "failed"
@@ -453,160 +386,114 @@ export default function RequestDetailPage() {
 
   return (
     <div className="space-y-6">
-      <Card>
-        <CardHeader className="border-b">
-          <CardTitle className="text-xl font-semibold">
-            Request {request.id}
-          </CardTitle>
-          <CardDescription>
-            Overview of request metadata and execution timeline.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-4 pt-6 md:grid-cols-2">
-          <div className="space-y-2">
-            <p className="text-sm text-muted-foreground">Project</p>
-            <p className="text-base font-medium capitalize">{request.project}</p>
-          </div>
-          <div className="space-y-2">
-            <p className="text-sm text-muted-foreground">Environment</p>
-            <p className="text-base font-medium capitalize">
-              {request.environment}
-            </p>
-          </div>
-          <div className="space-y-2">
-            <p className="text-sm text-muted-foreground">Service</p>
-            <p className="text-base font-medium">{getServiceName(request.config as any) ?? "—"}</p>
-          </div>
-          <div className="space-y-2">
-            <p className="text-sm text-muted-foreground">Module</p>
-            <p className="text-base font-medium">{request.module ?? "—"}</p>
-          </div>
-          <div className="space-y-2">
-            <p className="text-sm text-muted-foreground">Target repo</p>
-            <p className="text-base font-medium">
-              {request.targetOwner && request.targetRepo
-                ? `${request.targetOwner}/${request.targetRepo}`
-                : "—"}
-            </p>
-          </div>
-          <div className="space-y-2">
-            <p className="text-sm text-muted-foreground">Environment path</p>
-            <p className="text-base font-medium">{request.targetEnvPath ?? "—"}</p>
-          </div>
-          <div className="space-y-2 md:col-span-2">
-            <p className="text-sm text-muted-foreground">Files</p>
-            <p className="text-base font-medium">
-              {request.targetFiles?.length
-                ? request.targetFiles.join(", ")
-                : "—"}
-            </p>
-          </div>
-          <div className="space-y-2">
-            <p className="text-sm text-muted-foreground">Submitted</p>
-            <p className="text-base font-medium">
-              {formatDate(request.createdAt ?? request.updatedAt ?? "")}
-            </p>
-          </div>
-        </CardContent>
-      </Card>
+      <div className="grid gap-6 md:grid-cols-2">
+        <Card>
+          <CardHeader className="border-b">
+            <CardTitle className="text-xl font-semibold">
+              Request {request.id}
+            </CardTitle>
+            <CardDescription>
+              Overview of request metadata and execution timeline.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-4 pt-6 md:grid-cols-2">
+            <div className="space-y-2">
+              <p className="text-sm text-muted-foreground">Project</p>
+              <p className="text-base font-medium capitalize">{request.project}</p>
+            </div>
+            <div className="space-y-2">
+              <p className="text-sm text-muted-foreground">Environment</p>
+              <p className="text-base font-medium capitalize">
+                {request.environment}
+              </p>
+            </div>
+            <div className="space-y-2">
+              <p className="text-sm text-muted-foreground">Service</p>
+              <p className="text-base font-medium">{getServiceName(request.config as any) ?? "—"}</p>
+            </div>
+            <div className="space-y-2">
+              <p className="text-sm text-muted-foreground">Module</p>
+              <p className="text-base font-medium">{request.module ?? "—"}</p>
+            </div>
+            <div className="space-y-2">
+              <p className="text-sm text-muted-foreground">Target repo</p>
+              <p className="text-base font-medium">
+                {request.targetOwner && request.targetRepo
+                  ? `${request.targetOwner}/${request.targetRepo}`
+                  : "—"}
+              </p>
+            </div>
+            <div className="space-y-2">
+              <p className="text-sm text-muted-foreground">Environment path</p>
+              <p className="text-base font-medium">{request.targetEnvPath ?? "—"}</p>
+            </div>
+            <div className="space-y-2 md:col-span-2">
+              <p className="text-sm text-muted-foreground">Files</p>
+              <p className="text-base font-medium">
+                {request.targetFiles?.length
+                  ? request.targetFiles.join(", ")
+                  : "—"}
+              </p>
+            </div>
+            <div className="space-y-2">
+              <p className="text-sm text-muted-foreground">Submitted</p>
+              <p className="text-base font-medium">
+                {formatDate(request.createdAt ?? request.updatedAt ?? "")}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
 
-      <Card>
-        <CardHeader className="border-b">
-          <CardTitle className="text-lg font-semibold">Actions</CardTitle>
-          <CardDescription>Manage merge and apply steps for this request.</CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-wrap items-center gap-3 pt-4">
-          {(request.pullRequest?.url || request.prUrl) && (
-            <Button asChild variant="outline" size="sm">
-              <Link href={request.prUrl ?? request.pullRequest?.url!} target="_blank" rel="noreferrer">
-                View PR
-              </Link>
-            </Button>
-          )}
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={!isPlanReady || !isApproved || isMerged}
-            onClick={async () => {
-              setActionError(null)
-              try {
-                const res = await fetch("/api/github/merge", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ requestId }),
-                })
-                if (!res.ok) {
-                  const err = await res.json().catch(() => ({}))
-                  throw new Error(err?.error || "Merge failed")
-                }
-                await mutateRequest()
-              } catch (err) {
-                setActionError(err instanceof Error ? err.message : "Merge failed")
-              }
-            }}
-          >
-            Merge
-          </Button>
-          <Button
-            size="sm"
-            onClick={handleApplyDispatch}
-            disabled={!isMerged || isApplying}
-          >
-            {isApplying ? "Applying..." : "Apply"}
-          </Button>
-          {actionError && <p className="text-xs text-destructive">{actionError}</p>}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="border-b">
-          <CardTitle className="text-lg font-semibold">Status Timeline</CardTitle>
-          <CardDescription>
-            Track the lifecycle of this infrastructure request.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="pt-6">
-          <div className="flex flex-col gap-6">
-            {steps.map((step, idx) => {
-              const state = stepState(step.key)
-              const isDone = state === "done"
-              const badgeVariant = isDone ? "success" : "warning"
-              return (
-                <div key={step.key} className="flex gap-4">
-                  <div className="flex flex-col items-center">
-                    <div
-                      className={`flex size-9 items-center justify-center rounded-full border ${
-                        isDone
-                          ? "border-emerald-100 bg-emerald-50 text-emerald-700"
-                          : "border-slate-200 bg-slate-50 text-slate-500"
-                      }`}
-                    >
-                      <CheckCircle2 className="size-5" />
+        <Card>
+          <CardHeader className="border-b">
+            <CardTitle className="text-lg font-semibold">Status Timeline</CardTitle>
+            <CardDescription>
+              Track the lifecycle of this infrastructure request.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="pt-6">
+            <div className="flex flex-col gap-6">
+              {steps.map((step, idx) => {
+                const state = stepState(step.key)
+                const isDone = state === "done"
+                const badgeVariant = isDone ? "success" : "warning"
+                return (
+                  <div key={step.key} className="flex gap-4">
+                    <div className="flex flex-col items-center">
+                      <div
+                        className={`flex size-9 items-center justify-center rounded-full border ${
+                          isDone
+                            ? "border-emerald-100 bg-emerald-50 text-emerald-700"
+                            : "border-slate-200 bg-slate-50 text-slate-500"
+                        }`}
+                      >
+                        <CheckCircle2 className="size-5" />
+                      </div>
+                      {idx < steps.length - 1 && (
+                        <Separator
+                          className="my-2 h-full w-px flex-1 bg-slate-200"
+                          orientation="vertical"
+                        />
+                      )}
                     </div>
-                    {idx < steps.length - 1 && (
-                      <Separator
-                        className="my-2 h-full w-px flex-1 bg-slate-200"
-                        orientation="vertical"
-                      />
-                    )}
-                  </div>
-                  <div className="flex-1 space-y-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-base font-medium">{step.label}</p>
-                      <Badge variant={badgeVariant}>
-                        {isDone ? "Completed" : "Pending"}
-                      </Badge>
+                    <div className="flex-1 space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-base font-medium">{step.label}</p>
+                        <Badge variant={badgeVariant}>
+                          {isDone ? "Completed" : "Pending"}
+                        </Badge>
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        {stepSubtitle(step.key, state)}
+                      </p>
                     </div>
-                    <p className="text-sm text-muted-foreground">
-                      {stepSubtitle(step.key, state)}
-                    </p>
                   </div>
-                </div>
-              )
-            })}
-          </div>
-        </CardContent>
-      </Card>
+                )
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
 
       {(request.pullRequest || request.pr) && (
         <Card>
@@ -681,9 +568,9 @@ export default function RequestDetailPage() {
                     <Button
                       size="sm"
                       disabled={
-                        requestLoading ||
-                        request.status === "approved" ||
-                        request.status === "applied"
+                        !statusSlice ||
+                        statusSlice.status === "approved" ||
+                        statusSlice.status === "applied"
                       }
                       onClick={() => {
                         setApproveStatus("idle")
@@ -691,16 +578,16 @@ export default function RequestDetailPage() {
                       }}
                       className={cn(
                         "cursor-pointer rounded-md bg-emerald-500 px-3 py-1.5 text-white hover:bg-emerald-600",
-                        (requestLoading ||
-                          request.status === "approved" ||
-                          request.status === "applied") &&
+                        ((!statusSlice) ||
+                          statusSlice.status === "approved" ||
+                          statusSlice.status === "applied") &&
                           "cursor-not-allowed bg-gray-100 text-emerald-500 opacity-60"
                       )}
                     >
                       Approve
                     </Button>
                   </TooltipTrigger>
-                  {request.status !== "pending" && request.status !== "planned" && (
+                  {requestStatus !== "pending" && requestStatus !== "planned" && (
                     <TooltipContent>
                       Already approved or applied
                     </TooltipContent>
@@ -711,21 +598,21 @@ export default function RequestDetailPage() {
                   <TooltipTrigger asChild>
                     <Button
                       size="sm"
-                      disabled={request.status !== "approved" || isMerged}
+                      disabled={!statusSlice || statusSlice.status !== "approved" || isMerged}
                       onClick={() => {
                         setMergeStatus("idle")
                         setMergeModalOpen(true)
                       }}
                       className={cn(
                         "cursor-pointer rounded-md bg-blue-500 px-3 py-1.5 text-white hover:bg-blue-600",
-                        (request.status !== "approved" || isMerged) &&
+                        (!statusSlice || statusSlice.status !== "approved" || isMerged) &&
                           "cursor-not-allowed bg-gray-100 text-blue-500 opacity-60"
                       )}
                     >
                       Merge
                     </Button>
                   </TooltipTrigger>
-                  {request.status !== "approved" && (
+                  {requestStatus !== "approved" && (
                     <TooltipContent>
                       Approve first to enable merge
                     </TooltipContent>
@@ -759,98 +646,59 @@ export default function RequestDetailPage() {
               </div>
             </TooltipProvider>
 
-            {request.pullRequest?.files?.length ? (
-              <div className="space-y-2">
-                <p className="text-sm font-medium">File Changes</p>
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Files Changed</p>
+              {prFiles?.files?.length ? (
                 <div className="space-y-2 rounded-lg border bg-slate-50 p-3 text-sm">
-                  {request.pullRequest.files.map((file: { path: string; diff: string }) => (
-                    <div key={file.path} className="space-y-1">
-                      <p className="font-medium text-slate-900">{file.path}</p>
-                      <div className="rounded bg-slate-900 px-3 py-2 text-slate-100">
-                        <code className="whitespace-pre-line text-xs">
-                          {file.diff}
-                        </code>
+                  {prFiles.files.map((f: any, idx: number) => (
+                    <div key={`${f.filename}-${idx}`} className="space-y-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-medium text-slate-900">
+                          {f.filename} ({f.status}) +{f.additions}/-{f.deletions}
+                        </p>
                       </div>
+                      {f.patch ? (
+                        <div className="space-y-1 rounded border bg-slate-50 p-2 text-xs font-mono">
+                          {f.patch.split("\n").map((line: string, i: number) => (
+                            <div key={`${f.filename}-${idx}-${i}`} className={`rounded px-2 py-0.5 ${lineClass(line)}`}>
+                              {line || "\u00a0"}
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
                   ))}
                 </div>
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">No file changes listed.</p>
-            )}
+              ) : prFilesError ? (
+                <p className="text-sm text-muted-foreground">File changes unavailable.</p>
+              ) : prFilesKey ? (
+                <p className="text-sm text-muted-foreground">Loading file changes...</p>
+              ) : (
+                <p className="text-sm text-muted-foreground">File changes unavailable.</p>
+              )}
+            </div>
 
             <div className="space-y-2">
               <p className="text-sm font-medium">Terraform Plan Output</p>
-              {requestLoading ? (
+              {initialLoading && !request ? (
                 <p className="text-sm text-muted-foreground">Loading plan...</p>
-              ) : request.pullRequest?.planOutput || request.plan?.diff ? (
+              ) : planOutput?.planText || request?.plan?.output || request.pullRequest?.planOutput ? (
                 <div className="rounded-lg border bg-slate-950 text-slate-100">
                   <Code className="bg-transparent p-4 text-sm leading-6 whitespace-pre-wrap">
-                    {request.pullRequest?.planOutput ?? request.plan?.diff ?? ""}
+                    {planOutput?.planText ?? request?.plan?.output ?? request.pullRequest?.planOutput ?? ""}
                   </Code>
                 </div>
               ) : (
                 <p className="text-sm text-muted-foreground">Plan not generated yet.</p>
               )}
-            </div>
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <p className="text-sm font-medium">PR Diff</p>
-                <Button size="sm" variant="outline" onClick={() => setShowDiff((v) => !v)}>
-                  {showDiff ? "Hide" : "Load"}
-                </Button>
-              </div>
-              {showDiff ? (
-                prDiff?.files?.length ? (
-                  <div className="space-y-2">
-                    {prDiff.files.map((f: any, idx: number) => (
-                      <details key={`${f.filename}-${idx}`} className="rounded border bg-slate-50 p-2">
-                        <summary className="cursor-pointer text-sm font-medium">
-                          {f.filename} ({f.status}) +{f.additions}/-{f.deletions}
-                        </summary>
-                        {f.patch ? (
-                          <pre className="mt-2 overflow-auto rounded bg-slate-900 p-2 text-xs text-slate-100">
-                            {f.patch}
-                          </pre>
-                        ) : (
-                          <p className="text-xs text-muted-foreground mt-1">No patch available.</p>
-                        )}
-                      </details>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground">No diff available yet.</p>
-                )
-              ) : (
-                <p className="text-sm text-muted-foreground">Click Load to fetch diff.</p>
+              {planOutput?.status && (
+                <p className="text-xs text-muted-foreground">
+                  Status: {planOutput.status}
+                  {planOutput.conclusion ? ` · Conclusion: ${planOutput.conclusion}` : ""}
+                </p>
               )}
-            </div>
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <p className="text-sm font-medium">Plan Output</p>
-                <Button size="sm" variant="outline" onClick={() => setShowPlanOutput((v) => !v)} disabled={!planRunId}>
-                  {showPlanOutput ? "Hide" : "Load"}
-                </Button>
-                {planOutput?.status && (
-                  <p className="text-xs text-muted-foreground">
-                    Status: {planOutput.status}
-                    {planOutput.conclusion ? ` · Conclusion: ${planOutput.conclusion}` : ""}
-                  </p>
-                )}
-                {planOutput?.conclusion === "failure" && (
-                  <p className="text-xs text-destructive">Plan failed. See excerpt below or open full logs.</p>
-                )}
-              </div>
-              {showPlanOutput ? (
-                planOutput?.planText ? (
-                  <pre className="max-h-64 overflow-auto rounded bg-slate-900 p-3 text-xs text-slate-100 whitespace-pre-wrap">
-                    {planOutput.planText}
-                  </pre>
-                ) : (
-                  <p className="text-sm text-muted-foreground">No plan output yet.</p>
-                )
-              ) : (
-                <p className="text-sm text-muted-foreground">Click Load to fetch plan output.</p>
+              {planOutput?.conclusion === "failure" && (
+                <p className="text-xs text-destructive">Plan failed. See excerpt above or open full logs.</p>
               )}
               {planOutput?.rawLogUrl && (
                 <a className="text-sm text-primary hover:underline" href={planOutput.rawLogUrl} target="_blank" rel="noreferrer">
@@ -874,17 +722,17 @@ export default function RequestDetailPage() {
                   <p className="text-xs text-destructive">Apply failed. See excerpt below or open full logs.</p>
                 )}
               </div>
-              {showApplyOutput ? (
-                applyOutput?.applyText ? (
-                  <pre className="max-h-64 overflow-auto rounded bg-slate-900 p-3 text-xs text-slate-100 whitespace-pre-wrap">
-                    {applyOutput.applyText}
-                  </pre>
-                ) : (
-                  <p className="text-sm text-muted-foreground">No apply output yet.</p>
-                )
+            {showApplyOutput ? (
+              applyOutput?.applyText || request?.apply?.output ? (
+                <pre className="max-h-64 overflow-auto rounded bg-slate-900 p-3 text-xs text-slate-100 whitespace-pre-wrap">
+                  {applyOutput?.applyText ?? request?.apply?.output ?? ""}
+                </pre>
               ) : (
-                <p className="text-sm text-muted-foreground">Click Load to fetch apply output.</p>
-              )}
+                <p className="text-sm text-muted-foreground">No apply output yet.</p>
+              )
+            ) : (
+              <p className="text-sm text-muted-foreground">Click Load to fetch apply output.</p>
+            )}
               {applyOutput?.rawLogUrl && (
                 <a className="text-sm text-primary hover:underline" href={applyOutput.rawLogUrl} target="_blank" rel="noreferrer">
                   Open apply logs
@@ -1085,3 +933,5 @@ export default function RequestDetailPage() {
     </div>
   )
 }
+
+export default React.memo(RequestDetailPage)

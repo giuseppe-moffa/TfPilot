@@ -36,9 +36,13 @@ export function deriveStatus(input: {
   approval?: ApprovalInfo
 }): { status: RequestStatus; reason?: string } {
   const { pr, planRun, applyRun, approval } = input
+  const failedConclusions = ["failure", "cancelled", "timed_out", "action_required", "startup_failure", "stale"]
 
-  if (applyRun?.conclusion === "failure" || planRun?.conclusion === "failure") {
-    return { status: "failed", reason: "Plan or apply failed" }
+  if (applyRun?.conclusion && failedConclusions.includes(applyRun.conclusion)) {
+    return { status: "failed", reason: "Apply failed or was cancelled" }
+  }
+  if (planRun?.conclusion && failedConclusions.includes(planRun.conclusion)) {
+    return { status: "failed", reason: "Plan failed or was cancelled" }
   }
 
   if (applyRun?.status === "in_progress" || applyRun?.status === "queued") {
@@ -61,7 +65,7 @@ export function deriveStatus(input: {
     if (approval?.approved) {
       return { status: "approved", reason: "Approved in GitHub" }
     }
-    return { status: "awaiting_approval", reason: "Waiting for approval in GitHub" }
+    return { status: "plan_ready", reason: "Plan succeeded" }
   }
 
   if (pr?.open) {

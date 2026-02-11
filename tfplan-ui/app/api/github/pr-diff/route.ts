@@ -1,11 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
-import { readFile } from "node:fs/promises"
-import path from "node:path"
-
 import { getGitHubAccessToken } from "@/lib/github/auth"
 import { gh } from "@/lib/github/client"
-
-const STORAGE_FILE = path.join(process.cwd(), "tmp", "requests.json")
+import { getRequest } from "@/lib/storage/requestsStore"
 
 export async function GET(req: NextRequest) {
   try {
@@ -19,17 +15,15 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "GitHub not connected" }, { status: 401 })
     }
 
-    const raw = await readFile(STORAGE_FILE, "utf8").catch(() => "[]")
-    const requests = JSON.parse(raw)
-    if (!Array.isArray(requests)) {
-      return NextResponse.json({ error: "No requests found" }, { status: 404 })
-    }
-    const match = requests.find((r: any) => r.id === requestId)
-    if (!match || !match.prNumber || !match.targetOwner || !match.targetRepo) {
+    const match = await getRequest(requestId).catch(() => null)
+    const prNumber = match?.prNumber ?? match?.pr?.number
+    const owner = match?.targetOwner
+    const repo = match?.targetRepo
+    if (!match || !prNumber || !owner || !repo) {
       return NextResponse.json({ error: "Request or PR not found" }, { status: 404 })
     }
 
-    const res = await gh(token, `/repos/${match.targetOwner}/${match.targetRepo}/pulls/${match.prNumber}/files`)
+    const res = await gh(token, `/repos/${owner}/${repo}/pulls/${prNumber}/files`)
     const files = (await res.json()) as Array<{
       filename: string
       status: string

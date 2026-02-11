@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto"
 import { NextRequest, NextResponse } from "next/server"
 
 import { gh } from "@/lib/github/client"
@@ -8,6 +7,7 @@ import { resolveInfraRepo } from "@/config/infra-repos"
 import { env, logEnvDebug } from "@/lib/config/env"
 import { saveRequest, listRequests } from "@/lib/storage/requestsStore"
 import { moduleRegistry, type ModuleRegistryEntry } from "@/config/module-registry"
+import { generateRequestId } from "@/lib/requests/id"
 
 type RequestPayload = {
   project?: string
@@ -408,7 +408,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: "GitHub not connected" }, { status: 401 })
     }
 
-    const requestId = randomUUID()
+    const requestId = generateRequestId(body.environment!, body.module!)
 
     console.log("[api/requests] received payload:", body)
     console.log("[api/requests] Triggering generation for", requestId)
@@ -420,14 +420,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: "No infra repo configured for project/environment" }, { status: 400 })
     }
 
-  const normalizedConfig = normalizeConfigKeys(body.config as Record<string, unknown>)
+    const normalizedConfig = normalizeConfigKeys(body.config as Record<string, unknown>)
 
     const newRequest: StoredRequest = {
       id: requestId,
       project: body.project!,
       environment: body.environment!,
       module: body.module!,
-    config: normalizedConfig,
+      config: normalizedConfig,
       receivedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       status: "created",
