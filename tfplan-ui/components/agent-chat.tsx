@@ -70,6 +70,8 @@ export function AgentChat({
   const bottomRef = React.useRef<HTMLDivElement | null>(null)
   const router = useRouter()
   const [pendingRequest, setPendingRequest] = React.useState<PendingRequest | null>(null)
+  const [isCreatingRequest, setIsCreatingRequest] = React.useState(false)
+  const [createError, setCreateError] = React.useState<string | null>(null)
 
   const appendMessage = (msg: ChatMessage) => setMessages((prev) => [...prev, msg])
 
@@ -186,7 +188,8 @@ export function AgentChat({
     }
   }
 
-  const inputDisabled = (requireModuleBeforeInput && !moduleSelected) || loading || pendingRequest !== null
+  const inputDisabled =
+    (requireModuleBeforeInput && !moduleSelected) || loading || pendingRequest !== null || isCreatingRequest
 
   return (
     <Card className="flex h-[70vh] flex-col border-none bg-transparent shadow-none">
@@ -216,7 +219,13 @@ export function AgentChat({
           {!moduleSelected && modules.length > 0 && (
             <div className="flex flex-wrap gap-2">
               {modules.map((m) => (
-                <Button key={m} variant="outline" size="sm" onClick={() => handleModuleClick(m)}>
+                <Button
+                  key={m}
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleModuleClick(m)}
+                  disabled={isCreatingRequest}
+                >
                   {m}
                 </Button>
               ))}
@@ -264,8 +273,10 @@ export function AgentChat({
             <div className="font-medium">Ready to create the request</div>
             {pendingRequest.summary && <div className="whitespace-pre-wrap break-words">{pendingRequest.summary}</div>}
             <Button
-              disabled={loading}
+              disabled={loading || isCreatingRequest}
               onClick={async () => {
+                setCreateError(null)
+                setIsCreatingRequest(true)
                 try {
                   const res = await fetch("/api/requests", {
                     method: "POST",
@@ -273,18 +284,41 @@ export function AgentChat({
                     credentials: "include",
                     body: JSON.stringify(pendingRequest),
                   })
-                  if (!res.ok) return
+                  if (!res.ok) {
+                    const err = await res.json().catch(() => ({}))
+                    throw new Error(err?.error || "Failed to create request")
+                  }
                   const data = await res.json()
                   if (data.requestId) {
                     router.push(`/requests/${data.requestId}`)
                   }
-                } catch {
-                  // ignore
+                } catch (err: any) {
+                  setCreateError(err?.message || "Failed to create request")
                 }
+                setIsCreatingRequest(false)
               }}
             >
-              Create Request
+              {isCreatingRequest ? "Creating..." : "Create Request"}
             </Button>
+            {isCreatingRequest && <div className="text-xs text-muted-foreground">Creating request…</div>}
+            {createError && (
+              <div className="text-xs text-destructive">
+                {createError}
+                <div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="px-0 text-xs"
+                    onClick={() => {
+                      setCreateError(null)
+                      setIsCreatingRequest(false)
+                    }}
+                  >
+                    Retry
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

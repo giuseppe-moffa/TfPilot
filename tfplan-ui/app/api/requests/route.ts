@@ -1,6 +1,4 @@
 import { randomBytes } from "node:crypto"
-import { stat } from "node:fs/promises"
-import path from "node:path"
 import { NextRequest, NextResponse } from "next/server"
 
 import { gh } from "@/lib/github/client"
@@ -9,7 +7,7 @@ import { getEnvTargetFile, getModuleType } from "@/lib/infra/moduleType"
 import { resolveInfraRepo } from "@/config/infra-repos"
 import { env, logEnvDebug } from "@/lib/config/env"
 import { saveRequest, listRequests } from "@/lib/storage/requestsStore"
-import { loadModuleMeta } from "../modules/route"
+import { moduleRegistry, type ModuleRegistryEntry } from "@/config/module-registry"
 
 type RequestPayload = {
   project?: string
@@ -76,15 +74,14 @@ function validatePayload(body: RequestPayload) {
 
 function planDiffForModule(mod?: string) {
   switch (mod) {
-    case "ECS Service":
-    case "service":
+    case "ecs-service":
       return "+ aws_ecs_service.app"
-    case "SQS Queue":
-    case "queue":
+    case "sqs-queue":
       return "+ aws_sqs_queue.main"
-    case "RDS Database":
-    case "database":
-      return "+ aws_db_instance.main"
+    case "s3-bucket":
+      return "+ aws_s3_bucket.main"
+    case "iam-role-app":
+      return "+ aws_iam_role.app"
     default:
       return "+ aws_null_resource.default"
   }
@@ -137,14 +134,55 @@ function upsertRequestBlock(existing: string | null, requestId: string, blockBod
 }
 
 function renderModuleBlock(request: StoredRequest, moduleSource: string) {
-  const renderedInputs = Object.entries(request.config).map(
-    ([key, val]) => `  ${key} = ${renderHclValue(val)}`
-  )
+  const renderedInputs = Object.entries(request.config).map(([key, val]) => `  ${key} = ${renderHclValue(val)}`)
 
-  return `module "${request.module}" {
+  return `module "tfpilot_${request.id}" {
   source = "${moduleSource}"
 ${renderedInputs.join("\n")}
 }`
+}
+
+function buildModuleConfig(entry: ModuleRegistryEntry, rawConfig: Record<string, unknown>, ctx: { requestId: string; project: string; environment: string }) {
+  const cfg: Record<string, unknown> = { ...(rawConfig ?? {}) }
+
+  // strip unwanted keys
+  for (const key of entry.strip ?? []) {
+    delete cfg[key]
+  }
+
+  // apply defaults (if not present)
+  if (entry.defaults) {
+    for (const [k, v] of Object.entries(entry.defaults)) {
+      if (cfg[k] === undefined) {
+        cfg[k] = v
+      }
+    }
+  }
+
+  // compute derived fields
+  const computed = entry.compute ? entry.compute(cfg, ctx) : {}
+  const merged = { ...cfg, ...computed }
+
+  // keep only required + optional + computed keys
+  const allowed = new Set([
+    ...entry.required,
+    ...entry.optional,
+    ...Object.keys(computed),
+  ])
+  const finalConfig: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(merged)) {
+    if (allowed.has(k)) {
+      finalConfig[k] = v
+    }
+  }
+
+  // validate required
+  const missing = entry.required.filter((k) => finalConfig[k] === undefined || finalConfig[k] === null || finalConfig[k] === "")
+  if (missing.length > 0) {
+    throw new Error(`Missing required config: ${missing.join(", ")}`)
+  }
+
+  return finalConfig
 }
 
 async function generateTerraformFiles(
@@ -302,15 +340,10 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // validate module exists
-    const metaPath = path.join(process.cwd(), "..", "terraform-modules", body.module!, "metadata.json")
-    const hasMeta = await stat(metaPath).then(() => true).catch(() => false)
-    if (!hasMeta) {
+    // validate module exists based on registry
+    const regEntry = moduleRegistry.find((m) => m.type === body.module)
+    if (!regEntry) {
       return NextResponse.json({ success: false, error: "Unknown module" }, { status: 400 })
-    }
-    const meta = await loadModuleMeta(metaPath)
-    if (!meta) {
-      return NextResponse.json({ success: false, error: "Invalid module metadata" }, { status: 400 })
     }
 
     const token = await getGitHubAccessToken(request)
@@ -324,7 +357,7 @@ export async function POST(request: NextRequest) {
     console.log("[api/requests] Triggering generation for", requestId)
     console.log("[api/requests] module =", body.module)
 
-    const moduleType = getModuleType(body.module!, (meta as any)?.category)
+    const moduleType = getModuleType(body.module!, regEntry.category)
     const targetRepo = resolveInfraRepo(body.project!, body.environment!)
     if (!targetRepo) {
       return NextResponse.json({ success: false, error: "No infra repo configured for project/environment" }, { status: 400 })
@@ -341,6 +374,12 @@ export async function POST(request: NextRequest) {
       status: "created",
       plan: { diff: planDiffForModule(body.module) },
     }
+
+    newRequest.config = buildModuleConfig(regEntry, newRequest.config, {
+      requestId: newRequest.id,
+      project: newRequest.project,
+      environment: newRequest.environment,
+    })
 
     const generated = await generateTerraformFiles(
       token,

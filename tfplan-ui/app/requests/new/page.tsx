@@ -25,9 +25,10 @@ export default function NewRequestPage() {
       try {
         const res = await fetch("/api/modules")
         const data = (await res.json()) as { modules: Array<{ name: string }> }
-        setModules(data.modules.map((m) => m.name))
+        const names = data.modules?.map((m) => m.name).filter(Boolean) ?? []
+        setModules(names.length > 0 ? names : ["s3-bucket", "sqs-queue", "ecs-service"])
       } catch {
-        setModules([])
+        setModules(["s3-bucket", "sqs-queue", "ecs-service"])
       } finally {
         setLoadingModules(false)
       }
