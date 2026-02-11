@@ -5,7 +5,7 @@ Terraform self-service platform for GitHub-authenticated engineers to request, p
 ## What it does
 - GitHub OAuth login (no local passwords).
 - AWS connection via CloudFormation stack (`tfplan-stack.yaml`) that provisions an OIDC-assumable role (`tfplan-connector`).
-- Chat-driven “New Request” flow that collects module inputs and writes generated Terraform under `infra/generated/<request-id>/`.
+- Chat-driven “New Request” flow that collects module inputs and writes generated Terraform to target infra repos.
 - GitHub Actions:
   - `plan.yml` (workflow_dispatch-enabled) runs Terraform plan per request branch.
   - `apply.yml` (workflow_dispatch) runs Terraform apply after merge.
@@ -15,7 +15,6 @@ Terraform self-service platform for GitHub-authenticated engineers to request, p
 ## Repo layout
 - `tfplan-ui/` – Next.js (App Router) frontend + API routes.
 - `terraform-modules/` – Module metadata driving the dynamic forms.
-- `infra/` – Base Terraform (tests the GH Actions flow); `infra/generated/` for per-request code.
 - `.github/workflows/` – `plan.yml` and `apply.yml` (OIDC, no static AWS keys).
 
 ## Prereqs
@@ -36,13 +35,13 @@ Terraform self-service platform for GitHub-authenticated engineers to request, p
 - Template creates OIDC provider (or uses existing) + role `tfplan-connector` with configurable policy and branch scope.
 
 ## Workflows
-- `plan.yml`: workflow_dispatch + push/PR; assumes `tfplan-connector` via OIDC; runs `terraform plan` in `infra/`.
-- `apply.yml`: workflow_dispatch only; assumes `tfplan-connector`; runs `terraform apply` in `infra/` (after merge).
+- `plan.yml`: workflow_dispatch + push/PR; assumes `tfplan-connector` via OIDC; runs Terraform plan in target repos.
+- `apply.yml`: workflow_dispatch only; assumes `tfplan-connector`; runs Terraform apply in target repos (after merge).
 
 ## Security notes
 - No static AWS keys; Actions use GitHub OIDC to assume the role.
 - Keep secrets in env files or GitHub Actions secrets; do not commit real credentials.
-- Generated artifacts (`infra/generated/*`, `tmp/*.json`, chat logs) should stay out of git.
+- Generated artifacts (`tmp/*.json`, chat logs) should stay out of git.
 
 ## Status
 - UI/UX: GitHub login, AWS connect flow, chat-based request wizard, module catalog, timeline with PR/apply buttons.

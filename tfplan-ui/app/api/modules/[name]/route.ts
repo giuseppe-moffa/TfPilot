@@ -4,9 +4,9 @@ import path from "node:path"
 
 import { loadModuleMeta } from "../route"
 
-export async function GET(req: NextRequest, { params }: { params: { name: string } }) {
+export async function GET(req: NextRequest, context: { params: Promise<{ name: string }> }) {
   try {
-    const moduleName = params.name
+    const { name: moduleName } = await context.params
     if (!moduleName) {
       return NextResponse.json({ error: "Module name required" }, { status: 400 })
     }
