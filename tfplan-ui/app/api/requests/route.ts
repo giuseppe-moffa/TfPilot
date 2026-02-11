@@ -156,7 +156,7 @@ async function generateTerraformFiles(
   repo: string
 ) {
   const targetFile = getEnvTargetFile(envPath, moduleType)
-  const moduleSource = `../modules/${request.module}`
+  const moduleSource = `../../modules/${request.module}`
 
   const existing = await fetchRepoFile(token, owner, repo, targetFile)
   const block = renderModuleBlock(request, moduleSource)
