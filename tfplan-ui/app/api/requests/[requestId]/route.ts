@@ -4,8 +4,8 @@ import path from "node:path"
 
 const STORAGE_FILE = path.join(process.cwd(), "tmp", "requests.json")
 
-export async function GET(req: NextRequest, { params }: { params: { requestId: string } }) {
-  const { requestId } = params
+export async function GET(req: NextRequest, { params }: { params: Promise<{ requestId: string }> }) {
+  const { requestId } = await params
   try {
     const contents = await readFile(STORAGE_FILE, "utf8")
     const parsed = JSON.parse(contents)

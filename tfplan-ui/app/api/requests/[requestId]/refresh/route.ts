@@ -24,9 +24,9 @@ type Stored = {
   statusDerivedAt?: string
 }
 
-export async function GET(req: NextRequest, { params }: { params: { requestId: string } }) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ requestId: string }> }) {
   try {
-    const requestId = params.requestId
+    const { requestId } = await params
     const token = await getGitHubAccessToken(req)
     if (!token) return NextResponse.json({ error: "GitHub not connected" }, { status: 401 })
 

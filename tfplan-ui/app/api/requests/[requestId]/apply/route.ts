@@ -5,19 +5,9 @@ import { NextRequest, NextResponse } from "next/server"
 const STORAGE_DIR = path.join(process.cwd(), "tmp")
 const STORAGE_FILE = path.join(STORAGE_DIR, "requests.json")
 
-export async function POST(
-  _req: NextRequest,
-  contextPromise:
-    | Promise<{ params: { requestId: string } }>
-    | Promise<{ params: Promise<{ requestId: string }> }>
-) {
+export async function POST(_req: NextRequest, context: { params: Promise<{ requestId: string }> }) {
   try {
-    const ctx = await contextPromise
-    const resolvedParams =
-      typeof (ctx as any)?.params?.then === "function"
-        ? await (ctx as any).params
-        : (ctx as any).params
-    const requestId = resolvedParams?.requestId as string | undefined
+    const { requestId } = await context.params
 
     if (!requestId) {
       return NextResponse.json(
