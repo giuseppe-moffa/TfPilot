@@ -153,8 +153,6 @@ export default function RequestsPage() {
   }, [])
 
   const showEmpty = !isLoading && requests.length === 0
-  const showGuard = !isConnected
-
   return (
     <div className="space-y-4">
       <Card>
@@ -170,11 +168,6 @@ export default function RequestsPage() {
           </CardAction>
         </CardHeader>
         <CardContent className="pt-6">
-          {showGuard && (
-            <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-              Connect an AWS account to load requests.
-            </div>
-          )}
           <Table>
             <TableHeader>
               <TableRow>

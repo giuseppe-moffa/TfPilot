@@ -1,11 +1,14 @@
 import { randomBytes } from "node:crypto"
-import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises"
+import { stat } from "node:fs/promises"
 import path from "node:path"
 import { NextRequest, NextResponse } from "next/server"
 
-import { mockRequests as seedRequests } from "@/lib/data/mock-requests"
 import { gh } from "@/lib/github/client"
 import { getGitHubAccessToken } from "@/lib/github/auth"
+import { getEnvTargetFile, getModuleType } from "@/lib/infra/moduleType"
+import { resolveInfraRepo } from "@/config/infra-repos"
+import { env, logEnvDebug } from "@/lib/config/env"
+import { saveRequest, listRequests } from "@/lib/storage/requestsStore"
 import { loadModuleMeta } from "../modules/route"
 
 type RequestPayload = {
@@ -23,80 +26,29 @@ type StoredRequest = {
   config: Record<string, unknown>
   receivedAt: string
   updatedAt: string
-  status:
-    | "created"
-    | "pr_open"
-    | "planning"
-    | "plan_ready"
-    | "awaiting_approval"
-    | "merged"
-    | "applying"
-    | "complete"
-    | "failed"
-  planRun?: {
-    generatedPath: string
-    triggeredAt: string
-    workflowUrl?: string
-    runId?: number
-  }
-  plan?: {
-    diff: string
-  }
+  status: string
+  reason?: string
+  statusDerivedAt?: string
+  plan?: { diff: string }
+  planRun?: { runId?: number; url?: string; status?: string; conclusion?: string; headSha?: string }
+  applyRun?: { runId?: number; url?: string; status?: string; conclusion?: string }
+  approval?: { approved?: boolean; approvers?: string[] }
+  pr?: { number?: number; url?: string; merged?: boolean; headSha?: string; open?: boolean }
+  targetOwner?: string
+  targetRepo?: string
+  targetBase?: string
+  targetEnvPath?: string
+  targetFiles?: string[]
+  errorMessage?: string
   branchName?: string
   prNumber?: number
   prUrl?: string
   commitSha?: string
-  workflowRunId?: number
-  applyRunId?: number
-  pullRequest?: {
-    url: string
-    number: number
-    branch: string
-    status: "open" | "closed" | "merged"
-    title: string
-    files: Array<{ path: string; diff: string }>
-    planOutput: string
-  }
+  mergedSha?: string
 }
 
-const STORAGE_DIR = path.join(process.cwd(), "tmp")
-const STORAGE_FILE = path.join(STORAGE_DIR, "requests.json")
-const GENERATED_BASE = path.join(process.cwd(), "..", "infra", "generated")
-const OWNER = process.env.GITHUB_OWNER ?? "giuseppe-moffa"
-const REPO = process.env.GITHUB_REPO ?? "TfPilot"
-const PLAN_WORKFLOW = process.env.GITHUB_PLAN_WORKFLOW ?? "plan.yml"
-
-async function seedRequestsFile() {
-  try {
-    // If file already exists and is readable, do nothing.
-    await readFile(STORAGE_FILE, "utf8")
-    return
-  } catch {
-    /* file missing; continue to seed */
-  }
-
-  try {
-    await mkdir(STORAGE_DIR, { recursive: true })
-    const seeds: StoredRequest[] = seedRequests.map((r) => ({
-      id: r.id,
-      project: r.project,
-      environment: r.environment,
-      module: "service",
-      config: r.config ?? {},
-      receivedAt: r.createdAt,
-      updatedAt: r.updatedAt,
-      status: "plan_ready",
-      plan: r.plan,
-    }))
-    await writeFile(STORAGE_FILE, JSON.stringify(seeds, null, 2), "utf8")
-    console.log("[api/requests] seeded tmp/requests.json with demo data")
-  } catch (err) {
-    console.warn("[api/requests] failed to seed requests file", err)
-  }
-}
-
-// Fire-and-forget seeding on module load
-seedRequestsFile()
+const PLAN_WORKFLOW = env.GITHUB_PLAN_WORKFLOW_FILE
+logEnvDebug()
 
 function validatePayload(body: RequestPayload) {
   const errors: string[] = []
@@ -146,70 +98,89 @@ function renderHclValue(value: unknown): string {
   return `"${String(value)}"`
 }
 
-async function ensureDir(dir: string) {
-  await mkdir(dir, { recursive: true })
-}
-
-async function readFilesRecursive(
-  dir: string,
-  repoPrefix: string
-): Promise<Array<{ path: string; content: string }>> {
-  const entries = await readdir(dir, { withFileTypes: true })
-  const files: Array<{ path: string; content: string }> = []
-  for (const entry of entries) {
-    const full = path.join(dir, entry.name)
-    if (entry.isDirectory()) {
-      const nested = await readFilesRecursive(full, path.join(repoPrefix, entry.name))
-      files.push(...nested)
-    } else if (entry.isFile()) {
-      const content = await readFile(full, "utf8")
-      files.push({ path: path.join(repoPrefix, entry.name), content })
+async function fetchRepoFile(token: string, owner: string, repo: string, filePath: string): Promise<string | null> {
+  try {
+    const res = await gh(token, `/repos/${owner}/${repo}/contents/${encodeURIComponent(filePath)}`)
+    const json = (await res.json()) as { content?: string; encoding?: string }
+    if (json.content && json.encoding === "base64") {
+      return Buffer.from(json.content, "base64").toString("utf8")
     }
+  } catch (err: any) {
+    if (err?.status === 404) return null
+    throw err
   }
-  return files
+  return null
 }
 
-async function generateTerraformFiles(request: StoredRequest) {
-  const generatedDir = path.join(GENERATED_BASE, request.id)
-  const mainPath = path.join(generatedDir, "main.tf")
+function upsertRequestBlock(existing: string | null, requestId: string, blockBody: string) {
+  const header = "# Managed by TfPilot - do not edit by hand."
+  const begin = `# --- tfpilot:begin:${requestId} ---`
+  const end = `# --- tfpilot:end:${requestId} ---`
+  const body = `${begin}\n${blockBody.trimEnd()}\n${end}\n`
 
-  await ensureDir(generatedDir)
+  let base = existing ?? ""
+  if (!base.trim()) {
+    base = `${header}\n\n`
+  } else if (!base.endsWith("\n")) {
+    base += "\n"
+  }
 
-  const moduleSource = "../../terraform-modules/" + request.module
+  const startIdx = base.indexOf(begin)
+  const endIdx = base.indexOf(end)
+  if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+    const before = base.slice(0, startIdx)
+    const after = base.slice(endIdx + end.length)
+    return `${before}${body}${after}`.replace(/\n{3,}/g, "\n\n")
+  }
+
+  return `${base}${body}`
+}
+
+function renderModuleBlock(request: StoredRequest, moduleSource: string) {
   const renderedInputs = Object.entries(request.config).map(
     ([key, val]) => `  ${key} = ${renderHclValue(val)}`
   )
 
-  const mainTf = `terraform {
-  required_version = ">= 1.5.0"
-}
-
-module "requested" {
+  return `module "${request.module}" {
   source = "${moduleSource}"
 ${renderedInputs.join("\n")}
+}`
 }
-`
 
-  await writeFile(mainPath, mainTf, "utf8")
-  const files = await readFilesRecursive(generatedDir, path.join("infra", "generated", request.id))
-  return { generatedPath: mainPath, files }
+async function generateTerraformFiles(
+  token: string,
+  request: StoredRequest,
+  moduleType: ReturnType<typeof getModuleType>,
+  envPath: string,
+  owner: string,
+  repo: string
+) {
+  const targetFile = getEnvTargetFile(envPath, moduleType)
+  const moduleSource = `../modules/${request.module}`
+
+  const existing = await fetchRepoFile(token, owner, repo, targetFile)
+  const block = renderModuleBlock(request, moduleSource)
+  const updated = upsertRequestBlock(existing, request.id, block)
+
+  return { files: [{ path: targetFile, content: updated }] }
 }
 
 async function createBranchCommitPrAndPlan(
   token: string,
   request: StoredRequest,
-  files: Array<{ path: string; content: string }>
+  files: Array<{ path: string; content: string }>,
+  target: { owner: string; repo: string; base: string }
 ) {
   const branchName = `request/${request.id}`
 
-  const refRes = await gh(token, `/repos/${OWNER}/${REPO}/git/ref/heads/main`)
+  const refRes = await gh(token, `/repos/${target.owner}/${target.repo}/git/ref/heads/${target.base}`)
   const refJson = (await refRes.json()) as { object?: { sha?: string } }
   const baseSha = refJson.object?.sha
   if (!baseSha) throw new Error("Failed to resolve base branch SHA")
 
   // create branch (ignore if exists)
   try {
-    await gh(token, `/repos/${OWNER}/${REPO}/git/refs`, {
+    await gh(token, `/repos/${target.owner}/${target.repo}/git/refs`, {
       method: "POST",
       body: JSON.stringify({ ref: `refs/heads/${branchName}`, sha: baseSha }),
     })
@@ -219,14 +190,14 @@ async function createBranchCommitPrAndPlan(
     }
   }
 
-  const baseCommitRes = await gh(token, `/repos/${OWNER}/${REPO}/git/commits/${baseSha}`)
+  const baseCommitRes = await gh(token, `/repos/${target.owner}/${target.repo}/git/commits/${baseSha}`)
   const baseCommit = (await baseCommitRes.json()) as { tree?: { sha?: string } }
   const baseTreeSha = baseCommit.tree?.sha
   if (!baseTreeSha) throw new Error("Failed to resolve base tree")
 
   const blobs: Array<{ path: string; sha: string }> = []
   for (const file of files) {
-    const blobRes = await gh(token, `/repos/${OWNER}/${REPO}/git/blobs`, {
+    const blobRes = await gh(token, `/repos/${target.owner}/${target.repo}/git/blobs`, {
       method: "POST",
       body: JSON.stringify({ content: file.content, encoding: "utf-8" }),
     })
@@ -235,7 +206,7 @@ async function createBranchCommitPrAndPlan(
     blobs.push({ path: file.path, sha: blobJson.sha })
   }
 
-  const treeRes = await gh(token, `/repos/${OWNER}/${REPO}/git/trees`, {
+  const treeRes = await gh(token, `/repos/${target.owner}/${target.repo}/git/trees`, {
     method: "POST",
     body: JSON.stringify({
       base_tree: baseTreeSha,
@@ -250,7 +221,7 @@ async function createBranchCommitPrAndPlan(
   const treeJson = (await treeRes.json()) as { sha?: string }
   if (!treeJson.sha) throw new Error("Failed to create tree")
 
-  const commitRes = await gh(token, `/repos/${OWNER}/${REPO}/git/commits`, {
+  const commitRes = await gh(token, `/repos/${target.owner}/${target.repo}/git/commits`, {
     method: "POST",
     body: JSON.stringify({
       message: `chore: infra request ${request.id}`,
@@ -261,24 +232,24 @@ async function createBranchCommitPrAndPlan(
   const commitJson = (await commitRes.json()) as { sha?: string }
   if (!commitJson.sha) throw new Error("Failed to create commit")
 
-  await gh(token, `/repos/${OWNER}/${REPO}/git/refs/heads/${branchName}`, {
+  await gh(token, `/repos/${target.owner}/${target.repo}/git/refs/heads/${branchName}`, {
     method: "PATCH",
     body: JSON.stringify({ sha: commitJson.sha, force: true }),
   })
 
-  const prRes = await gh(token, `/repos/${OWNER}/${REPO}/pulls`, {
+  const prRes = await gh(token, `/repos/${target.owner}/${target.repo}/pulls`, {
     method: "POST",
     body: JSON.stringify({
       title: `Infra request ${request.id}: ${request.module}`,
       head: branchName,
-      base: "main",
+      base: target.base,
       body: `Automated request for ${request.project}/${request.environment}\n\nModule: ${request.module}\nRequest ID: ${request.id}`,
     }),
   })
-  const prJson = (await prRes.json()) as { number?: number; html_url?: string }
+  const prJson = (await prRes.json()) as { number?: number; html_url?: string; head?: { sha?: string } }
   if (!prJson.number || !prJson.html_url) throw new Error("Failed to open PR")
 
-  await gh(token, `/repos/${OWNER}/${REPO}/actions/workflows/${PLAN_WORKFLOW}/dispatches`, {
+  await gh(token, `/repos/${target.owner}/${target.repo}/actions/workflows/${PLAN_WORKFLOW}/dispatches`, {
     method: "POST",
     body: JSON.stringify({
       ref: branchName,
@@ -290,15 +261,20 @@ async function createBranchCommitPrAndPlan(
   })
 
   let workflowRunId: number | undefined
+  let workflowRunUrl: string | undefined
+  const planHeadSha = prJson.head?.sha
   try {
     const runsRes = await gh(
       token,
-      `/repos/${OWNER}/${REPO}/actions/workflows/${PLAN_WORKFLOW}/runs?branch=${encodeURIComponent(
+      `/repos/${target.owner}/${target.repo}/actions/workflows/${PLAN_WORKFLOW}/runs?branch=${encodeURIComponent(
         branchName
       )}&per_page=1`
     )
     const runsJson = (await runsRes.json()) as { workflow_runs?: Array<{ id: number }> }
     workflowRunId = runsJson.workflow_runs?.[0]?.id
+    if (workflowRunId) {
+      workflowRunUrl = `https://github.com/${target.owner}/${target.repo}/actions/runs/${workflowRunId}`
+    }
   } catch {
     /* ignore */
   }
@@ -308,7 +284,9 @@ async function createBranchCommitPrAndPlan(
     prNumber: prJson.number,
     prUrl: prJson.html_url,
     commitSha: commitJson.sha,
-    workflowRunId,
+    planHeadSha,
+    planRunId: workflowRunId,
+    planRunUrl: workflowRunUrl,
   }
 }
 
@@ -346,19 +324,10 @@ export async function POST(request: NextRequest) {
     console.log("[api/requests] Triggering generation for", requestId)
     console.log("[api/requests] module =", body.module)
 
-    // ensure storage directory exists
-    await mkdir(STORAGE_DIR, { recursive: true })
-
-    // read existing requests (or init empty)
-    let existing: StoredRequest[] = []
-    try {
-      const contents = await readFile(STORAGE_FILE, "utf8")
-      const parsed = JSON.parse(contents)
-      if (Array.isArray(parsed)) {
-        existing = parsed as StoredRequest[]
-      }
-    } catch {
-      existing = []
+    const moduleType = getModuleType(body.module!, (meta as any)?.category)
+    const targetRepo = resolveInfraRepo(body.project!, body.environment!)
+    if (!targetRepo) {
+      return NextResponse.json({ success: false, error: "No infra repo configured for project/environment" }, { status: 400 })
     }
 
     const newRequest: StoredRequest = {
@@ -373,26 +342,33 @@ export async function POST(request: NextRequest) {
       plan: { diff: planDiffForModule(body.module) },
     }
 
-    const generated = await generateTerraformFiles(newRequest)
-    const ghResult = await createBranchCommitPrAndPlan(token, newRequest, generated.files)
+    const generated = await generateTerraformFiles(
+      token,
+      newRequest,
+      moduleType,
+      targetRepo.envPath,
+      targetRepo.owner,
+      targetRepo.repo
+    )
+    const ghResult = await createBranchCommitPrAndPlan(token, newRequest, generated.files, targetRepo)
 
     newRequest.branchName = ghResult.branchName
     newRequest.prNumber = ghResult.prNumber
     newRequest.prUrl = ghResult.prUrl
     newRequest.commitSha = ghResult.commitSha
-    newRequest.workflowRunId = ghResult.workflowRunId
     newRequest.status = "planning"
+    newRequest.targetOwner = targetRepo.owner
+    newRequest.targetRepo = targetRepo.repo
+    newRequest.targetBase = targetRepo.base
+    newRequest.targetEnvPath = targetRepo.envPath
+    newRequest.targetFiles = generated.files.map((f) => f.path)
     newRequest.planRun = {
-      generatedPath: generated.generatedPath,
-      triggeredAt: new Date().toISOString(),
-      workflowUrl: ghResult.workflowRunId
-        ? `https://github.com/${OWNER}/${REPO}/actions/runs/${ghResult.workflowRunId}`
-        : undefined,
-      runId: ghResult.workflowRunId,
+      runId: ghResult.planRunId,
+      url: ghResult.planRunUrl,
+      headSha: ghResult.planHeadSha,
     }
 
-    existing.push(newRequest)
-    await writeFile(STORAGE_FILE, JSON.stringify(existing, null, 2), "utf8")
+    await saveRequest(newRequest)
 
     return NextResponse.json({
       success: true,
@@ -408,84 +384,9 @@ export async function POST(request: NextRequest) {
   }
 }
 
-export async function GET(req: NextRequest) {
+export async function GET(_req: NextRequest) {
   try {
-    const contents = await readFile(STORAGE_FILE, "utf8")
-    const parsed = JSON.parse(contents)
-    let requests: StoredRequest[] = Array.isArray(parsed) ? parsed : []
-
-    const token = await getGitHubAccessToken(req)
-    if (token) {
-      const updatedRequests: StoredRequest[] = []
-      for (const r of requests) {
-        let updated = { ...r }
-
-        if (r.prNumber) {
-          try {
-            const prRes = await gh(token, `/repos/${OWNER}/${REPO}/pulls/${r.prNumber}`)
-            const prJson = (await prRes.json()) as { merged?: boolean; state?: string; html_url?: string }
-            updated.prUrl = prJson.html_url ?? updated.prUrl
-            if (prJson.merged) {
-              updated.status = updated.status === "applying" || updated.status === "complete" ? updated.status : "merged"
-            } else if (prJson.state === "open" && updated.status === "created") {
-              updated.status = "pr_open"
-            }
-          } catch {
-            /* ignore */
-          }
-        }
-
-        if (!r.workflowRunId && r.branchName && (r.status === "planning" || r.status === "pr_open")) {
-          try {
-            const runsRes = await gh(
-              token,
-              `/repos/${OWNER}/${REPO}/actions/workflows/${PLAN_WORKFLOW}/runs?branch=${encodeURIComponent(
-                r.branchName
-              )}&per_page=1`
-            )
-            const runsJson = (await runsRes.json()) as { workflow_runs?: Array<{ id: number; status?: string; conclusion?: string }> }
-            const run = runsJson.workflow_runs?.[0]
-            if (run?.id) {
-              updated.workflowRunId = run.id
-            }
-            if (run?.conclusion === "success") {
-              updated.status = "plan_ready"
-            } else if (run?.conclusion === "failure") {
-              updated.status = "failed"
-            }
-          } catch {
-            /* ignore */
-          }
-        }
-
-        if (r.workflowRunId || updated.workflowRunId) {
-          try {
-            const runId = r.workflowRunId ?? updated.workflowRunId
-            if (!runId) throw new Error("no run id")
-            const runRes = await gh(token, `/repos/${OWNER}/${REPO}/actions/runs/${runId}`)
-            const runJson = (await runRes.json()) as { status?: string; conclusion?: string }
-            if (runJson.conclusion === "success") {
-              if (updated.status !== "merged" && updated.status !== "applying" && updated.status !== "complete") {
-                updated.status = "plan_ready"
-              }
-            } else if (runJson.conclusion === "failure") {
-              updated.status = "failed"
-            } else if (runJson.status === "in_progress" || runJson.status === "queued") {
-              if (updated.status !== "merged" && updated.status !== "plan_ready") {
-                updated.status = "planning"
-              }
-            }
-          } catch {
-            /* ignore */
-          }
-        }
-
-        updatedRequests.push(updated)
-      }
-      requests = updatedRequests
-      await writeFile(STORAGE_FILE, JSON.stringify(requests, null, 2), "utf8")
-    }
-
+    const requests: StoredRequest[] = (await listRequests()) as StoredRequest[]
     return NextResponse.json({
       success: true,
       requests,

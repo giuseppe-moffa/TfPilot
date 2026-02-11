@@ -4,12 +4,9 @@ import path from "node:path"
 
 import { getGitHubAccessToken } from "@/lib/github/auth"
 import { gh } from "@/lib/github/client"
+import { env } from "@/lib/config/env"
 
 const STORAGE_FILE = path.join(process.cwd(), "tmp", "requests.json")
-
-const OWNER = process.env.GITHUB_OWNER ?? "giuseppe-moffa"
-const REPO = process.env.GITHUB_REPO ?? "TfPilot"
-const APPLY_WORKFLOW = process.env.GITHUB_APPLY_WORKFLOW ?? "apply.yml"
 
 export async function POST(req: NextRequest) {
   try {
@@ -38,8 +35,15 @@ export async function POST(req: NextRequest) {
     }
     const request = requests[idx]
 
-    if (request.status !== "merged" && request.status !== "plan_ready") {
-      return NextResponse.json({ error: "Request not ready for apply" }, { status: 400 })
+    if (request.status !== "merged") {
+      return NextResponse.json({ error: "Request must be merged before apply" }, { status: 400 })
+    }
+
+    const owner = request.targetOwner
+    const repo = request.targetRepo
+    const base = request.targetBase ?? "main"
+    if (!owner || !repo) {
+      return NextResponse.json({ error: "Request missing target repo info" }, { status: 400 })
     }
 
     const dispatchBody = {
@@ -50,19 +54,35 @@ export async function POST(req: NextRequest) {
       },
     }
 
-    await gh(
-      token,
-      `/repos/${OWNER}/${REPO}/actions/workflows/${APPLY_WORKFLOW}/dispatches`,
-      {
-        method: "POST",
-        body: JSON.stringify(dispatchBody),
+    await gh(token, `/repos/${owner}/${repo}/actions/workflows/${env.GITHUB_APPLY_WORKFLOW_FILE}/dispatches`, {
+      method: "POST",
+      body: JSON.stringify(dispatchBody),
+    })
+
+    let applyRunId: number | undefined
+    let applyRunUrl: string | undefined
+    try {
+      const runsRes = await gh(
+        token,
+        `/repos/${owner}/${repo}/actions/workflows/${env.GITHUB_APPLY_WORKFLOW_FILE}/runs?branch=${encodeURIComponent(
+        base
+      )}&per_page=1`
+      )
+      const runsJson = (await runsRes.json()) as { workflow_runs?: Array<{ id: number }> }
+      applyRunId = runsJson.workflow_runs?.[0]?.id
+      if (applyRunId) {
+        applyRunUrl = `https://github.com/${owner}/${repo}/actions/runs/${applyRunId}`
       }
-    )
+    } catch {
+      /* ignore */
+    }
 
     requests[idx] = {
       ...request,
       status: "applying",
       applyTriggeredAt: new Date().toISOString(),
+      applyRunId,
+      applyRunUrl,
     }
     await writeFile(STORAGE_FILE, JSON.stringify(requests, null, 2), "utf8")
 

@@ -38,12 +38,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "messages array required" }, { status: 400 })
     }
 
-    const apiKey = process.env.OPENAI_API_KEY
-    if (!apiKey) {
-      return NextResponse.json({ error: "OPENAI_API_KEY not configured" }, { status: 500 })
-    }
-
-    const model = process.env.OPENAI_MODEL ?? "gpt-3.5-turbo"
+    const { env, logEnvDebug } = await import("@/lib/config/env")
+    logEnvDebug()
+    const apiKey = env.OPENAI_API_KEY
+    const model = env.OPENAI_MODEL
 
     const payload = {
       model,

@@ -22,13 +22,13 @@ export const mockRequests: MockRequest[] = [
   },
   {
     id: "req_DEF456",
-    project: "assets",
-    environment: "staging",
+    project: "core",
+    environment: "dev",
     status: "approved",
     updatedAt: "2026-02-06T18:00:00Z",
     createdAt: "2026-02-06T17:50:00Z",
-    config: { name: "assets-bucket" },
-    plan: { diff: "+ aws_s3_bucket.assets" },
+    config: { name: "core-shared" },
+    plan: { diff: "+ aws_s3_bucket.core" },
   },
   {
     id: "req_GHI789",

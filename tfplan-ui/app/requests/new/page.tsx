@@ -8,14 +8,15 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { AgentChat } from "@/components/agent-chat"
+import { listEnvironments, listProjects } from "@/config/infra-repos"
 
 export default function NewRequestPage() {
   const [project, setProject] = React.useState("")
   const [environment, setEnvironment] = React.useState("")
   const [modules, setModules] = React.useState<string[]>([])
   const [loadingModules, setLoadingModules] = React.useState(false)
-  const projects = ["payments", "analytics", "core"]
-  const environments = ["dev", "staging", "prod"]
+  const projects = listProjects()
+  const environments = project ? listEnvironments(project) : []
   const canStartChat = Boolean(project && environment)
 
   React.useEffect(() => {

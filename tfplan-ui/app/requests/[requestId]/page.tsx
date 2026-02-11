@@ -3,6 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { CheckCircle2, Github, Loader2, Link as LinkIcon } from "lucide-react"
+import useSWR from "swr"
 import { useParams } from "next/navigation"
 
 import { Badge } from "@/components/ui/badge"
@@ -95,7 +96,6 @@ export default function RequestDetailPage() {
         ? routeParams?.requestId[0]
         : undefined
 
-  const [isLoading, setIsLoading] = React.useState(true)
   const [isApplying, setIsApplying] = React.useState(false)
   const [isApproving, setIsApproving] = React.useState(false)
   const [approveModalOpen, setApproveModalOpen] = React.useState(false)
@@ -111,7 +111,10 @@ export default function RequestDetailPage() {
   >("idle")
   const [mergeModalOpen, setMergeModalOpen] = React.useState(false)
   const [actionError, setActionError] = React.useState<string | null>(null)
-  const [request, setRequest] = React.useState<{
+  const [showDiff, setShowDiff] = React.useState(false)
+  const [showPlanOutput, setShowPlanOutput] = React.useState(false)
+  const [showApplyOutput, setShowApplyOutput] = React.useState(false)
+  const [requestState, setRequestState] = React.useState<{
     id: string
     project: string
     environment: string
@@ -133,6 +136,11 @@ export default function RequestDetailPage() {
       | "applied"
     createdAt?: string
     updatedAt?: string
+    targetOwner?: string
+    targetRepo?: string
+    targetBase?: string
+    targetEnvPath?: string
+    targetFiles?: string[]
     prUrl?: string
     branchName?: string
     workflowRunId?: number
@@ -148,82 +156,90 @@ export default function RequestDetailPage() {
     pr?: { url: string; branch: string; status: string }
   } | null>(null)
 
-  const refreshRequest = React.useCallback(async () => {
-    if (!requestId) return
-    setIsLoading(true)
-    try {
-      const res = await fetch("/api/requests")
-      if (!res.ok) throw new Error("Failed to fetch request")
-      const data = (await res.json()) as {
-        success: boolean
-        requests?: Array<{
-          id: string
-          project: string
-          environment: string
-          status?: "pending" | "planned" | "approved" | "applied"
-          receivedAt?: string
-          updatedAt?: string
-          plan?: { diff?: string }
-          pullRequest?: {
-            title: string
-            url: string
-            number: number
-            files?: Array<{ path: string; diff: string }>
-            planOutput?: string
-          }
-          pr?: { url: string; branch: string; status: string }
-        }>
-      }
-      const match = data.requests?.find((r) => r.id === requestId)
-      setRequest(
-        match
-          ? {
-              id: match.id,
-              project: match.project,
-              environment: match.environment,
-              status: match.status ?? "pending",
-              createdAt: match.receivedAt,
-              updatedAt: match.updatedAt,
-              plan: match.plan,
-              pullRequest: match.pullRequest,
-              pr: match.pr,
-            }
-          : null
-      )
-    } catch (err) {
-      console.error("[request detail] fetch error", err)
-      setRequest(null)
-    } finally {
-      setIsLoading(false)
+  const fetcher = React.useCallback(async (url: string) => {
+    const res = await fetch(url)
+    if (!res.ok) throw new Error(`Failed to fetch ${url}`)
+    return res.json()
+  }, [])
+
+  const requestFetcher = React.useCallback(async () => {
+    if (!requestId) return null
+    const data = await fetcher("/api/requests")
+    const match = (data.requests as any[])?.find((r) => r.id === requestId) ?? null
+    return match
+  }, [fetcher, requestId])
+
+  const { data: liveRequest, isLoading: requestLoading, mutate: mutateRequest } = useSWR(
+    requestId ? ["request", requestId] : null,
+    requestFetcher,
+    {
+      refreshInterval: 5000,
+      dedupingInterval: 4000,
+      keepPreviousData: true,
+      revalidateOnFocus: false,
     }
-  }, [requestId])
+  )
 
   React.useEffect(() => {
-    void refreshRequest()
-  }, [refreshRequest])
+    if (!requestState && liveRequest) {
+      setRequestState({
+        ...liveRequest,
+        status: liveRequest.status ?? "pending",
+        createdAt: liveRequest.receivedAt,
+        updatedAt: liveRequest.updatedAt,
+        pullRequest: liveRequest.pullRequest,
+        pr: liveRequest.pr,
+      })
+    }
+  }, [liveRequest, requestState])
 
-  React.useEffect(() => {
-    if (!requestId) return
-    const id = setInterval(() => {
-      void refreshRequest()
-    }, 5000)
-    return () => clearInterval(id)
-  }, [refreshRequest, requestId])
+  const request = (liveRequest as any) ?? requestState
+
+  const planRunId = liveRequest?.planRunId ?? liveRequest?.planRun?.runId ?? request?.planRunId ?? request?.planRun?.runId
+  const applyRunId = liveRequest?.applyRunId ?? request?.applyRunId
+  const prNumber = liveRequest?.prNumber ?? request?.pullRequest?.number
+
+  const { data: approvalStatus } = useSWR(
+    requestId ? [`approval`, requestId, prNumber] : null,
+    () => fetcher(`/api/github/approval-status?requestId=${requestId}`),
+    { refreshInterval: 5000, dedupingInterval: 4000, keepPreviousData: true, revalidateOnFocus: false }
+  )
+
+  const diffKey = showDiff && prNumber ? [`pr-diff`, requestId, prNumber] : null
+  const { data: prDiff } = useSWR(diffKey, () => fetcher(`/api/github/pr-diff?requestId=${requestId}`), {
+    keepPreviousData: true,
+    dedupingInterval: 5000,
+    revalidateOnFocus: false,
+  })
+
+  const planKey = showPlanOutput && planRunId ? [`plan-output`, requestId, planRunId] : null
+  const { data: planOutput } = useSWR(planKey, () => fetcher(`/api/github/plan-output?requestId=${requestId}`), {
+    keepPreviousData: true,
+    dedupingInterval: 5000,
+    revalidateOnFocus: false,
+  })
+
+  const applyKey = showApplyOutput && applyRunId ? [`apply-output`, requestId, applyRunId] : null
+  const { data: applyOutput } = useSWR(applyKey, () => fetcher(`/api/github/apply-output?requestId=${requestId}`), {
+    keepPreviousData: true,
+    dedupingInterval: 5000,
+    revalidateOnFocus: false,
+  })
 
   async function handleApproveApply() {
     if (!requestId || !request || request.status !== "planned") return
     setIsApplying(true)
     setApplyStatus("pending")
     setApplyModalOpen(true)
-    const prevStatus = request.status
-    setRequest({ ...request, status: "applied" })
+    const prevStatus = request?.status
+    if (request) setRequestState({ ...request, status: "applied" })
     try {
       await fetch(`/api/requests/${requestId}/approve`, { method: "POST" })
       setApplyStatus("success")
       setTimeout(() => setApplyModalOpen(false), 2000)
     } catch (err) {
       console.error("[request approve] error", err)
-      setRequest({ ...request, status: prevStatus })
+      if (request && prevStatus) setRequestState({ ...request, status: prevStatus })
       setApplyStatus("error")
     } finally {
       setIsApplying(false)
@@ -235,16 +251,16 @@ export default function RequestDetailPage() {
     setIsApplying(true)
     setApplyStatus("pending")
     setApplyModalOpen(true)
-    const prevStatus = request.status
-    setRequest({ ...request, status: "applied" })
+    const prevStatus = request?.status
+    if (request) setRequestState({ ...request, status: "applied" })
     try {
       await fetch(`/api/requests/${requestId}/apply`, { method: "POST" })
-      await refreshRequest()
+      await mutateRequest()
       setApplyStatus("success")
       setTimeout(() => setApplyModalOpen(false), 2000)
     } catch (err) {
       console.error("[request apply] error", err)
-      setRequest({ ...request, status: prevStatus })
+      if (request && prevStatus) setRequestState({ ...request, status: prevStatus })
       setApplyStatus("error")
     } finally {
       setIsApplying(false)
@@ -265,8 +281,8 @@ export default function RequestDetailPage() {
         const err = await res.json().catch(() => ({}))
         throw new Error(err?.error || "Failed to dispatch apply")
       }
-      setRequest({ ...(request as any), status: "applying" })
-      await refreshRequest()
+      if (request) setRequestState({ ...(request as any), status: "applying" })
+      await mutateRequest()
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Failed to dispatch apply")
     } finally {
@@ -294,7 +310,7 @@ export default function RequestDetailPage() {
           },
         ],
       }
-      setRequest(updated as any)
+      setRequestState(updated as any)
       setMergeStatus("success")
       setTimeout(() => setMergeModalOpen(false), 2000)
     } catch (err) {
@@ -313,7 +329,7 @@ export default function RequestDetailPage() {
         method: "POST",
       })
       if (!res.ok) throw new Error("Approve failed")
-      await refreshRequest()
+      await mutateRequest()
       setApproveStatus("success")
       setTimeout(() => setApproveModalOpen(false), 2000)
     } catch (err) {
@@ -324,7 +340,7 @@ export default function RequestDetailPage() {
     }
   }
 
-  if (isLoading) {
+  if (requestLoading && !request) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center text-muted-foreground">
         Loading request...
@@ -363,6 +379,7 @@ export default function RequestDetailPage() {
     requestStatus === "awaiting_approval" ||
     isMerged ||
     isApplied
+  const isApproved = approvalStatus?.approved ?? false
   const isPlanning =
     requestStatus === "planning" || requestStatus === "pr_open" || requestStatus === "created" || requestStatus === "pending"
   const isFailed = requestStatus === "failed"
@@ -380,13 +397,6 @@ export default function RequestDetailPage() {
         key: "merged" as const,
         state: "completed" as const,
         subtitle: "Pull request merged",
-      }
-    }
-    if (isPlanReady) {
-      return {
-        key: "planned" as const,
-        state: "pending" as const,
-        subtitle: "Waiting for PR merge",
       }
     }
     if (isPlanning) {
@@ -472,6 +482,26 @@ export default function RequestDetailPage() {
             <p className="text-base font-medium">{request.module ?? "—"}</p>
           </div>
           <div className="space-y-2">
+            <p className="text-sm text-muted-foreground">Target repo</p>
+            <p className="text-base font-medium">
+              {request.targetOwner && request.targetRepo
+                ? `${request.targetOwner}/${request.targetRepo}`
+                : "—"}
+            </p>
+          </div>
+          <div className="space-y-2">
+            <p className="text-sm text-muted-foreground">Environment path</p>
+            <p className="text-base font-medium">{request.targetEnvPath ?? "—"}</p>
+          </div>
+          <div className="space-y-2 md:col-span-2">
+            <p className="text-sm text-muted-foreground">Files</p>
+            <p className="text-base font-medium">
+              {request.targetFiles?.length
+                ? request.targetFiles.join(", ")
+                : "—"}
+            </p>
+          </div>
+          <div className="space-y-2">
             <p className="text-sm text-muted-foreground">Submitted</p>
             <p className="text-base font-medium">
               {formatDate(request.createdAt ?? request.updatedAt ?? "")}
@@ -488,18 +518,39 @@ export default function RequestDetailPage() {
         <CardContent className="flex flex-wrap items-center gap-3 pt-4">
           {(request.pullRequest?.url || request.prUrl) && (
             <Button asChild variant="outline" size="sm">
-              <Link href={request.pullRequest?.url ?? request.prUrl!} target="_blank" rel="noreferrer">
+              <Link href={request.prUrl ?? request.pullRequest?.url!} target="_blank" rel="noreferrer">
                 View PR
               </Link>
             </Button>
           )}
-          <Button size="sm" variant="outline" disabled>
-            Merge (requires plan_ready)
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!isPlanReady || !isApproved || isMerged}
+            onClick={async () => {
+              setActionError(null)
+              try {
+                const res = await fetch("/api/github/merge", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ requestId }),
+                })
+                if (!res.ok) {
+                  const err = await res.json().catch(() => ({}))
+                  throw new Error(err?.error || "Merge failed")
+                }
+                await mutateRequest()
+              } catch (err) {
+                setActionError(err instanceof Error ? err.message : "Merge failed")
+              }
+            }}
+          >
+            Merge
           </Button>
           <Button
             size="sm"
             onClick={handleApplyDispatch}
-            disabled={request.status !== "merged" || isApplying}
+            disabled={!isMerged || isApplying}
           >
             {isApplying ? "Applying..." : "Apply"}
           </Button>
@@ -630,7 +681,7 @@ export default function RequestDetailPage() {
                     <Button
                       size="sm"
                       disabled={
-                        isLoading ||
+                        requestLoading ||
                         request.status === "approved" ||
                         request.status === "applied"
                       }
@@ -640,7 +691,7 @@ export default function RequestDetailPage() {
                       }}
                       className={cn(
                         "cursor-pointer rounded-md bg-emerald-500 px-3 py-1.5 text-white hover:bg-emerald-600",
-                        (isLoading ||
+                        (requestLoading ||
                           request.status === "approved" ||
                           request.status === "applied") &&
                           "cursor-not-allowed bg-gray-100 text-emerald-500 opacity-60"
@@ -712,7 +763,7 @@ export default function RequestDetailPage() {
               <div className="space-y-2">
                 <p className="text-sm font-medium">File Changes</p>
                 <div className="space-y-2 rounded-lg border bg-slate-50 p-3 text-sm">
-                  {request.pullRequest.files.map((file) => (
+                  {request.pullRequest.files.map((file: { path: string; diff: string }) => (
                     <div key={file.path} className="space-y-1">
                       <p className="font-medium text-slate-900">{file.path}</p>
                       <div className="rounded bg-slate-900 px-3 py-2 text-slate-100">
@@ -730,7 +781,7 @@ export default function RequestDetailPage() {
 
             <div className="space-y-2">
               <p className="text-sm font-medium">Terraform Plan Output</p>
-              {isLoading ? (
+              {requestLoading ? (
                 <p className="text-sm text-muted-foreground">Loading plan...</p>
               ) : request.pullRequest?.planOutput || request.plan?.diff ? (
                 <div className="rounded-lg border bg-slate-950 text-slate-100">
@@ -740,6 +791,86 @@ export default function RequestDetailPage() {
                 </div>
               ) : (
                 <p className="text-sm text-muted-foreground">Plan not generated yet.</p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-medium">PR Diff</p>
+                <Button size="sm" variant="outline" onClick={() => setShowDiff((v) => !v)}>
+                  {showDiff ? "Hide" : "Load"}
+                </Button>
+              </div>
+              {showDiff ? (
+                prDiff?.files?.length ? (
+                  <div className="space-y-2">
+                    {prDiff.files.map((f: any, idx: number) => (
+                      <details key={`${f.filename}-${idx}`} className="rounded border bg-slate-50 p-2">
+                        <summary className="cursor-pointer text-sm font-medium">
+                          {f.filename} ({f.status}) +{f.additions}/-{f.deletions}
+                        </summary>
+                        {f.patch ? (
+                          <pre className="mt-2 overflow-auto rounded bg-slate-900 p-2 text-xs text-slate-100">
+                            {f.patch}
+                          </pre>
+                        ) : (
+                          <p className="text-xs text-muted-foreground mt-1">No patch available.</p>
+                        )}
+                      </details>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No diff available yet.</p>
+                )
+              ) : (
+                <p className="text-sm text-muted-foreground">Click Load to fetch diff.</p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-medium">Plan Output</p>
+                <Button size="sm" variant="outline" onClick={() => setShowPlanOutput((v) => !v)} disabled={!planRunId}>
+                  {showPlanOutput ? "Hide" : "Load"}
+                </Button>
+              </div>
+              {showPlanOutput ? (
+                planOutput?.planText ? (
+                  <pre className="max-h-64 overflow-auto rounded bg-slate-900 p-3 text-xs text-slate-100 whitespace-pre-wrap">
+                    {planOutput.planText}
+                  </pre>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No plan output yet.</p>
+                )
+              ) : (
+                <p className="text-sm text-muted-foreground">Click Load to fetch plan output.</p>
+              )}
+              {planOutput?.rawLogUrl && (
+                <a className="text-sm text-primary hover:underline" href={planOutput.rawLogUrl} target="_blank" rel="noreferrer">
+                  Open plan logs
+                </a>
+              )}
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-medium">Apply Output</p>
+                <Button size="sm" variant="outline" onClick={() => setShowApplyOutput((v) => !v)} disabled={!applyRunId}>
+                  {showApplyOutput ? "Hide" : "Load"}
+                </Button>
+              </div>
+              {showApplyOutput ? (
+                applyOutput?.applyText ? (
+                  <pre className="max-h-64 overflow-auto rounded bg-slate-900 p-3 text-xs text-slate-100 whitespace-pre-wrap">
+                    {applyOutput.applyText}
+                  </pre>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No apply output yet.</p>
+                )
+              ) : (
+                <p className="text-sm text-muted-foreground">Click Load to fetch apply output.</p>
+              )}
+              {applyOutput?.rawLogUrl && (
+                <a className="text-sm text-primary hover:underline" href={applyOutput.rawLogUrl} target="_blank" rel="noreferrer">
+                  Open apply logs
+                </a>
               )}
             </div>
           </CardContent>
