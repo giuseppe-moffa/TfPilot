@@ -1,51 +1,36 @@
-# TfPilot
+This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
-Terraform self-service platform for GitHub-authenticated engineers to request, plan, and apply infrastructure safely via GitHub Actions and AWS OIDC.
+## Getting Started
 
-## What it does
-- GitHub OAuth login (no local passwords).
-- AWS connection via CloudFormation stack (`tfplan-stack.yaml`) that provisions an OIDC-assumable role (`tfplan-connector`).
-- Chat-driven “New Request” flow that collects module inputs and writes generated Terraform to target infra repos.
-- GitHub Actions:
-  - `plan.yml` (workflow_dispatch-enabled) runs Terraform plan per request branch.
-  - `apply.yml` (workflow_dispatch) runs Terraform apply after merge.
-- Module catalog served from local `terraform-modules/*/metadata.json` (e.g., s3-bucket, sqs-queue, ecs-service) and rendered dynamically in the UI.
-- Request timeline with PR link, branch/status, and apply controls.
+First, run the development server:
 
-## Repo layout
-- `tfplan-ui/` – Next.js (App Router) frontend + API routes.
-- `terraform-modules/` – Module metadata driving the dynamic forms.
-- `.github/workflows/` – `plan.yml` and `apply.yml` (OIDC, no static AWS keys).
+```bash
+npm run dev
+# or
+yarn dev
+# or
+pnpm dev
+# or
+bun dev
+```
 
-## Prereqs
-- Node 18+ / npm
-- AWS account with OIDC role support
-- GitHub OAuth app (for login) and repo access for Actions dispatch
+Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
-## Setup (local)
-1) `cd tfplan-ui && npm install`
-2) Copy `tfplan-ui/env.example` to `.env.local` and fill in:
-   - `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `AUTH_SECRET`
-   - `GITHUB_OWNER`, `GITHUB_REPO`, `GITHUB_PLAN_WORKFLOW=plan.yml`, `GITHUB_APPLY_WORKFLOW=apply.yml`
-   - `OPENAI_API_KEY` if using the chat assistant
-3) Start UI: `npm run dev` (from `tfplan-ui/`)
+You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
-## AWS connection
-- Launch the CloudFormation template at `tfplan-ui/public/tfplan-stack.yaml` (hosted raw on GitHub).
-- Template creates OIDC provider (or uses existing) + role `tfplan-connector` with configurable policy and branch scope.
+This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
-## Workflows
-- `plan.yml`: workflow_dispatch + push/PR; assumes `tfplan-connector` via OIDC; runs Terraform plan in target repos.
-- `apply.yml`: workflow_dispatch only; assumes `tfplan-connector`; runs Terraform apply in target repos (after merge).
+## Learn More
 
-## Security notes
-- No static AWS keys; Actions use GitHub OIDC to assume the role.
-- Keep secrets in env files or GitHub Actions secrets; do not commit real credentials.
-- Generated artifacts (`tmp/*.json`, chat logs) should stay out of git.
+To learn more about Next.js, take a look at the following resources:
 
-## Status
-- UI/UX: GitHub login, AWS connect flow, chat-based request wizard, module catalog, timeline with PR/apply buttons.
-- Backend: API for requests, modules, chat logs; GitHub branch/PR/workflow dispatch; Terraform file generation per request.
+- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
+- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
 
-## License
-MIT
+You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+
+## Deploy on Vercel
+
+The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+
+Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.

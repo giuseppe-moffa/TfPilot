@@ -20,8 +20,8 @@ const geistMono = Geist_Mono({
 })
 
 export const metadata: Metadata = {
-  title: "tfplan",
-  description: "tfplan infrastructure management console",
+  title: "TfPilotS",
+  description: "TfPilot infrastructure management console",
 }
 
 const navItems = [
@@ -71,7 +71,7 @@ export default function RootLayout({
                 <header className="border-b border-border bg-background/80 backdrop-blur">
                   <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
                     <Link href="/" className="text-lg font-semibold text-foreground hover:text-foreground/80">
-                      TfPlan
+                      TfPilot
                     </Link>
                     <NavBar />
                   </div>

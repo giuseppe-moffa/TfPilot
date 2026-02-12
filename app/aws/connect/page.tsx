@@ -13,7 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useAwsConnection } from "@/app/providers"
 
 const rawTemplateUrl =
-  "https://raw.githubusercontent.com/giuseppe-moffa/TfPilot/main/tfplan-ui/public/tfplan-stack.yaml"
+  "https://raw.githubusercontent.com/giuseppe-moffa/TfPilot/main/public/tfplan-stack.yaml"
 const templateUrl = `https://console.aws.amazon.com/cloudformation/home#/stacks/create/review?stackName=tfplan-connector&templateURL=${encodeURIComponent(rawTemplateUrl)}`
 
 type Identity = {
@@ -101,19 +101,19 @@ export default function AwsConnectPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 text-foreground">
       <div className="space-y-2">
         <h1 className="text-2xl font-semibold">AWS Connect</h1>
         <p className="text-muted-foreground">
-          Launch the tfplan CloudFormation stack from GitHub, then validate the connection.
+          Launch the TfPilot CloudFormation stack from GitHub, then validate the connection.
         </p>
       </div>
 
-      <Card className="max-w-4xl">
+      <Card className="max-w-4xl border border-border bg-card">
         <CardHeader className="border-b">
           <CardTitle>Connect with CloudFormation</CardTitle>
           <CardDescription>
-            Deploy the tfplan stack from GitHub to create a GitHub OIDC-backed IAM role.
+            Deploy the TfPilot stack from GitHub to create a GitHub OIDC-backed IAM role.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6 pt-6">
@@ -132,83 +132,93 @@ export default function AwsConnectPage() {
           </div>
           <ol className="list-decimal space-y-2 pl-5 text-sm text-muted-foreground">
             <li>Open the quick-create link and review the parameters.</li>
-            <li>Deploy the stack to create the tfplan IAM role.</li>
+            <li>Deploy the stack to create the TfPilot IAM role.</li>
             <li>Copy the created role ARN or credentials for validation below.</li>
           </ol>
         </CardContent>
       </Card>
 
-      <Card className="max-w-4xl">
+      <Card className="max-w-4xl border border-border bg-card/80 text-foreground">
         <CardHeader className="border-b">
           <CardTitle>Validate the connection</CardTitle>
           <CardDescription>
-            Use the role or access keys created by the stack to verify tfplan can call AWS STS.
+            Use the role or access keys created by the stack to verify TfPilot can call AWS STS.
           </CardDescription>
         </CardHeader>
         <CardContent className="pt-6">
-          <Tabs value={mode} onValueChange={(v) => setMode(v as Mode)} className="space-y-6">
-            <TabsList>
+          <Tabs value={mode} onValueChange={(v) => setMode(v as Mode)} className="space-y-6 text-foreground">
+            <TabsList className="bg-muted/60 border border-border">
               <TabsTrigger value="keys">Access Keys</TabsTrigger>
               <TabsTrigger value="role">Assume Role</TabsTrigger>
             </TabsList>
 
             <form className="space-y-6" onSubmit={handleSubmit}>
-              <TabsContent value="keys" className="space-y-4">
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="accessKeyId">Access Key ID</Label>
-                    <Input
-                      id="accessKeyId"
-                      value={accessKeyId}
-                      onChange={(e) => setAccessKeyId(e.target.value)}
-                      required={mode === "keys"}
-                      placeholder="AKIA..."
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="secretAccessKey">Secret Access Key</Label>
-                    <Input
-                      id="secretAccessKey"
-                      type="password"
-                      value={secretAccessKey}
-                      onChange={(e) => setSecretAccessKey(e.target.value)}
-                      required={mode === "keys"}
-                      placeholder="••••••••"
-                    />
-                  </div>
-                  <div className="space-y-2 md:col-span-2">
-                    <Label htmlFor="regionKeys">Region</Label>
-                    <Input
-                      id="regionKeys"
-                      value={regionKeys}
-                      onChange={(e) => setRegionKeys(e.target.value)}
-                      required={mode === "keys"}
-                      placeholder="us-east-1"
-                    />
+              <TabsContent
+                value="keys"
+                className="space-y-4 text-foreground rounded-lg border border-border bg-card/80 p-4"
+              >
+                <div className="rounded-lg border border-border bg-muted/30 p-4">
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="accessKeyId">Access Key ID</Label>
+                      <Input
+                        id="accessKeyId"
+                        value={accessKeyId}
+                        onChange={(e) => setAccessKeyId(e.target.value)}
+                        required={mode === "keys"}
+                        placeholder="AKIA..."
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="secretAccessKey">Secret Access Key</Label>
+                      <Input
+                        id="secretAccessKey"
+                        type="password"
+                        value={secretAccessKey}
+                        onChange={(e) => setSecretAccessKey(e.target.value)}
+                        required={mode === "keys"}
+                        placeholder="••••••••"
+                      />
+                    </div>
+                    <div className="space-y-2 md:col-span-2">
+                      <Label htmlFor="regionKeys">Region</Label>
+                      <Input
+                        id="regionKeys"
+                        value={regionKeys}
+                        onChange={(e) => setRegionKeys(e.target.value)}
+                        required={mode === "keys"}
+                        placeholder="us-east-1"
+                      />
+                    </div>
                   </div>
                 </div>
               </TabsContent>
 
-              <TabsContent value="role" className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="roleArn">Role ARN</Label>
-                  <Input
-                    id="roleArn"
-                    value={roleArn}
-                    onChange={(e) => setRoleArn(e.target.value)}
-                    required={mode === "role"}
-                    placeholder="arn:aws:iam::123456789012:role/tfplan-connector"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="regionRole">Region</Label>
-                  <Input
-                    id="regionRole"
-                    value={regionRole}
-                    onChange={(e) => setRegionRole(e.target.value)}
-                    required={mode === "role"}
-                    placeholder="us-east-1"
-                  />
+              <TabsContent
+                value="role"
+                className="space-y-4 text-foreground rounded-lg border border-border bg-card/80 p-4"
+              >
+                <div className="rounded-lg border border-border bg-muted/30 p-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="roleArn">Role ARN</Label>
+                    <Input
+                      id="roleArn"
+                      value={roleArn}
+                      onChange={(e) => setRoleArn(e.target.value)}
+                      required={mode === "role"}
+                      placeholder="arn:aws:iam::123456789012:role/tfplan-connector"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="regionRole">Region</Label>
+                    <Input
+                      id="regionRole"
+                      value={regionRole}
+                      onChange={(e) => setRegionRole(e.target.value)}
+                      required={mode === "role"}
+                      placeholder="us-east-1"
+                    />
+                  </div>
                 </div>
               </TabsContent>
 
@@ -231,16 +241,16 @@ export default function AwsConnectPage() {
                 <div>{error}</div>
                 <div className="text-xs text-destructive/80">
                   If it keeps failing, confirm the stack finished and the role policy allows sts:AssumeRole / GetCallerIdentity.
+                </div>
               </div>
-            </div>
             )}
             {identity && (
-              <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-                <div className="font-semibold">Connected</div>
+              <div className="rounded-md border border-success/50 bg-success/10 px-3 py-2 text-sm text-foreground">
+                <div className="font-semibold text-success">Connected</div>
                 <div>ARN: {identity.arn}</div>
                 <div>Account ID: {identity.accountId}</div>
                 <div>Region: {identity.region}</div>
-          </div>
+              </div>
             )}
           </div>
         </CardContent>

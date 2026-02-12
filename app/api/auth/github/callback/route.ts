@@ -31,7 +31,7 @@ async function fetchGithubUser(token: string) {
     headers: {
       Accept: "application/vnd.github+json",
       Authorization: `Bearer ${token}`,
-      "User-Agent": "tfplan",
+      "User-Agent": "TfPilot",
     },
   })
   if (!resp.ok) throw new Error("Failed to fetch GitHub user")
