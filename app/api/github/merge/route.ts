@@ -1,11 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
-import { readFile, writeFile } from "node:fs/promises"
-import path from "node:path"
-
 import { getGitHubAccessToken } from "@/lib/github/auth"
 import { gh } from "@/lib/github/client"
-
-const STORAGE_FILE = path.join(process.cwd(), "tmp", "requests.json")
+import { getRequest, updateRequest } from "@/lib/storage/requestsStore"
+import { getSessionFromCookies } from "@/lib/auth/session"
 
 export async function POST(req: NextRequest) {
   try {
@@ -14,21 +11,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "requestId required" }, { status: 400 })
     }
 
+    const session = await getSessionFromCookies()
+    if (!session) {
+      return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
+    }
+
     const token = await getGitHubAccessToken(req)
     if (!token) {
       return NextResponse.json({ error: "GitHub not connected" }, { status: 401 })
     }
 
-    const raw = await readFile(STORAGE_FILE, "utf8").catch(() => "[]")
-    const requests = JSON.parse(raw)
-    if (!Array.isArray(requests)) {
-      return NextResponse.json({ error: "No requests found" }, { status: 404 })
-    }
-    const idx = requests.findIndex((r: any) => r.id === body.requestId)
-    if (idx === -1) {
+    const request = await getRequest(body.requestId).catch(() => null)
+    if (!request) {
       return NextResponse.json({ error: "Request not found" }, { status: 404 })
     }
-    const request = requests[idx]
     if (!request.targetOwner || !request.targetRepo || !request.prNumber) {
       return NextResponse.json({ error: "Missing target repo or PR info" }, { status: 400 })
     }
@@ -41,13 +37,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Merge failed" }, { status: 400 })
     }
 
-    requests[idx] = {
-      ...request,
+    await updateRequest(request.id, (current) => ({
       status: "merged",
       mergedSha: mergeJson.sha,
       updatedAt: new Date().toISOString(),
-    }
-    await writeFile(STORAGE_FILE, JSON.stringify(requests, null, 2), "utf8")
+    }))
 
     return NextResponse.json({ ok: true, mergedSha: mergeJson.sha })
   } catch (error) {

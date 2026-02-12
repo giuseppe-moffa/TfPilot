@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 
-import { getRequest, saveRequest } from "@/lib/storage/requestsStore"
+import { getRequest, updateRequest } from "@/lib/storage/requestsStore"
+import { getSessionFromCookies } from "@/lib/auth/session"
 
 export async function POST(_req: NextRequest, { params }: { params: Promise<{ requestId: string }> }) {
   try {
@@ -11,6 +12,11 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ re
         { success: false, error: "Missing requestId" },
         { status: 400 }
       )
+    }
+
+    const session = await getSessionFromCookies()
+    if (!session) {
+      return NextResponse.json({ success: false, error: "Not authenticated" }, { status: 401 })
     }
 
     const existing = await getRequest(requestId).catch(() => null)
@@ -27,16 +33,14 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ re
       at: now,
     })
 
-    const updated = {
-      ...existing,
-      approval: { approved: true, approvers: existing.approval?.approvers ?? [] },
+    const updated = await updateRequest(requestId, (current) => ({
+      ...current,
+      approval: { approved: true, approvers: current.approval?.approvers ?? [] },
       status: "approved",
       statusDerivedAt: now,
       updatedAt: now,
       timeline: nextTimeline,
-    }
-
-    await saveRequest(updated)
+    }))
 
     return NextResponse.json({ success: true, request: updated }, { status: 200 })
   } catch (error) {

@@ -1,9 +1,7 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises"
-import path from "node:path"
 import { NextRequest, NextResponse } from "next/server"
 
-const STORAGE_DIR = path.join(process.cwd(), "tmp")
-const STORAGE_FILE = path.join(STORAGE_DIR, "requests.json")
+import { getRequest, updateRequest } from "@/lib/storage/requestsStore"
+import { getSessionFromCookies } from "@/lib/auth/session"
 
 export async function POST(_req: NextRequest, context: { params: Promise<{ requestId: string }> }) {
   try {
@@ -16,28 +14,17 @@ export async function POST(_req: NextRequest, context: { params: Promise<{ reque
       )
     }
 
-    await mkdir(STORAGE_DIR, { recursive: true })
-    const contents = await readFile(STORAGE_FILE, "utf8").catch(() => "[]")
-    const parsed = JSON.parse(contents)
-    if (!Array.isArray(parsed)) {
-      return NextResponse.json(
-        { success: false, error: "Invalid storage format" },
-        { status: 500 }
-      )
+    const session = await getSessionFromCookies()
+    if (!session) {
+      return NextResponse.json({ success: false, error: "Not authenticated" }, { status: 401 })
     }
 
-    const idx = parsed.findIndex((r: { id: string }) => r.id === requestId)
-    if (idx === -1) {
-      return NextResponse.json(
-        { success: false, error: "Request not found" },
-        { status: 404 }
-      )
+    const existing = await getRequest(requestId).catch(() => null)
+    if (!existing) {
+      return NextResponse.json({ success: false, error: "Request not found" }, { status: 404 })
     }
 
-    const existing = parsed[idx] ?? {}
-    const nextTimeline = Array.isArray(existing.timeline)
-      ? [...existing.timeline]
-      : []
+    const nextTimeline = Array.isArray(existing.timeline) ? [...existing.timeline] : []
 
     nextTimeline.push({
       step: "Applied",
@@ -46,20 +33,15 @@ export async function POST(_req: NextRequest, context: { params: Promise<{ reque
       at: new Date().toISOString(),
     })
 
-    parsed[idx] = {
-      ...parsed[idx],
+    const updated = await updateRequest(requestId, (current) => ({
+      ...current,
       status: "applied",
       updatedAt: new Date().toISOString(),
       appliedAt: new Date().toISOString(),
       timeline: nextTimeline,
-    }
+    }))
 
-    await writeFile(STORAGE_FILE, JSON.stringify(parsed, null, 2), "utf8")
-
-    return NextResponse.json(
-      { success: true, request: parsed[idx] },
-      { status: 200 }
-    )
+    return NextResponse.json({ success: true, request: updated }, { status: 200 })
   } catch (error) {
     console.error("[api/requests/apply] error", error)
     return NextResponse.json(

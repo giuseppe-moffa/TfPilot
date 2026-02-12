@@ -1,5 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server"
 
+import { decodeSessionToken } from "@/lib/auth/session"
+
 const SESSION_COOKIE = "tfplan_session"
 
 const PUBLIC_PATHS = [
@@ -22,7 +24,9 @@ export function proxy(req: NextRequest) {
     return NextResponse.next()
   }
 
-  const hasSession = Boolean(req.cookies.get(SESSION_COOKIE)?.value)
+  const token = req.cookies.get(SESSION_COOKIE)?.value
+  const session = token ? decodeSessionToken(token) : null
+  const hasSession = Boolean(session)
 
   if (!hasSession) {
     const url = req.nextUrl.clone()

@@ -31,7 +31,7 @@ function encodePayload(payload: SessionPayload) {
   return `${base}.${signature}`
 }
 
-function decodePayload(token: string): SessionPayload | null {
+export function decodeSessionToken(token: string): SessionPayload | null {
   const [base, signature] = token.split(".")
   if (!base || !signature) return null
   const expected = sign(base)
@@ -57,7 +57,7 @@ export async function getSessionFromCookies(store?: ReturnType<typeof cookies> |
   const jar = await resolveStore(store)
   const token = jar.get(SESSION_COOKIE)?.value
   if (!token) return null
-  return decodePayload(token)
+  return decodeSessionToken(token)
 }
 
 export function setSession(res: NextResponse, payload: SessionPayload) {

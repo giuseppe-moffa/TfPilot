@@ -1,11 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
-import { readFile } from "node:fs/promises"
-import path from "node:path"
-
 import { getGitHubAccessToken } from "@/lib/github/auth"
 import { gh } from "@/lib/github/client"
-
-const STORAGE_FILE = path.join(process.cwd(), "tmp", "requests.json")
+import { getRequest } from "@/lib/storage/requestsStore"
+import { getSessionFromCookies } from "@/lib/auth/session"
 
 function extractPlan(log: string) {
   const lower = log.toLowerCase()
@@ -40,17 +37,17 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "requestId required" }, { status: 400 })
     }
 
+    const session = await getSessionFromCookies()
+    if (!session) {
+      return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
+    }
+
     const token = await getGitHubAccessToken(req)
     if (!token) {
       return NextResponse.json({ error: "GitHub not connected" }, { status: 401 })
     }
 
-    const raw = await readFile(STORAGE_FILE, "utf8").catch(() => "[]")
-    const requests = JSON.parse(raw)
-    if (!Array.isArray(requests)) {
-      return NextResponse.json({ error: "No requests found" }, { status: 404 })
-    }
-    const match = requests.find((r: any) => r.id === requestId)
+    const match = await getRequest(requestId).catch(() => null)
     const runId = match?.planRun?.runId ?? match?.planRunId
     if (!match || !runId || !match.targetOwner || !match.targetRepo) {
       return NextResponse.json({ error: "Plan run not found" }, { status: 404 })

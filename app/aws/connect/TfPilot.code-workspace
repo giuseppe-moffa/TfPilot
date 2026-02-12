@@ -1,0 +1,14 @@
+{
+	"folders": [
+		{
+			"path": "../../.."
+		},
+		{
+			"path": "../../../../core-terraform"
+		},
+		{
+			"path": "../../../../payments-terraform"
+		}
+	],
+	"settings": {}
+}

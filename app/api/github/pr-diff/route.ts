@@ -2,12 +2,18 @@ import { NextRequest, NextResponse } from "next/server"
 import { getGitHubAccessToken } from "@/lib/github/auth"
 import { gh } from "@/lib/github/client"
 import { getRequest } from "@/lib/storage/requestsStore"
+import { getSessionFromCookies } from "@/lib/auth/session"
 
 export async function GET(req: NextRequest) {
   try {
     const requestId = req.nextUrl.searchParams.get("requestId")
     if (!requestId) {
       return NextResponse.json({ error: "requestId required" }, { status: 400 })
+    }
+
+    const session = await getSessionFromCookies()
+    if (!session) {
+      return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
     }
 
     const token = await getGitHubAccessToken(req)

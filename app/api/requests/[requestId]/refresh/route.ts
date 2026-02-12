@@ -1,12 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
-import { readFile, writeFile } from "node:fs/promises"
-import path from "node:path"
-
 import { getGitHubAccessToken } from "@/lib/github/auth"
 import { gh } from "@/lib/github/client"
 import { deriveStatus } from "@/lib/requests/status"
-
-const STORAGE_FILE = path.join(process.cwd(), "tmp", "requests.json")
+import { getRequest, updateRequest } from "@/lib/storage/requestsStore"
 
 type Stored = {
   id: string
@@ -30,13 +26,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
     const token = await getGitHubAccessToken(req)
     if (!token) return NextResponse.json({ error: "GitHub not connected" }, { status: 401 })
 
-    const raw = await readFile(STORAGE_FILE, "utf8").catch(() => "[]")
-    const requests = JSON.parse(raw)
-    if (!Array.isArray(requests)) return NextResponse.json({ error: "No requests found" }, { status: 404 })
-    const idx = requests.findIndex((r: Stored) => r.id === requestId)
-    if (idx === -1) return NextResponse.json({ error: "Request not found" }, { status: 404 })
-
-    const request = requests[idx] as Stored
+    const request = (await getRequest(requestId).catch(() => null)) as Stored | null
+    if (!request) return NextResponse.json({ error: "Request not found" }, { status: 404 })
     if (!request.targetOwner || !request.targetRepo || !request.pr?.number) {
       return NextResponse.json({ error: "Request missing repo or PR" }, { status: 400 })
     }
@@ -117,10 +108,20 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
     request.reason = derived.reason
     request.statusDerivedAt = new Date().toISOString()
 
-    requests[idx] = request
-    await writeFile(STORAGE_FILE, JSON.stringify(requests, null, 2), "utf8")
+    const now = new Date().toISOString()
+    const updated = await updateRequest(requestId, (current) => ({
+      ...current,
+      pr: request.pr,
+      planRun: request.planRun,
+      applyRun: request.applyRun,
+      approval: request.approval,
+      status: derived.status,
+      reason: derived.reason,
+      statusDerivedAt: now,
+      updatedAt: now,
+    }))
 
-    return NextResponse.json({ ok: true, request })
+    return NextResponse.json({ ok: true, request: updated })
   } catch (error) {
     console.error("[api/requests/refresh] error", error)
     return NextResponse.json({ error: "Failed to refresh request" }, { status: 500 })

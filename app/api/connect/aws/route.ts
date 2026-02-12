@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server"
-import { mkdir, writeFile } from "node:fs/promises"
-import { join } from "node:path"
 import {
   STSClient,
   GetCallerIdentityCommand,
   AssumeRoleCommand,
   Credentials as StsCredentials,
 } from "@aws-sdk/client-sts"
+
+import { getSessionFromCookies } from "@/lib/auth/session"
 
 type RequestBody =
   | {
@@ -21,12 +21,6 @@ type RequestBody =
       accessKeyId?: string
       secretAccessKey?: string
     }
-
-async function ensureTmpDir() {
-  const dir = join(process.cwd(), "tmp")
-  await mkdir(dir, { recursive: true })
-  return dir
-}
 
 function createBaseClient(body: RequestBody) {
   const baseConfig: ConstructorParameters<typeof STSClient>[0] = {
@@ -80,6 +74,11 @@ export async function POST(req: NextRequest) {
     const hasKeys = Boolean(body?.accessKeyId && body?.secretAccessKey)
     const hasRole = Boolean(body?.assumeRoleArn)
 
+    const session = await getSessionFromCookies()
+    if (!session) {
+      return NextResponse.json({ success: false, error: "Not authenticated" }, { status: 401 })
+    }
+
     if (!region || (!hasKeys && !hasRole)) {
       return NextResponse.json(
         { success: false, error: "Missing credentials or region" },
@@ -100,19 +99,16 @@ export async function POST(req: NextRequest) {
       throw new Error("Invalid credentials")
     }
 
-    const session = {
+    const connection = {
       arn: identity.Arn,
       accountId: identity.Account,
       region,
       timestamp: new Date().toISOString(),
     }
 
-    const dir = await ensureTmpDir()
-    await writeFile(join(dir, "aws-session.json"), JSON.stringify(session, null, 2), "utf8")
-
     return NextResponse.json({
       success: true,
-      identity: { arn: identity.Arn, accountId: identity.Account, region },
+      identity: connection,
     })
   } catch (error) {
     console.error("[api/connect/aws] error", error)

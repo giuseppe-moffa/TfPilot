@@ -1,12 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
-import { readFile, writeFile } from "node:fs/promises"
-import path from "node:path"
-
 import { getGitHubAccessToken } from "@/lib/github/auth"
 import { gh } from "@/lib/github/client"
 import { env } from "@/lib/config/env"
-
-const STORAGE_FILE = path.join(process.cwd(), "tmp", "requests.json")
+import { getRequest, updateRequest } from "@/lib/storage/requestsStore"
+import { getSessionFromCookies } from "@/lib/auth/session"
 
 export async function POST(req: NextRequest) {
   try {
@@ -15,26 +12,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "requestId required" }, { status: 400 })
     }
 
+    const session = await getSessionFromCookies()
+    if (!session) {
+      return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
+    }
+
     const token = await getGitHubAccessToken(req)
     if (!token) {
       return NextResponse.json({ error: "GitHub not connected" }, { status: 401 })
     }
 
-    let requests: any[] = []
-    try {
-      const raw = await readFile(STORAGE_FILE, "utf8")
-      const parsed = JSON.parse(raw)
-      if (Array.isArray(parsed)) requests = parsed
-    } catch {
-      // ignore
-    }
-
-    const idx = requests.findIndex((r) => r.id === body.requestId)
-    if (idx === -1) {
+    const request = await getRequest(body.requestId).catch(() => null)
+    if (!request) {
       return NextResponse.json({ error: "Request not found" }, { status: 404 })
     }
-    const request = requests[idx]
-
     if (request.status !== "merged") {
       return NextResponse.json({ error: "Request must be merged before apply" }, { status: 400 })
     }
@@ -77,14 +68,17 @@ export async function POST(req: NextRequest) {
       /* ignore */
     }
 
-    requests[idx] = {
-      ...request,
+    await updateRequest(request.id, (current) => ({
       status: "applying",
       applyTriggeredAt: new Date().toISOString(),
-      applyRunId,
-      applyRunUrl,
-    }
-    await writeFile(STORAGE_FILE, JSON.stringify(requests, null, 2), "utf8")
+      applyRunId: applyRunId ?? current.applyRunId,
+      applyRunUrl: applyRunUrl ?? current.applyRunUrl,
+      applyRun: {
+        ...(current.applyRun ?? {}),
+        runId: applyRunId ?? current.applyRun?.runId,
+        url: applyRunUrl ?? current.applyRun?.url,
+      },
+    }))
 
     return NextResponse.json({ ok: true })
   } catch (error) {

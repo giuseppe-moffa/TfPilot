@@ -11,6 +11,7 @@ type Env = {
   TFPILOT_DEFAULT_REGION: string
   TFPILOT_APP_NAME: string
   TFPILOT_REQUESTS_BUCKET: string
+  TFPILOT_CHAT_LOGS_BUCKET: string
 }
 
 function required(name: keyof Env, fallback?: string) {
@@ -33,6 +34,7 @@ export const env: Env = {
   TFPILOT_DEFAULT_REGION: required("TFPILOT_DEFAULT_REGION", "eu-west-2"),
   TFPILOT_APP_NAME: required("TFPILOT_APP_NAME", "TfPilot"),
   TFPILOT_REQUESTS_BUCKET: required("TFPILOT_REQUESTS_BUCKET"),
+  TFPILOT_CHAT_LOGS_BUCKET: required("TFPILOT_CHAT_LOGS_BUCKET"),
 }
 
 let logged = false

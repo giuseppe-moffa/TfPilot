@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
-import { mkdir, readFile, writeFile } from "node:fs/promises"
-import path from "node:path"
+import { randomUUID } from "node:crypto"
+import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3"
 
-const LOG_DIR = path.join(process.cwd(), "tmp")
-const LOG_FILE = path.join(LOG_DIR, "chat-logs.json")
+import { env } from "@/lib/config/env"
 
 type ChatLogEntry = {
   timestamp: string
@@ -13,18 +12,23 @@ type ChatLogEntry = {
   messages: Array<{ role: string; content: string }>
 }
 
+const s3 = new S3Client({ region: env.TFPILOT_DEFAULT_REGION })
+const BUCKET = env.TFPILOT_CHAT_LOGS_BUCKET
+const PREFIX = "logs/"
+
 async function appendLog(entry: ChatLogEntry) {
-  await mkdir(LOG_DIR, { recursive: true })
-  let existing: ChatLogEntry[] = []
-  try {
-    const raw = await readFile(LOG_FILE, "utf8")
-    const parsed = JSON.parse(raw)
-    if (Array.isArray(parsed)) existing = parsed
-  } catch {
-    existing = []
-  }
-  existing.push(entry)
-  await writeFile(LOG_FILE, JSON.stringify(existing, null, 2), "utf8")
+  const key = `${PREFIX}${entry.timestamp}-${randomUUID()}.json`
+  const body = JSON.stringify(entry, null, 2)
+  await s3.send(
+    new PutObjectCommand({
+      Bucket: BUCKET,
+      Key: key,
+      Body: body,
+      ContentType: "application/json",
+      ServerSideEncryption: "AES256",
+    })
+  )
+  return { key }
 }
 
 export async function POST(req: NextRequest) {
@@ -40,8 +44,8 @@ export async function POST(req: NextRequest) {
       module: body.module,
       messages: body.messages,
     }
-    await appendLog(entry)
-    return NextResponse.json({ ok: true })
+    const result = await appendLog(entry)
+    return NextResponse.json({ ok: true, key: result.key })
   } catch (error) {
     console.error("[api/chat-logs] error", error)
     return NextResponse.json({ error: "failed to write log" }, { status: 500 })
