@@ -83,7 +83,7 @@ export function InfraRequestChat({ projects, environments, onComplete, moduleSch
       text: "Which project is this for?",
       control: (
         <Select value={project} onValueChange={setProject}>
-          <SelectTrigger className="w-full max-w-xs bg-white">
+        <SelectTrigger className="w-full max-w-xs bg-card">
             <SelectValue placeholder="Select a project" />
           </SelectTrigger>
           <SelectContent>
@@ -103,7 +103,7 @@ export function InfraRequestChat({ projects, environments, onComplete, moduleSch
       text: "Which environment?",
       control: (
         <Select value={environment} onValueChange={setEnvironment}>
-          <SelectTrigger className="w-full max-w-xs bg-white">
+          <SelectTrigger className="w-full max-w-xs bg-card">
             <SelectValue placeholder="Select an environment" />
           </SelectTrigger>
           <SelectContent>
@@ -129,7 +129,7 @@ export function InfraRequestChat({ projects, environments, onComplete, moduleSch
     return (
       <div key={q.id} className="flex flex-col gap-2">
         <div className="flex justify-start">
-          <div className={`${bubble} bg-slate-100 text-slate-800`}>{q.label}</div>
+          <div className={`${bubble} bg-muted text-foreground`}>{q.label}</div>
         </div>
 
         <div className="flex justify-start">
@@ -147,7 +147,7 @@ export function InfraRequestChat({ projects, environments, onComplete, moduleSch
               value={String(config[q.id] ?? "")}
               onValueChange={(val) => handleAnswer(q.id, val)}
             >
-              <SelectTrigger className="w-full max-w-xs bg-white">
+              <SelectTrigger className="w-full max-w-xs bg-card">
                 <SelectValue placeholder="Choose an option" />
               </SelectTrigger>
               <SelectContent>
@@ -177,18 +177,18 @@ export function InfraRequestChat({ projects, environments, onComplete, moduleSch
         </div>
 
         {answered && (
-          <div className="flex justify-end">
-            <div className={`${bubble} bg-primary text-primary-foreground`}>
-              {typeof config[q.id] === "boolean" ? (config[q.id] ? "Yes" : "No") : String(config[q.id])}
+            <div className="flex justify-end">
+              <div className={`${bubble} bg-primary text-primary-foreground`}>
+                {typeof config[q.id] === "boolean" ? (config[q.id] ? "Yes" : "No") : String(config[q.id])}
+              </div>
             </div>
-          </div>
         )}
       </div>
     )
   }
 
   return (
-    <div className="flex flex-col gap-4 rounded-xl border bg-white p-4 shadow-sm">
+    <div className="flex flex-col gap-4 rounded-xl border border-border bg-card p-4 shadow-sm">
       <div className="flex flex-col gap-3">
         <AnimatePresence>
           {messages.map((message) => (
@@ -199,7 +199,7 @@ export function InfraRequestChat({ projects, environments, onComplete, moduleSch
                 exit={{ opacity: 0, y: -8 }}
                 className="flex justify-start"
               >
-                <div className={`${bubble} bg-slate-100 text-slate-800`}>{message.text}</div>
+                <div className={`${bubble} bg-muted text-foreground`}>{message.text}</div>
               </motion.div>
 
               <motion.div
@@ -235,7 +235,7 @@ export function InfraRequestChat({ projects, environments, onComplete, moduleSch
               className="flex flex-col gap-3"
             >
               <div className="flex justify-start">
-                <div className={`${bubble} bg-slate-100 text-slate-800`}>
+                <div className={`${bubble} bg-muted text-foreground`}>
                   Awesome! What kind of infrastructure do you want to create?
                 </div>
               </div>
@@ -275,33 +275,33 @@ export function InfraRequestChat({ projects, environments, onComplete, moduleSch
               className="space-y-3"
             >
               <div className="flex justify-start">
-                <div className={`${bubble} bg-slate-100 text-slate-800`}>
+                <div className={`${bubble} bg-muted text-foreground`}>
                   Here&apos;s a summary of your request. Please confirm to proceed.
                 </div>
               </div>
-              <div className="rounded-lg border bg-slate-50 p-4 shadow-sm">
-                <h4 className="text-sm font-semibold text-slate-700 mb-2">Summary</h4>
+              <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
+                <h4 className="mb-2 text-sm font-semibold text-foreground">Summary</h4>
                 <div className="grid gap-2 text-sm">
                   <div className="flex justify-between gap-4">
-                    <span className="text-slate-500">Project</span>
-                    <span className="font-medium text-slate-800">{project || "Missing"}</span>
+                    <span className="text-muted-foreground">Project</span>
+                    <span className="font-medium text-foreground">{project || "Missing"}</span>
                   </div>
                   <div className="flex justify-between gap-4">
-                    <span className="text-slate-500">Environment</span>
-                    <span className="font-medium text-slate-800">{environment || "Missing"}</span>
+                    <span className="text-muted-foreground">Environment</span>
+                    <span className="font-medium text-foreground">{environment || "Missing"}</span>
                   </div>
                   <div className="flex justify-between gap-4">
-                    <span className="text-slate-500">Module</span>
-                    <span className="font-medium text-slate-800">{module || "Missing"}</span>
+                    <span className="text-muted-foreground">Module</span>
+                    <span className="font-medium text-foreground">{module || "Missing"}</span>
                   </div>
                   <div className="pt-2">
-                    <span className="text-slate-500">Configuration</span>
-                    <div className="mt-2 space-y-1 rounded-md border bg-white p-3 text-xs text-slate-700">
-                      {Object.keys(config).length === 0 && <div className="text-slate-400">No config provided</div>}
+                    <span className="text-muted-foreground">Configuration</span>
+                    <div className="mt-2 space-y-1 rounded-md border border-border bg-card p-3 text-xs text-foreground">
+                      {Object.keys(config).length === 0 && <div className="text-muted-foreground">No config provided</div>}
                       {Object.entries(config).map(([key, val]) => (
                         <div key={key} className="flex justify-between gap-2">
-                          <span className="font-medium text-slate-800">{key}</span>
-                          <span className="text-slate-600 break-words">{String(val)}</span>
+                          <span className="font-medium text-foreground">{key}</span>
+                          <span className="text-muted-foreground break-words">{String(val)}</span>
                         </div>
                       ))}
                     </div>

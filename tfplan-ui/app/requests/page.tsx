@@ -23,35 +23,32 @@ import {
 } from "@/components/ui/table"
 import { cn } from "@/lib/utils"
 import { useAwsConnection } from "../providers"
+import type { RequestStatus } from "@/lib/requests/status"
 
 type RequestRow = {
   id: string
   project: string
   environment: string
   service?: string
-  status?: "pending" | "planned" | "approved" | "applied"
+  status?: RequestStatus | "pending" | "applied" | "planned"
   pullRequest?: { status?: string }
   updatedAt?: string
   config?: Record<string, unknown>
 }
 
-type DisplayStatus = "submitted" | "approved" | "merged" | "applied"
-
-const statusVariant: Record<DisplayStatus, "warning" | "info" | "success"> = {
-  submitted: "warning",
-  approved: "info",
-  merged: "info",
-  applied: "success",
-}
+type DisplayStatus = "submitted" | "planned" | "approved" | "merged" | "applied"
 
 function computeStatus(row: RequestRow): {
   step: DisplayStatus
   subtitle: string
   state: "completed" | "pending"
 } {
-  const isApplied = row.status === "applied"
-  const isMerged = row.pullRequest?.status === "merged" || isApplied
-  const isApproved = row.status === "approved" || isMerged
+  const status = row.status ?? "pending"
+  const isApplied = status === "applied" || status === "complete"
+  const isMerged =
+    status === "merged" || status === "applying" || isApplied || row.pullRequest?.status === "merged"
+  const isApproved = status === "approved" || status === "awaiting_approval" || isMerged
+  const isPlanReady = status === "planned" || status === "plan_ready" || isApproved || isMerged || isApplied
 
   if (isApplied) {
     return { step: "applied", subtitle: "Deployment Completed", state: "completed" }
@@ -60,15 +57,12 @@ function computeStatus(row: RequestRow): {
     return { step: "merged", subtitle: "Pull request merged", state: "completed" }
   }
   if (isApproved) {
-    return { step: "merged", subtitle: "Waiting for PR merge", state: "pending" }
+    return { step: "approved", subtitle: "Approved, awaiting merge", state: "completed" }
   }
-  // Not yet approved
-  return { step: "approved", subtitle: "Waiting for PR approval", state: "pending" }
-}
-
-function formatStatus(status: DisplayStatus) {
-  const value = status ?? "submitted"
-  return value.charAt(0).toUpperCase() + value.slice(1)
+  if (isPlanReady) {
+    return { step: "planned", subtitle: "Plan ready", state: "completed" }
+  }
+  return { step: "submitted", subtitle: "Request created", state: "pending" }
 }
 
 function formatUpdatedAt(iso?: string) {
@@ -214,22 +208,8 @@ export default function RequestsPage() {
                     <TableCell className="capitalize">
                       {item.environment}
                     </TableCell>
-                    <TableCell>
-                      {(() => {
-                        const status = computeStatus(item)
-                        return (
-                          <Badge
-                            className={cn(
-                              "rounded-full px-3 py-1 text-xs font-semibold",
-                              status.subtitle === "Deployment Completed"
-                                ? "border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700"
-                                : "border-amber-200 bg-amber-50 text-amber-700 hover:border-amber-200 hover:bg-amber-50 hover:text-amber-700"
-                            )}
-                          >
-                            {status.subtitle}
-                          </Badge>
-                        )
-                      })()}
+                    <TableCell className="text-sm text-foreground">
+                      {computeStatus(item).subtitle}
                     </TableCell>
                     <TableCell className="text-muted-foreground">
                       {formatUpdatedAt(item.updatedAt)}

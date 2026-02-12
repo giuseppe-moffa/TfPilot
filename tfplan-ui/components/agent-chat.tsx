@@ -219,7 +219,7 @@ export function AgentChat({
               >
                 {msg.role === "assistant" ? (
                   <div
-                    className={`max-w-2xl space-y-4 rounded-2xl bg-muted/40 px-4 py-3 text-sm leading-relaxed prose prose-sm dark:prose-invert`}
+                    className="max-w-2xl space-y-4 rounded-2xl border border-border/60 bg-muted/70 px-4 py-3 text-sm leading-relaxed text-foreground prose prose-sm dark:prose-invert"
                   >
                     <div className="whitespace-pre-wrap break-words">{msg.content}</div>
                   </div>
@@ -264,7 +264,7 @@ export function AgentChat({
           e.preventDefault()
           void handleSend(input)
         }}
-        className="flex items-center gap-2 border-t bg-white px-2 py-2"
+        className="flex items-center gap-2 border-t border-border bg-card px-2 py-2"
       >
         <Input
           value={input}

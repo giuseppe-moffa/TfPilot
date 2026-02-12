@@ -1,9 +1,6 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises"
-import path from "node:path"
 import { NextRequest, NextResponse } from "next/server"
 
-const STORAGE_DIR = path.join(process.cwd(), "tmp")
-const STORAGE_FILE = path.join(STORAGE_DIR, "requests.json")
+import { getRequest, saveRequest } from "@/lib/storage/requestsStore"
 
 export async function POST(_req: NextRequest, { params }: { params: Promise<{ requestId: string }> }) {
   try {
@@ -16,54 +13,32 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ re
       )
     }
 
-    await mkdir(STORAGE_DIR, { recursive: true })
-    const contents = await readFile(STORAGE_FILE, "utf8").catch(() => "[]")
-    const parsed = JSON.parse(contents)
-    if (!Array.isArray(parsed)) {
-      return NextResponse.json(
-        { success: false, error: "Invalid storage format" },
-        { status: 500 }
-      )
+    const existing = await getRequest(requestId).catch(() => null)
+    if (!existing) {
+      return NextResponse.json({ success: false, error: "Request not found" }, { status: 404 })
     }
 
-    const idx = parsed.findIndex((r: { id: string }) => r.id === requestId)
-    if (idx === -1) {
-      return NextResponse.json(
-        { success: false, error: "Request not found" },
-        { status: 404 }
-      )
-    }
-
-    const existing = parsed[idx] ?? {}
-    const nextTimeline = Array.isArray(existing.timeline)
-      ? [...existing.timeline]
-      : []
-
+    const now = new Date().toISOString()
+    const nextTimeline = Array.isArray(existing.timeline) ? [...existing.timeline] : []
     nextTimeline.push({
       step: "Approved",
       status: "Complete",
       message: "Request approved and ready for merge",
-      at: new Date().toISOString(),
+      at: now,
     })
 
-    parsed[idx] = {
-      ...parsed[idx],
+    const updated = {
+      ...existing,
+      approval: { approved: true, approvers: existing.approval?.approvers ?? [] },
       status: "approved",
-      updatedAt: new Date().toISOString(),
-      pr: {
-        url: "https://github.com/infraforge/infraforge-iac/pull/123",
-        branch: `req-${requestId}`,
-        status: "open",
-      },
+      statusDerivedAt: now,
+      updatedAt: now,
       timeline: nextTimeline,
     }
 
-    await writeFile(STORAGE_FILE, JSON.stringify(parsed, null, 2), "utf8")
+    await saveRequest(updated)
 
-    return NextResponse.json(
-      { success: true, request: parsed[idx] },
-      { status: 200 }
-    )
+    return NextResponse.json({ success: true, request: updated }, { status: 200 })
   } catch (error) {
     console.error("[api/requests/approve] error", error)
     return NextResponse.json(

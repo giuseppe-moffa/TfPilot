@@ -37,8 +37,8 @@ export default function NewRequestPage() {
   }, [])
 
   return (
-    <div className="flex h-[calc(100vh-4rem)] flex-col bg-slate-50">
-      <header className="flex items-center gap-3 border-b bg-white px-4 py-3">
+    <div className="flex h-[calc(100vh-4rem)] flex-col bg-background text-foreground">
+      <header className="flex items-center gap-3 border-b border-border bg-background/80 px-4 py-3 backdrop-blur">
         <Link href="/requests">
           <Button variant="ghost" size="sm" className="gap-2">
             <ArrowLeft className="h-4 w-4" />
@@ -49,7 +49,7 @@ export default function NewRequestPage() {
       </header>
 
       <div className="flex flex-col gap-4 p-4">
-        <Card className="flex flex-wrap gap-4 rounded-lg border bg-white p-4 shadow-sm">
+        <Card className="flex flex-wrap gap-4 rounded-lg border border-border bg-card p-4 shadow-sm">
           <div className="space-y-2">
             <p className="text-sm font-medium">Project</p>
             <Select value={project} onValueChange={setProject} disabled={Boolean(project)}>
@@ -83,7 +83,7 @@ export default function NewRequestPage() {
         </Card>
         {loadingModules && <p className="text-xs text-muted-foreground">Loading modules...</p>}
 
-        <div className="flex-1 rounded-lg border bg-white p-4 shadow-sm">
+        <div className="flex-1 rounded-lg border border-border bg-card p-4 shadow-sm">
           {canStartChat ? (
             <AgentChat
               systemPrompt={`You are an AI Infrastructure Assistant inside a Terraform self-service platform. Help the developer provision infrastructure modules in the selected project and environment. Ask what they want to create, and guide them step-by-step with simple questions. Don't require them to know Terraform.`}

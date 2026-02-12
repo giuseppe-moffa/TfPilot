@@ -3,11 +3,12 @@
 import Link from "next/link"
 import Image from "next/image"
 
-import { Github } from "lucide-react"
+import { Github, Moon, Sun } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import AwsConnectionBadge from "./aws-connection-badge"
 import { useAuth } from "./providers"
+import { useTheme } from "./theme-provider"
 
 const navItems = [
   { label: "Requests", href: "/requests" },
@@ -17,6 +18,7 @@ const navItems = [
 
 export default function NavBar() {
   const { user, loading, logout } = useAuth()
+  const { theme, toggleTheme } = useTheme()
 
   return (
     <div className="flex items-center gap-4">
@@ -27,12 +29,21 @@ export default function NavBar() {
             variant="ghost"
             size="sm"
             asChild
-            className="text-sm text-slate-700 hover:text-slate-900"
+            className="text-sm text-foreground/80 hover:text-foreground hover:bg-transparent focus-visible:bg-transparent"
           >
             <Link href={item.href}>{item.label}</Link>
           </Button>
         ))}
       </nav>
+      <Button
+        variant="ghost"
+        size="icon"
+        aria-label="Toggle theme"
+        onClick={toggleTheme}
+        className="h-9 w-9 text-foreground/80 hover:text-foreground hover:bg-transparent focus-visible:bg-transparent"
+      >
+        {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+      </Button>
       <AwsConnectionBadge />
       <div className="flex items-center gap-2">
         {user ? (
@@ -46,7 +57,7 @@ export default function NavBar() {
                 className="rounded-full border"
               />
             )}
-            <span className="text-sm font-medium text-slate-700">{user.login}</span>
+            <span className="text-sm font-medium text-foreground/80">{user.login}</span>
             <Button variant="outline" size="sm" onClick={() => logout()}>
               Sign out
             </Button>

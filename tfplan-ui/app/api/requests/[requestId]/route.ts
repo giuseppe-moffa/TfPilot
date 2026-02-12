@@ -1,21 +1,24 @@
-import { NextRequest, NextResponse } from "next/server"
-import { readFile } from "node:fs/promises"
-import path from "node:path"
+import { NextResponse } from "next/server"
 
-const STORAGE_FILE = path.join(process.cwd(), "tmp", "requests.json")
+import { getRequest } from "@/lib/storage/requestsStore"
 
-export async function GET(req: NextRequest, { params }: { params: Promise<{ requestId: string }> }) {
+export async function GET(_req: Request, { params }: { params: Promise<{ requestId: string }> }) {
   const { requestId } = await params
+  if (!requestId) {
+    return NextResponse.json({ error: "Missing requestId" }, { status: 400 })
+  }
+
   try {
-    const contents = await readFile(STORAGE_FILE, "utf8")
-    const parsed = JSON.parse(contents)
-    const requests = Array.isArray(parsed) ? parsed : []
-    const found = requests.find((r: any) => r.id === requestId)
-    if (!found) {
+    const request = await getRequest(requestId)
+    if (!request) {
       return NextResponse.json({ error: "Not found" }, { status: 404 })
     }
-    return NextResponse.json({ request: found })
-  } catch {
-    return NextResponse.json({ error: "Not found" }, { status: 404 })
+    return NextResponse.json({ request })
+  } catch (err: any) {
+    if (err?.$metadata?.httpStatusCode === 404 || err?.name === "NoSuchKey") {
+      return NextResponse.json({ error: "Not found" }, { status: 404 })
+    }
+    console.error("[api/requests/[requestId]] error", err)
+    return NextResponse.json({ error: "Failed to load request" }, { status: 500 })
   }
 }

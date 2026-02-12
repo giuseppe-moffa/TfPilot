@@ -36,6 +36,7 @@ import {
 const steps = [
   { key: "submitted", label: "Submitted" },
   { key: "planned", label: "Plan Ready" },
+  { key: "approved", label: "Approved" },
   { key: "merged", label: "Merged" },
   { key: "applied", label: "Applied" },
 ] as const
@@ -52,17 +53,21 @@ const statusBadgeVariant: Record<
 
 function lineClass(line: string) {
   const trimmed = line.trimStart()
-  if (trimmed.startsWith("@@")) return "bg-slate-800 text-slate-100"
-  if (trimmed.startsWith("+")) return "bg-emerald-900 text-emerald-100"
-  if (trimmed.startsWith("-")) return "bg-red-900 text-red-100"
-  return "text-slate-100"
+  if (trimmed.startsWith("@@")) return "bg-muted text-foreground"
+  if (trimmed.startsWith("+"))
+    return "bg-emerald-50 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-100"
+  if (trimmed.startsWith("-"))
+    return "bg-red-50 text-red-900 dark:bg-red-950 dark:text-red-100"
+  return "text-foreground"
 }
 
 function lineNumberClass(line: ParsedPatchLine) {
-  if (line.kind === "meta") return "bg-slate-800 text-slate-100"
-  if (line.kind === "add") return "bg-emerald-950 text-emerald-100"
-  if (line.kind === "del") return "bg-red-950 text-red-100"
-  return "text-slate-400"
+  if (line.kind === "meta") return "bg-muted text-muted-foreground"
+  if (line.kind === "add")
+    return "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-100"
+  if (line.kind === "del")
+    return "bg-red-100 text-red-900 dark:bg-red-950 dark:text-red-100"
+  return "text-muted-foreground"
 }
 
 type ParsedPatchLine = {
@@ -145,6 +150,19 @@ function getServiceName(config?: Record<string, unknown>) {
 
 function shallowEqual(a: any, b: any) {
   return JSON.stringify(a ?? {}) === JSON.stringify(b ?? {})
+}
+
+function stripLogTimestamps(text: string) {
+  const re = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z(\s+)/u
+  return text
+    .split("\n")
+    .map((line) => line.replace(re, "$1"))
+    .join("\n")
+}
+
+function normalizePlanHeadings(text: string) {
+  const headingRe = /(module\.[\w.-]+\.[\w.-]+)\.this\b/gi
+  return text.replace(headingRe, "$1")
 }
 
 function RequestDetailPage() {
@@ -338,26 +356,13 @@ function RequestDetailPage() {
 
   if (!request) {
     return (
-      <div className="flex min-h-[60vh] items-center justify-center">
-        <Card className="w-full max-w-xl text-center">
-          <CardHeader>
-            <CardTitle className="text-2xl font-semibold">
-              Request {requestId ?? "unknown"}
-            </CardTitle>
-            <CardDescription>
-              Request created. Waiting for plan...
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="text-muted-foreground">
-            We&apos;re preparing the plan details for this request. Refresh
-            shortly to see updates.
-          </CardContent>
-        </Card>
+      <div className="flex min-h-[40vh] items-center justify-center text-muted-foreground">
+        Loading request...
       </div>
     )
   }
 
-  const requestStatus = memoStatusSlice?.status ?? request?.status
+  const requestStatus = memoStatusSlice?.status ?? request?.status ?? "created"
   const isApplied = requestStatus === "complete" || requestStatus === "applied"
   const isMerged = requestStatus === "merged" || requestStatus === "applying" || isApplied
   const isPlanReady =
@@ -367,7 +372,13 @@ function RequestDetailPage() {
     requestStatus === "awaiting_approval" ||
     isMerged ||
     isApplied
-  const isApproved = memoStatusSlice?.approval?.approved ?? false
+  const isApproved =
+    memoStatusSlice?.approval?.approved ||
+    requestStatus === "approved" ||
+    requestStatus === "awaiting_approval" ||
+    isMerged ||
+    isApplied ||
+    false
   const isPlanning =
     requestStatus === "planning" || requestStatus === "pr_open" || requestStatus === "created" || requestStatus === "pending"
   const isFailed = requestStatus === "failed"
@@ -385,6 +396,13 @@ function RequestDetailPage() {
         key: "merged" as const,
         state: "completed" as const,
         subtitle: "Pull request merged",
+      }
+    }
+    if (isApproved) {
+      return {
+        key: "approved" as const,
+        state: "completed" as const,
+        subtitle: "Approved",
       }
     }
     if (isPlanning) {
@@ -415,6 +433,8 @@ function RequestDetailPage() {
         return "done"
       case "planned":
         return isPlanReady ? "done" : "pending"
+      case "approved":
+        return isApproved ? "done" : isPlanReady ? "pending" : "pending"
       case "merged":
         return isMerged ? "done" : "pending"
       case "applied":
@@ -430,6 +450,8 @@ function RequestDetailPage() {
         return "Request created"
       case "planned":
         return state === "done" ? "Plan ready" : "Waiting for plan"
+      case "approved":
+        return state === "done" ? "Approved" : "Waiting for approval"
       case "merged":
         return state === "done" ? "Pull request merged" : "Waiting for PR merge"
       case "applied":
@@ -518,15 +540,19 @@ function RequestDetailPage() {
                       <div
                         className={`flex size-9 items-center justify-center rounded-full border ${
                           isDone
-                            ? "border-emerald-100 bg-emerald-50 text-emerald-700"
-                            : "border-slate-200 bg-slate-50 text-slate-500"
+                            ? "border-success/30 bg-success/15 text-success"
+                            : "border-border bg-muted text-muted-foreground"
                         }`}
                       >
-                        <CheckCircle2 className="size-5" />
+                        {isDone ? (
+                          <CheckCircle2 className="size-5 text-success" />
+                        ) : (
+                          <Loader2 className="size-5 animate-spin text-muted-foreground" />
+                        )}
                       </div>
                       {idx < steps.length - 1 && (
                         <Separator
-                          className="my-2 h-full w-px flex-1 bg-slate-200"
+                          className="my-2 h-full w-px flex-1 bg-border"
                           orientation="vertical"
                         />
                       )}
@@ -534,9 +560,6 @@ function RequestDetailPage() {
                     <div className="flex-1 space-y-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="text-base font-medium">{step.label}</p>
-                        <Badge variant={badgeVariant}>
-                          {isDone ? "Completed" : "Pending"}
-                        </Badge>
                       </div>
                       <p className="text-sm text-muted-foreground">
                         {stepSubtitle(step.key, state)}
@@ -591,7 +614,7 @@ function RequestDetailPage() {
               <div className="space-y-1">
                 <p className="text-sm text-muted-foreground">PR Branch</p>
                 <p className="font-medium">
-                  {request.pr?.branch ?? `req-${request.id}`}
+                  {request.pr?.branch ?? request.branchName ?? request.id}
                 </p>
               </div>
               <div className="space-y-1">
@@ -632,11 +655,11 @@ function RequestDetailPage() {
                         setApproveModalOpen(true)
                       }}
                       className={cn(
-                        "cursor-pointer rounded-md bg-emerald-500 px-3 py-1.5 text-white hover:bg-emerald-600",
+                        "cursor-pointer rounded-md bg-primary px-3 py-1.5 text-primary-foreground hover:bg-primary/90",
                         ((!statusSlice) ||
                           statusSlice.status === "approved" ||
                           statusSlice.status === "applied") &&
-                          "cursor-not-allowed bg-gray-100 text-emerald-500 opacity-60"
+                          "cursor-not-allowed bg-muted text-muted-foreground opacity-60"
                       )}
                     >
                       Approve
@@ -659,9 +682,9 @@ function RequestDetailPage() {
                         setMergeModalOpen(true)
                       }}
                       className={cn(
-                        "cursor-pointer rounded-md bg-blue-500 px-3 py-1.5 text-white hover:bg-blue-600",
+                        "cursor-pointer rounded-md bg-primary px-3 py-1.5 text-primary-foreground hover:bg-primary/90",
                         (!statusSlice || statusSlice.status !== "approved" || isMerged) &&
-                          "cursor-not-allowed bg-gray-100 text-blue-500 opacity-60"
+                          "cursor-not-allowed bg-muted text-muted-foreground opacity-60"
                       )}
                     >
                       Merge
@@ -678,15 +701,15 @@ function RequestDetailPage() {
                   <TooltipTrigger asChild>
                     <Button
                       size="sm"
-                          disabled={!isMerged || isApplied}
+                      disabled={!isMerged || isApplied || isApplying}
                       onClick={() => {
                         setApplyStatus("idle")
                         setApplyModalOpen(true)
                       }}
                       className={cn(
-                        "cursor-pointer rounded-md bg-gray-900 px-3 py-1.5 text-white hover:bg-gray-800",
-                            (!isMerged || isApplied || isApplying) &&
-                          "cursor-not-allowed bg-gray-100 text-gray-700 opacity-60"
+                        "cursor-pointer rounded-md bg-primary px-3 py-1.5 text-primary-foreground hover:bg-primary/90",
+                        (!isMerged || isApplied || isApplying) &&
+                          "cursor-not-allowed bg-muted text-muted-foreground opacity-60"
                       )}
                     >
                       Apply
@@ -702,20 +725,20 @@ function RequestDetailPage() {
             </TooltipProvider>
 
             <div className="space-y-2">
-              <p className="text-sm font-medium">Files Changed</p>
+              <p className="text-sm font-medium text-foreground">Files Changed</p>
               {prFiles?.files?.length ? (
-                <div className="space-y-2 rounded-lg border bg-slate-50 p-3 text-sm">
+                <div className="space-y-2 rounded-lg border border-border bg-card p-3 text-sm text-foreground">
                   {prFiles.files.map((f: any, idx: number) => {
                     const parsed = f.patch ? parsePatch(f.patch) : []
                     return (
                       <div key={`${f.filename}-${idx}`} className="space-y-2">
                         <div className="flex flex-wrap items-center gap-2">
-                          <p className="font-medium text-slate-900">
+                          <p className="font-medium text-foreground">
                             {f.filename} ({f.status}) +{f.additions}/-{f.deletions}
                           </p>
                         </div>
                         {parsed.length > 0 ? (
-                          <div className="overflow-hidden rounded border border-slate-800 bg-slate-950 text-xs font-mono text-slate-100">
+                          <div className="overflow-hidden rounded border border-border bg-card text-xs font-mono text-foreground">
                             {parsed.map((line, i) => (
                               <div
                                 key={`${f.filename}-${idx}-${i}`}
@@ -756,9 +779,16 @@ function RequestDetailPage() {
               {initialLoading && !request ? (
                 <p className="text-sm text-muted-foreground">Loading plan...</p>
               ) : planOutput?.planText || request?.plan?.output || request.pullRequest?.planOutput ? (
-                <div className="rounded-lg border bg-slate-950 text-slate-100">
-                  <Code className="bg-transparent p-4 text-sm leading-6 whitespace-pre-wrap">
-                    {planOutput?.planText ?? request?.plan?.output ?? request.pullRequest?.planOutput ?? ""}
+                <div className="rounded-lg border border-border bg-card text-foreground">
+                  <Code className="bg-transparent p-4 text-sm leading-6 whitespace-pre-wrap text-foreground">
+                    {normalizePlanHeadings(
+                      stripLogTimestamps(
+                        planOutput?.planText ??
+                          request?.plan?.output ??
+                          request.pullRequest?.planOutput ??
+                          "",
+                      ),
+                    )}
                   </Code>
                 </div>
               ) : (
