@@ -2746,5 +2746,416 @@
         "content": "MODE=INTERVIEW\nPROJECT=core\nENVIRONMENT=dev\nMODULE_SELECTED=s3-bucket"
       }
     ]
+  },
+  {
+    "timestamp": "2026-02-12T21:28:37.188Z",
+    "project": "core",
+    "environment": "dev",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are an AI Infrastructure Assistant inside a Terraform self-service platform. Help the developer provision infrastructure modules in the selected project and environment. Ask what they want to create, and guide them step-by-step with simple questions. Don't require them to know Terraform."
+      },
+      {
+        "role": "user",
+        "content": "Project: core\nEnvironment: dev"
+      },
+      {
+        "role": "user",
+        "content": "MODE=INTERVIEW\nPROJECT=core\nENVIRONMENT=dev\nMODULE_SELECTED=s3-bucket"
+      }
+    ]
+  },
+  {
+    "timestamp": "2026-02-12T21:28:53.012Z",
+    "project": "core",
+    "environment": "dev",
+    "module": "s3-bucket",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are an AI Infrastructure Assistant inside a Terraform self-service platform. Help the developer provision infrastructure modules in the selected project and environment. Ask what they want to create, and guide them step-by-step with simple questions. Don't require them to know Terraform."
+      },
+      {
+        "role": "user",
+        "content": "Project: core\nEnvironment: dev"
+      },
+      {
+        "role": "assistant",
+        "content": "What would you like to provision? Select a resource to get started:"
+      },
+      {
+        "role": "user",
+        "content": "s3-bucket"
+      },
+      {
+        "role": "assistant",
+        "content": "What should the S3 bucket be named (globally unique, lowercase, no spaces)?"
+      },
+      {
+        "role": "user",
+        "content": "dev-s3-bucket-assets"
+      }
+    ]
+  },
+  {
+    "timestamp": "2026-02-12T21:29:05.601Z",
+    "project": "core",
+    "environment": "dev",
+    "module": "s3-bucket",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are an AI Infrastructure Assistant inside a Terraform self-service platform. Help the developer provision infrastructure modules in the selected project and environment. Ask what they want to create, and guide them step-by-step with simple questions. Don't require them to know Terraform."
+      },
+      {
+        "role": "user",
+        "content": "Project: core\nEnvironment: dev"
+      },
+      {
+        "role": "assistant",
+        "content": "What would you like to provision? Select a resource to get started:"
+      },
+      {
+        "role": "user",
+        "content": "s3-bucket"
+      },
+      {
+        "role": "assistant",
+        "content": "What should the S3 bucket be named (globally unique, lowercase, no spaces)?"
+      },
+      {
+        "role": "user",
+        "content": "dev-s3-bucket-assets"
+      },
+      {
+        "role": "assistant",
+        "content": "Do you want versioning enabled on this bucket? (true/false)"
+      },
+      {
+        "role": "user",
+        "content": "true"
+      }
+    ]
+  },
+  {
+    "timestamp": "2026-02-12T21:29:48.399Z",
+    "project": "core",
+    "environment": "dev",
+    "module": "s3-bucket",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are an AI Infrastructure Assistant inside a Terraform self-service platform. Help the developer provision infrastructure modules in the selected project and environment. Ask what they want to create, and guide them step-by-step with simple questions. Don't require them to know Terraform."
+      },
+      {
+        "role": "user",
+        "content": "Project: core\nEnvironment: dev"
+      },
+      {
+        "role": "assistant",
+        "content": "What would you like to provision? Select a resource to get started:"
+      },
+      {
+        "role": "user",
+        "content": "s3-bucket"
+      },
+      {
+        "role": "assistant",
+        "content": "What should the S3 bucket be named (globally unique, lowercase, no spaces)?"
+      },
+      {
+        "role": "user",
+        "content": "dev-s3-bucket-assets"
+      },
+      {
+        "role": "assistant",
+        "content": "Do you want versioning enabled on this bucket? (true/false)"
+      },
+      {
+        "role": "user",
+        "content": "true"
+      },
+      {
+        "role": "assistant",
+        "content": "Do you want server-side encryption enabled? If yes, which type: `SSE-S3` or `SSE-KMS`?"
+      },
+      {
+        "role": "user",
+        "content": "sse-s3"
+      }
+    ]
+  },
+  {
+    "timestamp": "2026-02-12T21:29:57.635Z",
+    "project": "core",
+    "environment": "dev",
+    "module": "s3-bucket",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are an AI Infrastructure Assistant inside a Terraform self-service platform. Help the developer provision infrastructure modules in the selected project and environment. Ask what they want to create, and guide them step-by-step with simple questions. Don't require them to know Terraform."
+      },
+      {
+        "role": "user",
+        "content": "Project: core\nEnvironment: dev"
+      },
+      {
+        "role": "assistant",
+        "content": "What would you like to provision? Select a resource to get started:"
+      },
+      {
+        "role": "user",
+        "content": "s3-bucket"
+      },
+      {
+        "role": "assistant",
+        "content": "What should the S3 bucket be named (globally unique, lowercase, no spaces)?"
+      },
+      {
+        "role": "user",
+        "content": "dev-s3-bucket-assets"
+      },
+      {
+        "role": "assistant",
+        "content": "Do you want versioning enabled on this bucket? (true/false)"
+      },
+      {
+        "role": "user",
+        "content": "true"
+      },
+      {
+        "role": "assistant",
+        "content": "Do you want server-side encryption enabled? If yes, which type: `SSE-S3` or `SSE-KMS`?"
+      },
+      {
+        "role": "user",
+        "content": "sse-s3"
+      },
+      {
+        "role": "assistant",
+        "content": "Should this bucket be publicly accessible? (true/false)"
+      },
+      {
+        "role": "user",
+        "content": "true"
+      }
+    ]
+  },
+  {
+    "timestamp": "2026-02-12T21:30:27.532Z",
+    "project": "core",
+    "environment": "dev",
+    "module": "s3-bucket",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are an AI Infrastructure Assistant inside a Terraform self-service platform. Help the developer provision infrastructure modules in the selected project and environment. Ask what they want to create, and guide them step-by-step with simple questions. Don't require them to know Terraform."
+      },
+      {
+        "role": "user",
+        "content": "Project: core\nEnvironment: dev"
+      },
+      {
+        "role": "assistant",
+        "content": "What would you like to provision? Select a resource to get started:"
+      },
+      {
+        "role": "user",
+        "content": "s3-bucket"
+      },
+      {
+        "role": "assistant",
+        "content": "What should the S3 bucket be named (globally unique, lowercase, no spaces)?"
+      },
+      {
+        "role": "user",
+        "content": "dev-s3-bucket-assets"
+      },
+      {
+        "role": "assistant",
+        "content": "Do you want versioning enabled on this bucket? (true/false)"
+      },
+      {
+        "role": "user",
+        "content": "true"
+      },
+      {
+        "role": "assistant",
+        "content": "Do you want server-side encryption enabled? If yes, which type: `SSE-S3` or `SSE-KMS`?"
+      },
+      {
+        "role": "user",
+        "content": "sse-s3"
+      },
+      {
+        "role": "assistant",
+        "content": "Should this bucket be publicly accessible? (true/false)"
+      },
+      {
+        "role": "user",
+        "content": "true"
+      },
+      {
+        "role": "assistant",
+        "content": "What is the index document for static website hosting (e.g., `index.html`)?"
+      },
+      {
+        "role": "user",
+        "content": "why"
+      }
+    ]
+  },
+  {
+    "timestamp": "2026-02-12T21:31:01.129Z",
+    "project": "core",
+    "environment": "dev",
+    "module": "s3-bucket",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are an AI Infrastructure Assistant inside a Terraform self-service platform. Help the developer provision infrastructure modules in the selected project and environment. Ask what they want to create, and guide them step-by-step with simple questions. Don't require them to know Terraform."
+      },
+      {
+        "role": "user",
+        "content": "Project: core\nEnvironment: dev"
+      },
+      {
+        "role": "assistant",
+        "content": "What would you like to provision? Select a resource to get started:"
+      },
+      {
+        "role": "user",
+        "content": "s3-bucket"
+      },
+      {
+        "role": "assistant",
+        "content": "What should the S3 bucket be named (globally unique, lowercase, no spaces)?"
+      },
+      {
+        "role": "user",
+        "content": "dev-s3-bucket-assets"
+      },
+      {
+        "role": "assistant",
+        "content": "Do you want versioning enabled on this bucket? (true/false)"
+      },
+      {
+        "role": "user",
+        "content": "true"
+      },
+      {
+        "role": "assistant",
+        "content": "Do you want server-side encryption enabled? If yes, which type: `SSE-S3` or `SSE-KMS`?"
+      },
+      {
+        "role": "user",
+        "content": "sse-s3"
+      },
+      {
+        "role": "assistant",
+        "content": "Should this bucket be publicly accessible? (true/false)"
+      },
+      {
+        "role": "user",
+        "content": "true"
+      },
+      {
+        "role": "assistant",
+        "content": "What is the index document for static website hosting (e.g., `index.html`)?"
+      },
+      {
+        "role": "user",
+        "content": "why"
+      },
+      {
+        "role": "assistant",
+        "content": "Static website hosting needs an “index document” (the default file S3 serves when someone visits the site root).  \n\nDo you want to enable static website hosting on this bucket? (true/false)"
+      },
+      {
+        "role": "user",
+        "content": "false"
+      }
+    ]
+  },
+  {
+    "timestamp": "2026-02-12T21:31:09.503Z",
+    "project": "core",
+    "environment": "dev",
+    "module": "s3-bucket",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are an AI Infrastructure Assistant inside a Terraform self-service platform. Help the developer provision infrastructure modules in the selected project and environment. Ask what they want to create, and guide them step-by-step with simple questions. Don't require them to know Terraform."
+      },
+      {
+        "role": "user",
+        "content": "Project: core\nEnvironment: dev"
+      },
+      {
+        "role": "assistant",
+        "content": "What would you like to provision? Select a resource to get started:"
+      },
+      {
+        "role": "user",
+        "content": "s3-bucket"
+      },
+      {
+        "role": "assistant",
+        "content": "What should the S3 bucket be named (globally unique, lowercase, no spaces)?"
+      },
+      {
+        "role": "user",
+        "content": "dev-s3-bucket-assets"
+      },
+      {
+        "role": "assistant",
+        "content": "Do you want versioning enabled on this bucket? (true/false)"
+      },
+      {
+        "role": "user",
+        "content": "true"
+      },
+      {
+        "role": "assistant",
+        "content": "Do you want server-side encryption enabled? If yes, which type: `SSE-S3` or `SSE-KMS`?"
+      },
+      {
+        "role": "user",
+        "content": "sse-s3"
+      },
+      {
+        "role": "assistant",
+        "content": "Should this bucket be publicly accessible? (true/false)"
+      },
+      {
+        "role": "user",
+        "content": "true"
+      },
+      {
+        "role": "assistant",
+        "content": "What is the index document for static website hosting (e.g., `index.html`)?"
+      },
+      {
+        "role": "user",
+        "content": "why"
+      },
+      {
+        "role": "assistant",
+        "content": "Static website hosting needs an “index document” (the default file S3 serves when someone visits the site root).  \n\nDo you want to enable static website hosting on this bucket? (true/false)"
+      },
+      {
+        "role": "user",
+        "content": "false"
+      },
+      {
+        "role": "assistant",
+        "content": "What AWS region should this bucket be created in (e.g., `us-east-1`)?"
+      },
+      {
+        "role": "user",
+        "content": "eu-west-2"
+      }
+    ]
   }
 ]

@@ -81,6 +81,7 @@ export function AgentChat({
   const [selectedModuleName, setSelectedModuleName] = React.useState<string | null>(null)
   const [isTyping, setIsTyping] = React.useState(false)
   const bottomRef = React.useRef<HTMLDivElement | null>(null)
+  const inputRef = React.useRef<HTMLInputElement | null>(null)
   const router = useRouter()
   const [pendingRequest, setPendingRequest] = React.useState<PendingRequest | null>(null)
   const [isCreatingRequest, setIsCreatingRequest] = React.useState(false)
@@ -164,9 +165,15 @@ export function AgentChat({
 
   const handleSend = async (text: string) => {
     if (!text.trim()) return
+    inputRef.current?.focus()
     appendMessage({ id: crypto.randomUUID(), role: "user", content: text })
     setInput("")
-    await sendToAgent(text)
+    try {
+      await sendToAgent(text)
+    } finally {
+      // Defer to ensure React state updates don't steal focus
+      requestAnimationFrame(() => inputRef.current?.focus())
+    }
   }
 
   const handleModuleClick = async (mod: string) => {
@@ -267,6 +274,8 @@ export function AgentChat({
         className="flex items-center gap-2 border-t border-border bg-card px-2 py-2"
       >
         <Input
+          ref={inputRef}
+          autoFocus
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder={
