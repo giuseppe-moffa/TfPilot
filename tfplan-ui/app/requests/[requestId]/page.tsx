@@ -51,9 +51,64 @@ const statusBadgeVariant: Record<
 }
 
 function lineClass(line: string) {
-  if (line.trimStart().startsWith("+")) return "bg-emerald-50 text-emerald-800"
-  if (line.trimStart().startsWith("-")) return "bg-red-50 text-red-800"
-  return "text-slate-800"
+  const trimmed = line.trimStart()
+  if (trimmed.startsWith("@@")) return "bg-slate-800 text-slate-100"
+  if (trimmed.startsWith("+")) return "bg-emerald-900 text-emerald-100"
+  if (trimmed.startsWith("-")) return "bg-red-900 text-red-100"
+  return "text-slate-100"
+}
+
+function lineNumberClass(line: ParsedPatchLine) {
+  if (line.kind === "meta") return "bg-slate-800 text-slate-100"
+  if (line.kind === "add") return "bg-emerald-950 text-emerald-100"
+  if (line.kind === "del") return "bg-red-950 text-red-100"
+  return "text-slate-400"
+}
+
+type ParsedPatchLine = {
+  old?: number
+  new?: number
+  text: string
+  kind: "add" | "del" | "ctx" | "meta"
+}
+
+function parsePatch(patch: string): ParsedPatchLine[] {
+  const out: ParsedPatchLine[] = []
+  const lines = patch.split("\n")
+  const hunkRe = /@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/
+  let oldLine = 0
+  let newLine = 0
+
+  for (const line of lines) {
+    if (line.startsWith("@@")) {
+      const m = line.match(hunkRe)
+      if (m) {
+        oldLine = parseInt(m[1], 10) - 1
+        newLine = parseInt(m[2], 10) - 1
+      }
+      out.push({ text: line, kind: "meta" })
+      continue
+    }
+    if (line.startsWith("+")) {
+      newLine += 1
+      out.push({ text: line, new: newLine, kind: "add" })
+      continue
+    }
+    if (line.startsWith("-")) {
+      oldLine += 1
+      out.push({ text: line, old: oldLine, kind: "del" })
+      continue
+    }
+    if (line.startsWith("\\")) {
+      out.push({ text: line, kind: "meta" })
+      continue
+    }
+    oldLine += 1
+    newLine += 1
+    out.push({ text: line, old: oldLine, new: newLine, kind: "ctx" })
+  }
+
+  return out
 }
 
 function renderBlock(content: string) {
@@ -650,24 +705,42 @@ function RequestDetailPage() {
               <p className="text-sm font-medium">Files Changed</p>
               {prFiles?.files?.length ? (
                 <div className="space-y-2 rounded-lg border bg-slate-50 p-3 text-sm">
-                  {prFiles.files.map((f: any, idx: number) => (
-                    <div key={`${f.filename}-${idx}`} className="space-y-2">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="font-medium text-slate-900">
-                          {f.filename} ({f.status}) +{f.additions}/-{f.deletions}
-                        </p>
-                      </div>
-                      {f.patch ? (
-                        <div className="space-y-1 rounded border bg-slate-50 p-2 text-xs font-mono">
-                          {f.patch.split("\n").map((line: string, i: number) => (
-                            <div key={`${f.filename}-${idx}-${i}`} className={`rounded px-2 py-0.5 ${lineClass(line)}`}>
-                              {line || "\u00a0"}
-                            </div>
-                          ))}
+                  {prFiles.files.map((f: any, idx: number) => {
+                    const parsed = f.patch ? parsePatch(f.patch) : []
+                    return (
+                      <div key={`${f.filename}-${idx}`} className="space-y-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="font-medium text-slate-900">
+                            {f.filename} ({f.status}) +{f.additions}/-{f.deletions}
+                          </p>
                         </div>
-                      ) : null}
-                    </div>
-                  ))}
+                        {parsed.length > 0 ? (
+                          <div className="overflow-hidden rounded border border-slate-800 bg-slate-950 text-xs font-mono text-slate-100">
+                            {parsed.map((line, i) => (
+                              <div
+                                key={`${f.filename}-${idx}-${i}`}
+                                className="grid grid-cols-[52px_52px_1fr]"
+                              >
+                                <div
+                                  className={`px-2 text-right text-[11px] ${lineNumberClass(line)}`}
+                                >
+                                  {line.old ?? ""}
+                                </div>
+                                <div
+                                  className={`px-2 text-right text-[11px] ${lineNumberClass(line)}`}
+                                >
+                                  {line.new ?? ""}
+                                </div>
+                                <div className={`px-2 py-0.5 whitespace-pre-wrap ${lineClass(line.text)}`}>
+                                  {line.text || "\u00a0"}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                    )
+                  })}
                 </div>
               ) : prFilesError ? (
                 <p className="text-sm text-muted-foreground">File changes unavailable.</p>
