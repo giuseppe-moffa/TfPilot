@@ -16,9 +16,9 @@ export const moduleRegistry: ModuleRegistryEntry[] = [
     category: "storage",
     description: "S3 bucket",
     required: ["name", "project", "environment", "request_id", "tags"],
-    optional: ["bucket_name", "versioning_enabled", "force_destroy", "kms_key_arn"],
-    defaults: { versioning_enabled: true },
-    strip: ["region", "acl", "encryption_enabled", "encryption_type", "block_public_access", "public"],
+    optional: ["bucket_name", "versioning_enabled", "force_destroy", "kms_key_arn", "block_public_access", "enable_lifecycle"],
+    defaults: { versioning_enabled: true, block_public_access: true, enable_lifecycle: true },
+    strip: ["region", "acl", "encryption_enabled", "encryption_type", "public"],
     fieldTypes: {
       name: "string",
       project: "string",
@@ -28,6 +28,8 @@ export const moduleRegistry: ModuleRegistryEntry[] = [
       versioning_enabled: "boolean",
       force_destroy: "boolean",
       kms_key_arn: "string",
+      block_public_access: "boolean",
+      enable_lifecycle: "boolean",
       tags: "map",
     },
     compute: (config, ctx) => {

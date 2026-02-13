@@ -3,6 +3,7 @@ import { getGitHubAccessToken } from "@/lib/github/auth"
 import { gh } from "@/lib/github/client"
 import { getRequest, updateRequest } from "@/lib/storage/requestsStore"
 import { getSessionFromCookies } from "@/lib/auth/session"
+import { env } from "@/lib/config/env"
 
 export async function POST(req: NextRequest) {
   try {
@@ -29,17 +30,47 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Missing target repo or PR info" }, { status: 400 })
     }
 
+    const isProd = request.environment?.toLowerCase() === "prod"
+    if (isProd && env.TFPILOT_PROD_ALLOWED_USERS.length > 0) {
+      if (!env.TFPILOT_PROD_ALLOWED_USERS.includes(session.login)) {
+        return NextResponse.json({ error: "Prod merge not allowed for this user" }, { status: 403 })
+      }
+    }
+
+    // Preflight to surface mergeable state when GitHub rejects merges
+    try {
+      const prRes = await gh(token, `/repos/${request.targetOwner}/${request.targetRepo}/pulls/${request.prNumber}`)
+      const prJson = (await prRes.json()) as { mergeable?: boolean; mergeable_state?: string; head?: { sha?: string } }
+      if (prJson.mergeable === false || (prJson.mergeable_state && prJson.mergeable_state !== "clean")) {
+        const state = prJson.mergeable_state ?? "unknown"
+        return NextResponse.json({ error: `PR not mergeable (state=${state})` }, { status: 400 })
+      }
+    } catch {
+      /* ignore preflight failures and attempt merge anyway */
+    }
+
     const mergeRes = await gh(token, `/repos/${request.targetOwner}/${request.targetRepo}/pulls/${request.prNumber}/merge`, {
       method: "PUT",
+      body: JSON.stringify({ merge_method: "merge" }),
     })
-    const mergeJson = (await mergeRes.json()) as { sha?: string; merged?: boolean }
+    const mergeJson = (await mergeRes.json()) as { sha?: string; merged?: boolean; message?: string }
     if (!mergeJson.merged) {
-      return NextResponse.json({ error: "Merge failed" }, { status: 400 })
+      const detail = mergeJson.message || "Merge failed"
+      return NextResponse.json({ error: detail }, { status: 400 })
     }
 
     await updateRequest(request.id, (current) => ({
       status: "merged",
       mergedSha: mergeJson.sha,
+      pr: {
+        ...(current.pr ?? {}),
+        number: current.pr?.number ?? request.prNumber,
+        url: current.pr?.url ?? request.prUrl,
+        merged: true,
+        open: false,
+      },
+      prNumber: current.prNumber ?? request.prNumber,
+      prUrl: current.prUrl ?? request.prUrl,
       updatedAt: new Date().toISOString(),
     }))
 

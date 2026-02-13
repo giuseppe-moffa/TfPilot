@@ -51,7 +51,11 @@ export function useRequestStatus(requestId?: string, initial?: RequestLike) {
     {
       fallbackData: initial ?? null,
       keepPreviousData: true,
-      revalidateOnFocus: false,
+      revalidateOnFocus: true,
+      revalidateOnReconnect: true,
+      dedupingInterval: 2000,
+      revalidateIfStale: true,
+      revalidateOnMount: true,
       refreshInterval: (latest: unknown): number => {
         if (!requestId) return 0
         const status = (latest as any)?.status ?? prevDataRef.current?.status

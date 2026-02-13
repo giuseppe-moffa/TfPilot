@@ -30,6 +30,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Missing branch or repo info" }, { status: 400 })
     }
 
+    const isProd = request.environment?.toLowerCase() === "prod"
+    if (isProd && env.TFPILOT_PROD_ALLOWED_USERS.length > 0) {
+      if (!env.TFPILOT_PROD_ALLOWED_USERS.includes(session.login)) {
+        return NextResponse.json({ error: "Prod plan not allowed for this user" }, { status: 403 })
+      }
+    }
+
     await gh(token, `/repos/${request.targetOwner}/${request.targetRepo}/actions/workflows/${env.GITHUB_PLAN_WORKFLOW_FILE}/dispatches`, {
       method: "POST",
       body: JSON.stringify({

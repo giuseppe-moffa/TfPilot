@@ -135,4 +135,25 @@
   body {
     @apply bg-background text-foreground;
   }
+
+  /* Scrollbar styling to match theme */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: var(--muted);
+    border-radius: 9999px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 9999px;
+    border: 2px solid var(--muted);
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--accent-hover);
+  }
 }

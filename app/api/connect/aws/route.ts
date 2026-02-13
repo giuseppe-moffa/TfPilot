@@ -20,7 +20,7 @@ type RequestBody =
       region: string
       accessKeyId?: string
       secretAccessKey?: string
-    }
+}
 
 function createBaseClient(body: RequestBody) {
   const baseConfig: ConstructorParameters<typeof STSClient>[0] = {

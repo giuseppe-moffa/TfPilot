@@ -8,10 +8,12 @@ type Env = {
   GITHUB_DEFAULT_BASE_BRANCH: string
   GITHUB_PLAN_WORKFLOW_FILE: string
   GITHUB_APPLY_WORKFLOW_FILE: string
+  GITHUB_DESTROY_WORKFLOW_FILE: string
   TFPILOT_DEFAULT_REGION: string
   TFPILOT_APP_NAME: string
   TFPILOT_REQUESTS_BUCKET: string
   TFPILOT_CHAT_LOGS_BUCKET: string
+  TFPILOT_PROD_ALLOWED_USERS: string[]
 }
 
 function required(name: keyof Env, fallback?: string) {
@@ -19,6 +21,15 @@ function required(name: keyof Env, fallback?: string) {
   if (val) return val
   if (fallback !== undefined) return fallback
   throw new Error(`Missing ${name}`)
+}
+
+function list(name: keyof Env, fallback: string[] = []) {
+  const val = process.env[name]
+  if (!val) return fallback
+  return val
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
 }
 
 export const env: Env = {
@@ -31,10 +42,12 @@ export const env: Env = {
   GITHUB_DEFAULT_BASE_BRANCH: required("GITHUB_DEFAULT_BASE_BRANCH", "main"),
   GITHUB_PLAN_WORKFLOW_FILE: required("GITHUB_PLAN_WORKFLOW_FILE", "plan.yml"),
   GITHUB_APPLY_WORKFLOW_FILE: required("GITHUB_APPLY_WORKFLOW_FILE", "apply.yml"),
+  GITHUB_DESTROY_WORKFLOW_FILE: required("GITHUB_DESTROY_WORKFLOW_FILE", "destroy.yml"),
   TFPILOT_DEFAULT_REGION: required("TFPILOT_DEFAULT_REGION", "eu-west-2"),
   TFPILOT_APP_NAME: required("TFPILOT_APP_NAME", "TfPilot"),
   TFPILOT_REQUESTS_BUCKET: required("TFPILOT_REQUESTS_BUCKET"),
   TFPILOT_CHAT_LOGS_BUCKET: required("TFPILOT_CHAT_LOGS_BUCKET"),
+  TFPILOT_PROD_ALLOWED_USERS: list("TFPILOT_PROD_ALLOWED_USERS", []),
 }
 
 let logged = false

@@ -58,6 +58,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
       request.pr = {
         number: prJson.number ?? request.pr.number,
         url: prJson.html_url ?? request.pr.url,
+        status: prJson.state ?? request.pr.status,
         merged: prJson.merged,
         headSha: prJson.head?.sha,
         open: prJson.state === "open",
@@ -72,6 +73,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
         merged: request.pr.merged,
         headSha: request.pr.headSha,
         open: request.pr.open,
+        status: prJson.state ?? request.pullRequest?.status,
       }
 
       try {
@@ -123,6 +125,57 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
       } catch {
         /* ignore discovery failures */
       }
+    }
+
+    // Discover apply run if missing (try request branch first, then base branch)
+    if (!request.applyRun?.runId && env.GITHUB_APPLY_WORKFLOW_FILE) {
+      try {
+        const candidates = [
+          request.branchName,
+          request.targetBase ?? env.GITHUB_DEFAULT_BASE_BRANCH ?? "main",
+        ].filter(Boolean) as string[]
+        for (const branch of candidates) {
+          const runsRes = await gh(
+            token,
+            `/repos/${request.targetOwner}/${request.targetRepo}/actions/workflows/${env.GITHUB_APPLY_WORKFLOW_FILE}/runs?branch=${encodeURIComponent(
+              branch
+            )}&per_page=5`
+          )
+          const runsJson = (await runsRes.json()) as { workflow_runs?: Array<{ id: number; status?: string; conclusion?: string; head_sha?: string; html_url?: string }> }
+          const firstRun =
+            runsJson.workflow_runs?.find(
+              (r) =>
+                r.head_sha === request.applyRun?.headSha ||
+                r.head_sha === request.mergedSha ||
+                r.head_sha === request.commitSha ||
+                r.head_sha === request.planRun?.headSha
+            ) ?? runsJson.workflow_runs?.[0]
+          if (firstRun?.id) {
+            request.applyRun = {
+              runId: firstRun.id,
+              status: firstRun.status,
+              conclusion: firstRun.conclusion,
+              headSha: firstRun.head_sha,
+              url: firstRun.html_url,
+            }
+            break
+          }
+        }
+      } catch {
+        /* ignore discovery failures */
+      }
+    }
+
+    // Validate applyRun head_sha matches this request; if not, discard to avoid cross-request contamination
+    const applyHeadSha = request.applyRun?.headSha
+    const candidateShas = new Set(
+      [request.mergedSha, request.commitSha, request.planRun?.headSha, request.pr?.headSha].filter(Boolean) as string[]
+    )
+    const applyMatches = applyHeadSha ? candidateShas.has(applyHeadSha) : false
+    if (request.applyRun && !applyMatches) {
+      request.applyRun = undefined
+      request.applyRunId = undefined
+      request.applyRunUrl = undefined
     }
 
     if (request.planRun?.runId) {

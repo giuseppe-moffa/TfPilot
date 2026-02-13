@@ -30,9 +30,10 @@ type RequestRow = {
   project: string
   environment: string
   service?: string
+  module?: string
   status?: RequestStatus | "pending" | "applied" | "planned"
   pullRequest?: { status?: string }
-  updatedAt?: string
+  createdAt?: string
   config?: Record<string, unknown>
 }
 
@@ -65,7 +66,7 @@ function computeStatus(row: RequestRow): {
   return { step: "submitted", subtitle: "Request created", state: "pending" }
 }
 
-function formatUpdatedAt(iso?: string) {
+function formatTimestamp(iso?: string) {
   if (!iso) return "—"
   return new Date(iso).toLocaleString(undefined, {
     year: "numeric",
@@ -73,14 +74,13 @@ function formatUpdatedAt(iso?: string) {
     day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
-    timeZoneName: "short",
   })
 }
 
 function SkeletonRow() {
   return (
     <TableRow>
-      {[...Array(7)].map((_, idx) => (
+      {[...Array(8)].map((_, idx) => (
         <TableCell key={idx}>
           <div className="h-4 w-full animate-pulse rounded bg-muted" />
         </TableCell>
@@ -109,7 +109,6 @@ export default function RequestsPage() {
             module?: string
             config?: Record<string, unknown>
             receivedAt?: string
-            updatedAt?: string
             status?: RequestRow["status"]
             pullRequest?: { status?: string }
           }>
@@ -120,12 +119,13 @@ export default function RequestsPage() {
             id: r.id,
             project: r.project,
             environment: r.environment,
+            module: r.module,
             service:
               typeof r.config?.["name"] === "string"
                 ? (r.config["name"] as string)
                 : undefined,
             status: r.status ?? ("pending" as const),
-            updatedAt: r.receivedAt ?? r.updatedAt,
+            createdAt: r.receivedAt,
             config: r.config,
             pullRequest: r.pullRequest,
           })) ?? []
@@ -167,10 +167,11 @@ export default function RequestsPage() {
               <TableRow>
                 <TableHead>Request ID</TableHead>
                 <TableHead>Project</TableHead>
-                <TableHead>Service</TableHead>
+                <TableHead>Module</TableHead>
+                <TableHead>Resource Name</TableHead>
                 <TableHead>Environment</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead>Updated</TableHead>
+                <TableHead>Created</TableHead>
                 <TableHead className="text-right" />
               </TableRow>
             </TableHeader>
@@ -182,7 +183,7 @@ export default function RequestsPage() {
 
               {showEmpty && (
                 <TableRow>
-                  <TableCell colSpan={7} className="py-8 text-center">
+                  <TableCell colSpan={8} className="py-8 text-center">
                     <div className="text-sm text-muted-foreground">
                       No requests yet. Start by creating a new request.
                     </div>
@@ -203,16 +204,19 @@ export default function RequestsPage() {
                     </TableCell>
                     <TableCell className="capitalize">{item.project}</TableCell>
                     <TableCell className="capitalize">
+                      {item.module ?? "N/A"}
+                    </TableCell>
+                    <TableCell className="capitalize">
                       {item.service ?? "N/A"}
                     </TableCell>
                     <TableCell className="capitalize">
                       {item.environment}
                     </TableCell>
-                    <TableCell className="text-sm text-foreground">
+                    <TableCell className="text-sm text-foreground whitespace-normal break-words leading-tight">
                       {computeStatus(item).subtitle}
                     </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {formatUpdatedAt(item.updatedAt)}
+                    <TableCell className="text-muted-foreground whitespace-normal break-words leading-tight">
+                      {formatTimestamp(item.createdAt)}
                     </TableCell>
                     <TableCell className="text-right">
                       <Button size="sm" variant="secondary" asChild className="cursor-pointer">

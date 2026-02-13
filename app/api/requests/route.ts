@@ -8,6 +8,7 @@ import { env, logEnvDebug } from "@/lib/config/env"
 import { saveRequest, listRequests } from "@/lib/storage/requestsStore"
 import { moduleRegistry, type ModuleRegistryEntry } from "@/config/module-registry"
 import { generateRequestId } from "@/lib/requests/id"
+import { getSessionFromCookies } from "@/lib/auth/session"
 
 type RequestPayload = {
   project?: string
@@ -397,6 +398,11 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    const session = await getSessionFromCookies()
+    if (!session) {
+      return NextResponse.json({ success: false, error: "Not authenticated" }, { status: 401 })
+    }
+
     // validate module exists based on registry
     const regEntry = moduleRegistry.find((m) => m.type === body.module)
     if (!regEntry) {
@@ -418,6 +424,13 @@ export async function POST(request: NextRequest) {
     const targetRepo = resolveInfraRepo(body.project!, body.environment!)
     if (!targetRepo) {
       return NextResponse.json({ success: false, error: "No infra repo configured for project/environment" }, { status: 400 })
+    }
+
+    const isProd = body.environment?.toLowerCase() === "prod"
+    if (isProd && env.TFPILOT_PROD_ALLOWED_USERS.length > 0) {
+      if (!env.TFPILOT_PROD_ALLOWED_USERS.includes(session.login)) {
+        return NextResponse.json({ success: false, error: "Prod deployments not allowed for this user" }, { status: 403 })
+      }
     }
 
     const normalizedConfig = normalizeConfigKeys(body.config as Record<string, unknown>)

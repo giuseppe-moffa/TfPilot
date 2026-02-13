@@ -30,6 +30,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Request must be merged before apply" }, { status: 400 })
     }
 
+    const isProd = request.environment?.toLowerCase() === "prod"
+    if (isProd && env.TFPILOT_PROD_ALLOWED_USERS.length > 0) {
+      if (!env.TFPILOT_PROD_ALLOWED_USERS.includes(session.login)) {
+        return NextResponse.json({ error: "Prod apply not allowed for this user" }, { status: 403 })
+      }
+    }
+
     const owner = request.targetOwner
     const repo = request.targetRepo
     const base = request.targetBase ?? "main"
@@ -78,6 +85,7 @@ export async function POST(req: NextRequest) {
         runId: applyRunId ?? current.applyRun?.runId,
         url: applyRunUrl ?? current.applyRun?.url,
       },
+      updatedAt: new Date().toISOString(),
     }))
 
     return NextResponse.json({ ok: true })

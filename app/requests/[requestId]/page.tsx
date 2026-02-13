@@ -189,6 +189,11 @@ function RequestDetailPage() {
   >("idle")
   const [mergeModalOpen, setMergeModalOpen] = React.useState(false)
   const [actionError, setActionError] = React.useState<string | null>(null)
+  const [destroyModalOpen, setDestroyModalOpen] = React.useState(false)
+  const [destroyStatus, setDestroyStatus] = React.useState<
+    "idle" | "pending" | "success" | "error"
+  >("idle")
+  const [destroyError, setDestroyError] = React.useState<string | null>(null)
   const [showApplyOutput, setShowApplyOutput] = React.useState(false)
   const [initialRequest, setInitialRequest] = React.useState<any>(null)
   const [initialLoading, setInitialLoading] = React.useState<boolean>(true)
@@ -290,8 +295,10 @@ function RequestDetailPage() {
     }
   }
 
-  async function handleApplyDispatch() {
-    if (!requestId || !memoStatusSlice || memoStatusSlice.status !== "merged") return
+  async function handleApplyDispatch(): Promise<boolean> {
+    if (!requestId || requestStatus !== "merged") {
+      return false
+    }
     setIsApplying(true)
     setActionError(null)
     try {
@@ -305,10 +312,33 @@ function RequestDetailPage() {
         throw new Error(err?.error || "Failed to dispatch apply")
       }
       await mutateStatus(undefined, true)
+      return true
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Failed to dispatch apply")
+      return false
     } finally {
       setIsApplying(false)
+    }
+  }
+
+  async function handleDestroy() {
+    if (!requestId || isDestroying || isDestroyed) return
+    setDestroyStatus("pending")
+    setDestroyError(null)
+    try {
+      const res = await fetch(`/api/requests/${requestId}/destroy`, {
+        method: "POST",
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err?.error || "Failed to dispatch destroy")
+      }
+      await mutateStatus(undefined, true)
+      setDestroyStatus("success")
+      setTimeout(() => setDestroyModalOpen(false), 2000)
+    } catch (err: any) {
+      setDestroyStatus("error")
+      setDestroyError(err?.message || "Failed to dispatch destroy")
     }
   }
 
@@ -316,6 +346,15 @@ function RequestDetailPage() {
     if (!requestId || !statusSlice || statusSlice.status !== "approved") return
     try {
       setMergeStatus("pending")
+      const res = await fetch("/api/github/merge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ requestId }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err?.error || "Failed to merge PR")
+      }
       await mutateStatus(undefined, true)
       setMergeStatus("success")
       setTimeout(() => setMergeModalOpen(false), 2000)
@@ -346,26 +385,32 @@ function RequestDetailPage() {
     }
   }
 
-  if (initialLoading && !request) {
-    return (
-      <div className="flex min-h-[40vh] items-center justify-center text-muted-foreground">
-        Loading request...
-      </div>
-    )
-  }
-
-  if (!request) {
-    return (
-      <div className="flex min-h-[40vh] items-center justify-center text-muted-foreground">
-        Loading request...
-      </div>
-    )
-  }
-
   const requestStatus = memoStatusSlice?.status ?? request?.status ?? "created"
-  const isApplied = requestStatus === "complete" || requestStatus === "applied"
-  const isMerged = requestStatus === "merged" || requestStatus === "applying" || isApplied
+  const planSucceeded =
+    memoStatusSlice?.planRun?.conclusion === "success" ||
+    request?.planRun?.conclusion === "success" ||
+    request?.planRun?.status === "completed"
+  const planFailed =
+    memoStatusSlice?.planRun?.conclusion === "failure" || request?.planRun?.conclusion === "failure"
+  const prMerged =
+    memoStatusSlice?.pr?.merged ??
+    request?.pr?.merged ??
+    request?.pullRequest?.merged ??
+    request?.pullRequest?.open === false
+  const applySucceeded =
+    memoStatusSlice?.applyRun?.conclusion === "success" ||
+    request?.applyRun?.conclusion === "success" ||
+    requestStatus === "complete" ||
+    requestStatus === "applied"
+  const applyFailed =
+    memoStatusSlice?.applyRun?.conclusion === "failure" || request?.applyRun?.conclusion === "failure"
+
+  const isApplied = applySucceeded
+  const isMerged = prMerged || requestStatus === "merged" || requestStatus === "applying" || isApplied
+  const isDestroying = requestStatus === "destroying"
+  const isDestroyed = requestStatus === "destroyed"
   const isPlanReady =
+    planSucceeded ||
     requestStatus === "plan_ready" ||
     requestStatus === "planned" ||
     requestStatus === "approved" ||
@@ -381,7 +426,7 @@ function RequestDetailPage() {
     false
   const isPlanning =
     requestStatus === "planning" || requestStatus === "pr_open" || requestStatus === "created" || requestStatus === "pending"
-  const isFailed = requestStatus === "failed"
+  const isFailed = requestStatus === "failed" || applyFailed || planFailed
 
   function computeStepInfo() {
     if (isApplied) {
@@ -449,16 +494,34 @@ function RequestDetailPage() {
       case "submitted":
         return "Request created"
       case "planned":
+        if (planFailed) return "Plan failed"
         return state === "done" ? "Plan ready" : "Waiting for plan"
       case "approved":
         return state === "done" ? "Approved" : "Waiting for approval"
       case "merged":
         return state === "done" ? "Pull request merged" : "Waiting for PR merge"
       case "applied":
+        if (applyFailed) return "Apply failed"
         return state === "done" ? "Deployment Completed" : "Waiting for apply"
       default:
         return "Pending"
     }
+  }
+
+  if (initialLoading && !request) {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center text-muted-foreground">
+        Loading request...
+      </div>
+    )
+  }
+
+  if (!request) {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center text-muted-foreground">
+        Loading request...
+      </div>
+    )
   }
 
   return (
@@ -485,7 +548,7 @@ function RequestDetailPage() {
               </p>
             </div>
             <div className="space-y-2">
-              <p className="text-sm text-muted-foreground">Service</p>
+              <p className="text-sm text-muted-foreground">Resource Name</p>
               <p className="text-base font-medium">{getServiceName(request.config as any) ?? "—"}</p>
             </div>
             <div className="space-y-2">
@@ -648,7 +711,13 @@ function RequestDetailPage() {
                       disabled={
                         !statusSlice ||
                         statusSlice.status === "approved" ||
-                        statusSlice.status === "applied"
+                        statusSlice.status === "applied" ||
+                        isMerged ||
+                        isApplied ||
+                        isDestroying ||
+                        isDestroyed ||
+                        isApplying ||
+                        isFailed
                       }
                       onClick={() => {
                         setApproveStatus("idle")
@@ -658,7 +727,13 @@ function RequestDetailPage() {
                         "cursor-pointer rounded-md bg-primary px-3 py-1.5 text-primary-foreground hover:bg-primary/90",
                         ((!statusSlice) ||
                           statusSlice.status === "approved" ||
-                          statusSlice.status === "applied") &&
+                          statusSlice.status === "applied" ||
+                          isMerged ||
+                          isApplied ||
+                          isDestroying ||
+                          isDestroyed ||
+                          isApplying ||
+                          isFailed) &&
                           "cursor-not-allowed bg-muted text-muted-foreground opacity-60"
                       )}
                     >
@@ -667,7 +742,7 @@ function RequestDetailPage() {
                   </TooltipTrigger>
                   {requestStatus !== "pending" && requestStatus !== "planned" && (
                     <TooltipContent>
-                      Already approved or applied
+                      Already approved, merged, applied, destroying, applying, or failed
                     </TooltipContent>
                   )}
                 </Tooltip>
@@ -676,14 +751,14 @@ function RequestDetailPage() {
                   <TooltipTrigger asChild>
                     <Button
                       size="sm"
-                      disabled={!statusSlice || statusSlice.status !== "approved" || isMerged}
+                      disabled={!statusSlice || statusSlice.status !== "approved" || isMerged || isDestroying || isDestroyed || isFailed}
                       onClick={() => {
                         setMergeStatus("idle")
                         setMergeModalOpen(true)
                       }}
                       className={cn(
                         "cursor-pointer rounded-md bg-primary px-3 py-1.5 text-primary-foreground hover:bg-primary/90",
-                        (!statusSlice || statusSlice.status !== "approved" || isMerged) &&
+                        (!statusSlice || statusSlice.status !== "approved" || isMerged || isDestroying || isDestroyed || isFailed) &&
                           "cursor-not-allowed bg-muted text-muted-foreground opacity-60"
                       )}
                     >
@@ -701,18 +776,25 @@ function RequestDetailPage() {
                   <TooltipTrigger asChild>
                     <Button
                       size="sm"
-                      disabled={!isMerged || isApplied || isApplying}
+                      disabled={!isMerged || isApplied || isApplying || isDestroying || isDestroyed || isFailed}
                       onClick={() => {
                         setApplyStatus("idle")
                         setApplyModalOpen(true)
                       }}
                       className={cn(
                         "cursor-pointer rounded-md bg-primary px-3 py-1.5 text-primary-foreground hover:bg-primary/90",
-                        (!isMerged || isApplied || isApplying) &&
+                        (!isMerged || isApplied || isApplying || isDestroying || isDestroyed || isFailed) &&
                           "cursor-not-allowed bg-muted text-muted-foreground opacity-60"
                       )}
                     >
-                      Apply
+                      {isApplying ? (
+                        <span className="inline-flex items-center gap-2">
+                          <Loader2 className="size-4 animate-spin" />
+                          Applying…
+                        </span>
+                      ) : (
+                        "Apply"
+                      )}
                     </Button>
                   </TooltipTrigger>
                   {!isMerged && (
@@ -721,8 +803,55 @@ function RequestDetailPage() {
                     </TooltipContent>
                   )}
                 </Tooltip>
+
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      disabled={isDestroying || isDestroyed || isApplying || !isApplied}
+                      onClick={() => {
+                        setDestroyStatus("idle")
+                        setDestroyError(null)
+                        setDestroyModalOpen(true)
+                      }}
+                      className={cn(
+                        "cursor-pointer rounded-md bg-destructive px-3 py-1.5 text-destructive-foreground hover:bg-destructive/90",
+                        (isDestroying || isDestroyed || isApplying || !isApplied) &&
+                          "cursor-not-allowed bg-muted text-muted-foreground opacity-60"
+                      )}
+                    >
+                      Destroy
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Destroy the resources for this request</TooltipContent>
+                </Tooltip>
               </div>
             </TooltipProvider>
+
+            {(isDestroying || isDestroyed || request.destroyRun) && (
+              <div className="mt-3 space-y-1 rounded-md border border-border bg-muted/40 p-3 text-sm text-foreground">
+                <div className="flex items-center gap-2">
+                  <Badge variant={isDestroyed ? "success" : "destructive"}>
+                    {isDestroyed ? "Destroyed" : isDestroying ? "Destroying" : "Destroy triggered"}
+                  </Badge>
+                  {request.destroyRun?.url && (
+                    <a
+                      href={request.destroyRun.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-primary hover:underline"
+                    >
+                      <LinkIcon className="size-4" />
+                      Destroy run
+                    </a>
+                  )}
+                </div>
+                {request.destroyRun?.runId && (
+                  <p className="text-xs text-muted-foreground">Run ID: {request.destroyRun.runId}</p>
+                )}
+              </div>
+            )}
 
             <div className="space-y-2">
               <p className="text-sm font-medium text-foreground">Files Changed</p>
@@ -1021,12 +1150,81 @@ function RequestDetailPage() {
                 <Button
                   size="sm"
                   className="bg-gray-900 text-white hover:bg-gray-800"
-                  onClick={() => {
+                  onClick={async () => {
                     setApplyStatus("pending")
-                    void handleApplyOnly()
+                    const ok = await handleApplyDispatch()
+                    setApplyStatus(ok ? "success" : "error")
+                    if (ok) {
+                      setTimeout(() => setApplyModalOpen(false), 2000)
+                    }
                   }}
                 >
                   Yes, apply
+                </Button>
+              </div>
+            )}
+          </DialogHeader>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={destroyModalOpen}
+        onOpenChange={(val: boolean) => {
+          if (!isDestroying && !val) {
+            setDestroyModalOpen(false)
+            setDestroyStatus("idle")
+            setDestroyError(null)
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Destroy resources</DialogTitle>
+            <DialogDescription asChild>
+              <div className="space-y-1">
+                {destroyStatus === "idle" && (
+                  <div className="text-sm text-muted-foreground">
+                    Are you sure you want to destroy the resources for this request?
+                  </div>
+                )}
+                {destroyStatus === "pending" && (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="size-4 animate-spin" />
+                    Destroying...
+                  </div>
+                )}
+                {destroyStatus === "success" && (
+                  <div className="text-sm text-emerald-700">✅ Destroy dispatched</div>
+                )}
+                {destroyStatus === "error" && (
+                  <div className="text-sm text-red-700">
+                    ❌ {destroyError || "Something went wrong. Please try again."}
+                  </div>
+                )}
+              </div>
+            </DialogDescription>
+            {destroyStatus === "idle" && (
+              <div className="mt-4 flex justify-end gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setDestroyModalOpen(false)
+                    setDestroyStatus("idle")
+                    setDestroyError(null)
+                  }}
+                >
+                  No
+                </Button>
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  onClick={() => {
+                    setDestroyStatus("pending")
+                    void handleDestroy()
+                  }}
+                >
+                  Yes, destroy
                 </Button>
               </div>
             )}
