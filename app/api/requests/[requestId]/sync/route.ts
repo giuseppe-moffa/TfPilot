@@ -224,8 +224,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
       applyRun: request.applyRun,
       approval: request.approval,
     })
-    request.status = derived.status
-    request.reason = derived.reason
+    if (request.status !== "destroyed") {
+      request.status = derived.status
+      request.reason = derived.reason
+    }
     request.statusDerivedAt = new Date().toISOString()
     request.updatedAt = new Date().toISOString()
 

@@ -4,7 +4,7 @@ import { getSessionFromCookies } from "@/lib/auth/session"
 import { getGitHubAccessToken } from "@/lib/github/auth"
 import { gh } from "@/lib/github/client"
 import { env } from "@/lib/config/env"
-import { getRequest, updateRequest } from "@/lib/storage/requestsStore"
+import { archiveRequest, getRequest, updateRequest } from "@/lib/storage/requestsStore"
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ requestId: string }> }) {
   try {
@@ -69,15 +69,24 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
       /* ignore run discovery failures */
     }
 
+    const now = new Date().toISOString()
     const updated = await updateRequest(request.id, (current) => ({
       ...current,
-      status: "destroying",
+      status: "destroyed",
+      statusDerivedAt: now,
       destroyRun: {
         runId: destroyRunId ?? current.destroyRun?.runId,
         url: destroyRunUrl ?? current.destroyRun?.url,
       },
-      updatedAt: new Date().toISOString(),
+      updatedAt: now,
     }))
+
+    // Write an archive copy under history/ while keeping the active tombstone
+    try {
+      await archiveRequest(updated)
+    } catch (archiveError) {
+      console.error("[api/requests/destroy] archive failed", archiveError)
+    }
 
     return NextResponse.json({ ok: true, destroyRunId, destroyRunUrl, request: updated })
   } catch (error) {

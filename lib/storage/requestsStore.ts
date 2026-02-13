@@ -4,6 +4,7 @@ import { env } from "@/lib/config/env"
 const s3 = new S3Client({ region: env.TFPILOT_DEFAULT_REGION })
 const BUCKET = env.TFPILOT_REQUESTS_BUCKET
 const PREFIX = "requests/"
+const HISTORY_PREFIX = "history/"
 
 async function streamToString(stream: any): Promise<string> {
   return await new Promise((resolve, reject) => {
@@ -29,6 +30,21 @@ async function fetchCurrentVersion(requestId: string) {
 
 async function putRequest(request: any) {
   const key = `${PREFIX}${request.id}.json`
+  const body = JSON.stringify(request, null, 2)
+  await s3.send(
+    new PutObjectCommand({
+      Bucket: BUCKET,
+      Key: key,
+      Body: body,
+      ContentType: "application/json",
+      ServerSideEncryption: "AES256",
+    })
+  )
+  return { key }
+}
+
+async function putHistory(request: any) {
+  const key = `${HISTORY_PREFIX}${request.id}.json`
   const body = JSON.stringify(request, null, 2)
   await s3.send(
     new PutObjectCommand({
@@ -88,6 +104,10 @@ export async function updateRequest(
 
   await saveRequest(payload, { expectedVersion: currentVersion })
   return payload
+}
+
+export async function archiveRequest(request: any) {
+  return await putHistory(request)
 }
 
 export async function listRequests(limit = 50) {

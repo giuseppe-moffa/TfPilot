@@ -194,6 +194,7 @@ function RequestDetailPage() {
     "idle" | "pending" | "success" | "error"
   >("idle")
   const [destroyError, setDestroyError] = React.useState<string | null>(null)
+  const [destroyConfirmation, setDestroyConfirmation] = React.useState("")
   const [showApplyOutput, setShowApplyOutput] = React.useState(false)
   const [initialRequest, setInitialRequest] = React.useState<any>(null)
   const [initialLoading, setInitialLoading] = React.useState<boolean>(true)
@@ -429,6 +430,20 @@ function RequestDetailPage() {
   const isFailed = requestStatus === "failed" || applyFailed || planFailed
 
   function computeStepInfo() {
+    if (isDestroyed) {
+      return {
+        key: "applied" as const,
+        state: "completed" as const,
+        subtitle: "Destroyed",
+      }
+    }
+    if (isDestroying) {
+      return {
+        key: "applied" as const,
+        state: "pending" as const,
+        subtitle: "Destroying resources",
+      }
+    }
     if (isApplied) {
       return {
         key: "applied" as const,
@@ -529,8 +544,10 @@ function RequestDetailPage() {
       <div className="grid gap-6 md:grid-cols-2">
         <Card>
           <CardHeader className="border-b">
-            <CardTitle className="text-xl font-semibold">
-              Request {request.id}
+            <CardTitle className="text-xl font-semibold flex items-center gap-2">
+              <span>Request {request.id}</span>
+              {isDestroyed && <Badge variant="secondary">Destroyed</Badge>}
+              {isDestroying && !isDestroyed && <Badge variant="secondary">Destroying</Badge>}
             </CardTitle>
             <CardDescription>
               Overview of request metadata and execution timeline.
@@ -1183,8 +1200,23 @@ function RequestDetailPage() {
             <DialogDescription asChild>
               <div className="space-y-1">
                 {destroyStatus === "idle" && (
-                  <div className="text-sm text-muted-foreground">
-                    Are you sure you want to destroy the resources for this request?
+                  <div className="space-y-3 text-sm text-muted-foreground">
+                    <p>
+                      This will permanently destroy all infrastructure created by this request.
+                      This action is irreversible and may cause downtime or data loss.
+                      Ensure backups and dependencies are handled before proceeding.
+                    </p>
+                    <div className="space-y-2">
+                      <p className="text-xs text-muted-foreground">
+                        Type <span className="font-mono text-foreground">destroy</span> to confirm.
+                      </p>
+                      <input
+                        className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
+                        value={destroyConfirmation}
+                        onChange={(e) => setDestroyConfirmation(e.target.value.toLowerCase())}
+                        placeholder="destroy"
+                      />
+                    </div>
                   </div>
                 )}
                 {destroyStatus === "pending" && (
@@ -1212,6 +1244,7 @@ function RequestDetailPage() {
                     setDestroyModalOpen(false)
                     setDestroyStatus("idle")
                     setDestroyError(null)
+                    setDestroyConfirmation("")
                   }}
                 >
                   No
@@ -1219,6 +1252,7 @@ function RequestDetailPage() {
                 <Button
                   size="sm"
                   variant="destructive"
+                  disabled={destroyConfirmation !== "destroy"}
                   onClick={() => {
                     setDestroyStatus("pending")
                     void handleDestroy()

@@ -31,13 +31,13 @@ type RequestRow = {
   environment: string
   service?: string
   module?: string
-  status?: RequestStatus | "pending" | "applied" | "planned"
+  status?: RequestStatus | "pending" | "applied" | "planned" | "destroying" | "destroyed"
   pullRequest?: { status?: string }
   createdAt?: string
   config?: Record<string, unknown>
 }
 
-type DisplayStatus = "submitted" | "planned" | "approved" | "merged" | "applied"
+type DisplayStatus = "submitted" | "planned" | "approved" | "merged" | "applied" | "destroyed"
 
 function computeStatus(row: RequestRow): {
   step: DisplayStatus
@@ -45,6 +45,12 @@ function computeStatus(row: RequestRow): {
   state: "completed" | "pending"
 } {
   const status = row.status ?? "pending"
+  if (status === "destroyed") {
+    return { step: "destroyed", subtitle: "Destroyed", state: "completed" }
+  }
+  if (status === "destroying") {
+    return { step: "destroyed", subtitle: "Destroying", state: "pending" }
+  }
   const isApplied = status === "applied" || status === "complete"
   const isMerged =
     status === "merged" || status === "applying" || isApplied || row.pullRequest?.status === "merged"
@@ -92,6 +98,7 @@ function SkeletonRow() {
 export default function RequestsPage() {
   const [isLoading, setIsLoading] = React.useState(true)
   const [requests, setRequests] = React.useState<RequestRow[]>([])
+  const [statusFilter, setStatusFilter] = React.useState<"active" | "destroyed" | "all">("active")
   const { isConnected } = useAwsConnection()
 
   React.useEffect(() => {
@@ -129,9 +136,6 @@ export default function RequestsPage() {
             config: r.config,
             pullRequest: r.pullRequest,
           })) ?? []
-        rows.forEach((row) =>
-          console.log("[requests] row", row.id, { configName: row.service })
-        )
         setRequests(rows)
       } catch (error) {
         console.error("[requests] fetch error", error)
@@ -146,7 +150,17 @@ export default function RequestsPage() {
     }
   }, [])
 
-  const showEmpty = !isLoading && requests.length === 0
+  const filteredRequests = React.useMemo(() => {
+    return requests.filter((row) => {
+      const status = row.status
+      const isDestroyed = status === "destroyed" || status === "destroying"
+      if (statusFilter === "all") return true
+      if (statusFilter === "destroyed") return isDestroyed
+      return !isDestroyed
+    })
+  }, [requests, statusFilter])
+
+  const showEmpty = !isLoading && filteredRequests.length === 0
   return (
     <div className="space-y-4">
       <Card>
@@ -162,6 +176,19 @@ export default function RequestsPage() {
           </CardAction>
         </CardHeader>
         <CardContent className="pt-6">
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            {(["active", "destroyed", "all"] as const).map((value) => (
+              <Button
+                key={value}
+                size="sm"
+                variant={statusFilter === value ? "default" : "outline"}
+                className="cursor-pointer"
+                onClick={() => setStatusFilter(value)}
+              >
+                {value === "active" ? "Active" : value === "destroyed" ? "Destroyed" : "All"}
+              </Button>
+            ))}
+          </div>
           <Table>
             <TableHeader>
               <TableRow>
@@ -192,7 +219,7 @@ export default function RequestsPage() {
               )}
 
               {!isLoading &&
-                requests.map((item) => (
+                filteredRequests.map((item) => (
                   <TableRow key={item.id}>
                     <TableCell className="font-medium">
                       <Link
