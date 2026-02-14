@@ -21,6 +21,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { Input } from "@/components/ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { cn } from "@/lib/utils"
 import { useAwsConnection } from "../providers"
 import type { RequestStatus } from "@/lib/requests/status"
@@ -99,6 +107,10 @@ export default function RequestsPage() {
   const [isLoading, setIsLoading] = React.useState(true)
   const [requests, setRequests] = React.useState<RequestRow[]>([])
   const [statusFilter, setStatusFilter] = React.useState<"active" | "destroyed" | "all">("active")
+  const [searchTerm, setSearchTerm] = React.useState("")
+  const [envFilter, setEnvFilter] = React.useState<"all" | "dev" | "prod">("all")
+  const [moduleFilter, setModuleFilter] = React.useState<string>("all")
+  const [projectFilter, setProjectFilter] = React.useState<string>("all")
   const { isConnected } = useAwsConnection()
 
   React.useEffect(() => {
@@ -150,15 +162,49 @@ export default function RequestsPage() {
     }
   }, [])
 
+  const moduleOptions = React.useMemo(() => {
+    const set = new Set<string>()
+    requests.forEach((r) => {
+      if (r.module) set.add(r.module)
+    })
+    return Array.from(set)
+  }, [requests])
+
+  const projectOptions = React.useMemo(() => {
+    const set = new Set<string>()
+    requests.forEach((r) => {
+      if (r.project) set.add(r.project)
+    })
+    return Array.from(set)
+  }, [requests])
+
   const filteredRequests = React.useMemo(() => {
+    const term = searchTerm.trim().toLowerCase()
     return requests.filter((row) => {
       const status = row.status
       const isDestroyed = status === "destroyed" || status === "destroying"
-      if (statusFilter === "all") return true
-      if (statusFilter === "destroyed") return isDestroyed
-      return !isDestroyed
+      if (statusFilter === "destroyed" && !isDestroyed) return false
+      if (statusFilter === "active" && isDestroyed) return false
+
+      if (envFilter !== "all" && row.environment?.toLowerCase() !== envFilter) return false
+      if (moduleFilter !== "all" && row.module !== moduleFilter) return false
+      if (projectFilter !== "all" && row.project !== projectFilter) return false
+
+      if (!term) return true
+      const haystack = [
+        row.id,
+        row.project,
+        row.environment,
+        row.module,
+        row.service,
+        row.config && typeof row.config === "object" ? JSON.stringify(row.config) : "",
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+      return haystack.includes(term)
     })
-  }, [requests, statusFilter])
+  }, [requests, statusFilter, envFilter, moduleFilter, projectFilter, searchTerm])
 
   const showEmpty = !isLoading && filteredRequests.length === 0
   return (
@@ -176,18 +222,72 @@ export default function RequestsPage() {
           </CardAction>
         </CardHeader>
         <CardContent className="pt-6">
-          <div className="mb-4 flex flex-wrap items-center gap-2">
+          <div className="mb-4 flex flex-wrap items-center gap-3">
+            <Input
+              placeholder="Search requests"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="h-9 w-72 px-3 focus-visible:ring-0 focus-visible:ring-offset-0"
+            />
             {(["active", "destroyed", "all"] as const).map((value) => (
               <Button
                 key={value}
-                size="sm"
                 variant={statusFilter === value ? "default" : "outline"}
-                className="cursor-pointer"
+                className="h-9 px-4 cursor-pointer"
                 onClick={() => setStatusFilter(value)}
               >
                 {value === "active" ? "Active" : value === "destroyed" ? "Destroyed" : "All"}
               </Button>
             ))}
+            <Select value={envFilter} onValueChange={(val) => setEnvFilter(val as typeof envFilter)}>
+              <SelectTrigger className="h-9 min-w-[130px] rounded-md border border-input bg-transparent px-3 text-sm text-foreground shadow-none focus-visible:ring-0 focus-visible:ring-offset-0">
+                <SelectValue placeholder="All envs" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All envs</SelectItem>
+                <SelectItem value="dev">Dev</SelectItem>
+                <SelectItem value="prod">Prod</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={moduleFilter} onValueChange={(val) => setModuleFilter(val)}>
+              <SelectTrigger className="h-9 min-w-[130px] rounded-md border border-input bg-transparent px-3 text-sm text-foreground shadow-none focus-visible:ring-0 focus-visible:ring-offset-0">
+                <SelectValue placeholder="All modules" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All modules</SelectItem>
+                {moduleOptions.map((m) => (
+                  <SelectItem key={m} value={m}>
+                    {m}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={projectFilter} onValueChange={(val) => setProjectFilter(val)}>
+              <SelectTrigger className="h-9 min-w-[130px] rounded-md border border-input bg-transparent px-3 text-sm text-foreground shadow-none focus-visible:ring-0 focus-visible:ring-offset-0">
+                <SelectValue placeholder="All projects" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All projects</SelectItem>
+                {projectOptions.map((p) => (
+                  <SelectItem key={p} value={p}>
+                    {p}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              variant="secondary"
+              className="h-9 px-4 cursor-pointer"
+              onClick={() => {
+                setSearchTerm("")
+                setStatusFilter("active")
+                setEnvFilter("all")
+                setModuleFilter("all")
+                setProjectFilter("all")
+              }}
+            >
+              Clear filters
+            </Button>
           </div>
           <Table>
             <TableHeader>

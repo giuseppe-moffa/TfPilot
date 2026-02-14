@@ -271,7 +271,7 @@ export function AgentChat({
           e.preventDefault()
           void handleSend(input)
         }}
-        className="flex items-center gap-2 border-t border-border bg-card px-2 py-2"
+        className="flex items-center gap-2 border-border bg-card px-2 py-2"
       >
         <Input
           ref={inputRef}
