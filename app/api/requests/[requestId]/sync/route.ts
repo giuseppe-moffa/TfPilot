@@ -2,6 +2,25 @@ import { NextRequest, NextResponse } from "next/server"
 
 import { getGitHubAccessToken } from "@/lib/github/auth"
 import { gh } from "@/lib/github/client"
+async function ghWithRetry(token: string, url: string, attempts = 3, delayMs = 300) {
+  let lastErr: any
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const res = await gh(token, url)
+      if (!res.ok && res.status >= 500) {
+        throw new Error(`GH ${res.status}`)
+      }
+      return res
+    } catch (err) {
+      lastErr = err
+      if (i < attempts - 1) {
+        await new Promise((r) => setTimeout(r, delayMs * (i + 1)))
+      }
+    }
+  }
+  throw lastErr
+}
+
 import { deriveStatus } from "@/lib/requests/status"
 import { getRequest, saveRequest } from "@/lib/storage/requestsStore"
 import { env } from "@/lib/config/env"
@@ -53,7 +72,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
     }
 
     if (request.pr?.number) {
-      const prRes = await gh(token, `/repos/${request.targetOwner}/${request.targetRepo}/pulls/${request.pr.number}`)
+      const prRes = await ghWithRetry(token, `/repos/${request.targetOwner}/${request.targetRepo}/pulls/${request.pr.number}`)
       const prJson = (await prRes.json()) as { merged?: boolean; head?: { sha?: string }; state?: string; html_url?: string; number?: number; title?: string }
       request.pr = {
         number: prJson.number ?? request.pr.number,
@@ -77,7 +96,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
       }
 
       try {
-        const revRes = await gh(token, `/repos/${request.targetOwner}/${request.targetRepo}/pulls/${request.pr.number}/reviews`)
+        const revRes = await ghWithRetry(token, `/repos/${request.targetOwner}/${request.targetRepo}/pulls/${request.pr.number}/reviews`)
         const reviews = (await revRes.json()) as Array<{ user?: { login?: string }; state?: string }>
         const latest = new Map<string, string>()
         for (const r of reviews) {
@@ -102,10 +121,45 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
       }
     }
 
+    // Discover cleanup PR (branch cleanup/{requestId})
+    if (request.targetOwner && request.targetRepo) {
+      try {
+        const cleanupHead = `${request.targetOwner}:cleanup/${request.id}`
+        const cleanupRes = await gh(
+          token,
+          `/repos/${request.targetOwner}/${request.targetRepo}/pulls?head=${encodeURIComponent(
+            cleanupHead
+          )}&state=all&per_page=1`
+        )
+        const cleanupJson = (await cleanupRes.json()) as Array<{
+          number?: number
+          html_url?: string
+          state?: string
+          merged_at?: string | null
+          merged?: boolean
+          head?: { ref?: string }
+        }>
+        const cleanupPr = cleanupJson?.[0]
+        if (cleanupPr?.number) {
+          const merged = Boolean(cleanupPr.merged)
+          const state = cleanupPr.state ?? (merged ? "closed" : "open")
+          request.cleanupPr = {
+            number: cleanupPr.number,
+            url: cleanupPr.html_url,
+            status: state,
+            merged,
+            headBranch: cleanupPr.head?.ref,
+          }
+        }
+      } catch {
+        /* ignore cleanup PR discovery */
+      }
+    }
+
     // If we never captured a plan run ID (GitHub dispatch lag), try to discover it by branch/workflow
     if (!request.planRun?.runId && request.branchName && env.GITHUB_PLAN_WORKFLOW_FILE) {
       try {
-        const runsRes = await gh(
+        const runsRes = await ghWithRetry(
           token,
           `/repos/${request.targetOwner}/${request.targetRepo}/actions/workflows/${env.GITHUB_PLAN_WORKFLOW_FILE}/runs?branch=${encodeURIComponent(
             request.branchName
@@ -135,7 +189,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
           request.targetBase ?? env.GITHUB_DEFAULT_BASE_BRANCH ?? "main",
         ].filter(Boolean) as string[]
         for (const branch of candidates) {
-          const runsRes = await gh(
+          const runsRes = await ghWithRetry(
             token,
             `/repos/${request.targetOwner}/${request.targetRepo}/actions/workflows/${env.GITHUB_APPLY_WORKFLOW_FILE}/runs?branch=${encodeURIComponent(
               branch
@@ -180,7 +234,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
 
     if (request.planRun?.runId) {
       try {
-        const runRes = await gh(token, `/repos/${request.targetOwner}/${request.targetRepo}/actions/runs/${request.planRun.runId}`)
+        const runRes = await ghWithRetry(token, `/repos/${request.targetOwner}/${request.targetRepo}/actions/runs/${request.planRun.runId}`)
         const runJson = (await runRes.json()) as { status?: string; conclusion?: string; head_sha?: string; html_url?: string }
         request.planRun = {
           ...request.planRun,
@@ -205,7 +259,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
 
     if (request.applyRun?.runId) {
       try {
-        const runRes = await gh(token, `/repos/${request.targetOwner}/${request.targetRepo}/actions/runs/${request.applyRun.runId}`)
+        const runRes = await ghWithRetry(token, `/repos/${request.targetOwner}/${request.targetRepo}/actions/runs/${request.applyRun.runId}`)
         const runJson = (await runRes.json()) as { status?: string; conclusion?: string; html_url?: string }
         request.applyRun = {
           ...request.applyRun,
@@ -230,6 +284,34 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
     }
     request.statusDerivedAt = new Date().toISOString()
     request.updatedAt = new Date().toISOString()
+
+    // If apply run failed, reflect failure so UI allows recovery actions
+    if (request.applyRun?.conclusion === "failure") {
+      request.status = "failed"
+      request.reason = "Apply failed"
+    }
+
+    // Timeline updates for cleanup PR
+    const timeline = Array.isArray(request.timeline) ? request.timeline : []
+    const hasCleanupOpened = timeline.some((t: any) => t.step === "Cleanup PR opened")
+    const hasCleanupMerged = timeline.some((t: any) => t.step === "Cleanup PR merged")
+    if (request.cleanupPr?.number && !hasCleanupOpened) {
+      timeline.push({
+        step: "Cleanup PR opened",
+        status: request.cleanupPr.status === "open" ? "In Progress" : "Complete",
+        message: request.cleanupPr.url ?? "Cleanup PR created",
+        at: new Date().toISOString(),
+      })
+    }
+    if (request.cleanupPr?.merged && !hasCleanupMerged) {
+      timeline.push({
+        step: "Cleanup PR merged",
+        status: "Complete",
+        message: request.cleanupPr.url ?? "Cleanup PR merged",
+        at: new Date().toISOString(),
+      })
+    }
+    request.timeline = timeline
 
     await saveRequest(request)
 

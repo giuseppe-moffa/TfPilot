@@ -20,7 +20,7 @@ const geistMono = Geist_Mono({
 })
 
 export const metadata: Metadata = {
-  title: "TfPilotS",
+  title: "TfPilot",
   description: "TfPilot infrastructure management console",
 }
 

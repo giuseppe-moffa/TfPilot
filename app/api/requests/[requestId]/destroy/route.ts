@@ -39,6 +39,27 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
       }
     }
 
+    // Fire cleanup PR workflow first so code removal is ready before destroy completes
+    if (env.GITHUB_CLEANUP_WORKFLOW_FILE && request.targetOwner && request.targetRepo) {
+      const cleanupInputs = {
+        request_id: request.id,
+        environment: request.environment ?? "dev",
+        target_base: request.targetBase ?? env.GITHUB_DEFAULT_BASE_BRANCH,
+        cleanup_paths: (request.targetFiles ?? []).join(","),
+        target_env_path: request.targetEnvPath ?? "",
+        auto_merge: isProd ? "false" : "true",
+      }
+      gh(token, `/repos/${request.targetOwner}/${request.targetRepo}/actions/workflows/${env.GITHUB_CLEANUP_WORKFLOW_FILE}/dispatches`, {
+        method: "POST",
+        body: JSON.stringify({
+          ref: request.targetBase ?? env.GITHUB_DEFAULT_BASE_BRANCH,
+          inputs: cleanupInputs,
+        }),
+      }).catch((err) => {
+        console.error("[api/requests/destroy] cleanup workflow dispatch failed", err)
+      })
+    }
+
     // Dispatch destroy workflow
     await gh(token, `/repos/${request.targetOwner}/${request.targetRepo}/actions/workflows/${env.GITHUB_DESTROY_WORKFLOW_FILE}/dispatches`, {
       method: "POST",
@@ -78,6 +99,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
         runId: destroyRunId ?? current.destroyRun?.runId,
         url: destroyRunUrl ?? current.destroyRun?.url,
       },
+      cleanupPr: current.cleanupPr ?? { status: "pending" },
       updatedAt: now,
     }))
 
@@ -86,6 +108,27 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
       await archiveRequest(updated)
     } catch (archiveError) {
       console.error("[api/requests/destroy] archive failed", archiveError)
+    }
+
+    // Dispatch cleanup PR workflow (non-blocking)
+    if (env.GITHUB_CLEANUP_WORKFLOW_FILE && request.targetOwner && request.targetRepo) {
+      const cleanupInputs = {
+        request_id: request.id,
+        environment: request.environment ?? "dev",
+        target_base: request.targetBase ?? env.GITHUB_DEFAULT_BASE_BRANCH,
+        cleanup_paths: (request.targetFiles ?? []).join(","),
+        target_env_path: request.targetEnvPath ?? "",
+        auto_merge: isProd ? "false" : "true",
+      }
+      gh(token, `/repos/${request.targetOwner}/${request.targetRepo}/actions/workflows/${env.GITHUB_CLEANUP_WORKFLOW_FILE}/dispatches`, {
+        method: "POST",
+        body: JSON.stringify({
+          ref: request.targetBase ?? env.GITHUB_DEFAULT_BASE_BRANCH,
+          inputs: cleanupInputs,
+        }),
+      }).catch((err) => {
+        console.error("[api/requests/destroy] cleanup workflow dispatch failed", err)
+      })
     }
 
     return NextResponse.json({ ok: true, destroyRunId, destroyRunUrl, request: updated })

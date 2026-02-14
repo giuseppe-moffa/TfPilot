@@ -195,6 +195,7 @@ function RequestDetailPage() {
   >("idle")
   const [destroyError, setDestroyError] = React.useState<string | null>(null)
   const [destroyConfirmation, setDestroyConfirmation] = React.useState("")
+  const [applyNote, setApplyNote] = React.useState("")
   const [showApplyOutput, setShowApplyOutput] = React.useState(false)
   const [initialRequest, setInitialRequest] = React.useState<any>(null)
   const [initialLoading, setInitialLoading] = React.useState<boolean>(true)
@@ -318,7 +319,7 @@ function RequestDetailPage() {
       setActionError(err instanceof Error ? err.message : "Failed to dispatch apply")
       return false
     } finally {
-      setIsApplying(false)
+      setTimeout(() => setIsApplying(false), 2000)
     }
   }
 
@@ -406,6 +407,12 @@ function RequestDetailPage() {
   const applyFailed =
     memoStatusSlice?.applyRun?.conclusion === "failure" || request?.applyRun?.conclusion === "failure"
 
+  const applyRunning =
+    requestStatus === "applying" ||
+    memoStatusSlice?.applyRun?.status === "in_progress" ||
+    request?.applyRun?.status === "in_progress"
+  const isApplyingDerived =
+    isApplying || applyRunning || applyStatus === "pending" || applyStatus === "success"
   const isApplied = applySucceeded
   const isMerged = prMerged || requestStatus === "merged" || requestStatus === "applying" || isApplied
   const isDestroying = requestStatus === "destroying"
@@ -733,7 +740,7 @@ function RequestDetailPage() {
                         isApplied ||
                         isDestroying ||
                         isDestroyed ||
-                        isApplying ||
+                        isApplyingDerived ||
                         isFailed
                       }
                       onClick={() => {
@@ -743,14 +750,14 @@ function RequestDetailPage() {
                       className={cn(
                         "cursor-pointer rounded-md bg-primary px-3 py-1.5 text-primary-foreground hover:bg-primary/90",
                         ((!statusSlice) ||
-                          statusSlice.status === "approved" ||
-                          statusSlice.status === "applied" ||
-                          isMerged ||
-                          isApplied ||
-                          isDestroying ||
-                          isDestroyed ||
-                          isApplying ||
-                          isFailed) &&
+                        statusSlice.status === "approved" ||
+                        statusSlice.status === "applied" ||
+                        isMerged ||
+                        isApplied ||
+                        isDestroying ||
+                        isDestroyed ||
+                        isApplyingDerived ||
+                        isFailed) &&
                           "cursor-not-allowed bg-muted text-muted-foreground opacity-60"
                       )}
                     >
@@ -793,18 +800,18 @@ function RequestDetailPage() {
                   <TooltipTrigger asChild>
                     <Button
                       size="sm"
-                      disabled={!isMerged || isApplied || isApplying || isDestroying || isDestroyed || isFailed}
+                      disabled={!isMerged || isApplied || isApplyingDerived || isDestroying || isDestroyed || isFailed}
                       onClick={() => {
                         setApplyStatus("idle")
                         setApplyModalOpen(true)
                       }}
                       className={cn(
                         "cursor-pointer rounded-md bg-primary px-3 py-1.5 text-primary-foreground hover:bg-primary/90",
-                        (!isMerged || isApplied || isApplying || isDestroying || isDestroyed || isFailed) &&
+                        (!isMerged || isApplied || isApplyingDerived || isDestroying || isDestroyed || isFailed) &&
                           "cursor-not-allowed bg-muted text-muted-foreground opacity-60"
                       )}
                     >
-                      {isApplying ? (
+                      {isApplyingDerived ? (
                         <span className="inline-flex items-center gap-2">
                           <Loader2 className="size-4 animate-spin" />
                           Applying…
@@ -992,6 +999,65 @@ function RequestDetailPage() {
         </Card>
       )}
 
+      {request.cleanupPr && (
+        <Card>
+          <CardHeader className="border-b">
+            <CardTitle className="flex items-center gap-2 text-lg font-semibold">
+              <Github className="size-5" />
+              Cleanup PR
+            </CardTitle>
+            <CardDescription>
+              Removes the requested resources from code to avoid re-creation.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4 pt-4">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="space-y-1">
+                <p className="text-sm text-muted-foreground">Status</p>
+                <Badge
+                  variant={
+                    request.cleanupPr.merged
+                      ? "success"
+                      : request.cleanupPr.status === "open"
+                        ? "info"
+                        : "secondary"
+                  }
+                  className="w-fit"
+                >
+                  {request.cleanupPr.merged ? "Merged" : request.cleanupPr.status ?? "Pending"}
+                </Badge>
+              </div>
+              {request.cleanupPr.url && (
+                <div className="space-y-1">
+                  <p className="text-sm text-muted-foreground">Link</p>
+                  <a
+                    href={request.cleanupPr.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-primary hover:underline"
+                  >
+                    <LinkIcon className="size-4" />
+                    {request.cleanupPr.url}
+                  </a>
+                </div>
+              )}
+              {request.cleanupPr.headBranch && (
+                <div className="space-y-1">
+                  <p className="text-sm text-muted-foreground">Branch</p>
+                  <p className="font-medium">{request.cleanupPr.headBranch}</p>
+                </div>
+              )}
+              {request.cleanupPr.number && (
+                <div className="space-y-1">
+                  <p className="text-sm text-muted-foreground">PR #</p>
+                  <p className="font-medium">{request.cleanupPr.number}</p>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <Dialog
         open={mergeModalOpen}
         onOpenChange={(val: boolean) => {
@@ -1041,7 +1107,6 @@ function RequestDetailPage() {
                 </Button>
                 <Button
                   size="sm"
-                  className="bg-blue-500 text-white hover:bg-blue-600"
                   onClick={() => {
                     void handleMerge()
                   }}
@@ -1103,7 +1168,6 @@ function RequestDetailPage() {
                 </Button>
                 <Button
                   size="sm"
-                  className="bg-emerald-500 text-white hover:bg-emerald-600"
                   onClick={() => {
                     setApproveStatus("pending")
                     void handleApprove()
@@ -1132,8 +1196,22 @@ function RequestDetailPage() {
             <DialogDescription asChild>
               <div className="space-y-1">
                 {applyStatus === "idle" && (
-                  <div className="text-sm text-muted-foreground">
-                    Are you sure you want to apply this request?
+                  <div className="space-y-3 text-sm text-muted-foreground">
+                    <div className="rounded-md border border-amber-300/60 bg-amber-50 p-3 text-amber-900 dark:border-amber-400/40 dark:bg-amber-950/40 dark:text-amber-100">
+                      This will run Terraform apply and create the resource in core/dev. Confirm you want to apply to this environment.
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-xs text-muted-foreground" htmlFor="apply-note">
+                        Optional note for this apply (reason/intent)
+                      </label>
+                      <textarea
+                        id="apply-note"
+                        className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
+                        rows={3}
+                        value={applyNote}
+                        onChange={(e) => setApplyNote(e.target.value)}
+                      />
+                    </div>
                   </div>
                 )}
                 {applyStatus === "pending" && (
@@ -1166,7 +1244,6 @@ function RequestDetailPage() {
                 </Button>
                 <Button
                   size="sm"
-                  className="bg-gray-900 text-white hover:bg-gray-800"
                   onClick={async () => {
                     setApplyStatus("pending")
                     const ok = await handleApplyDispatch()

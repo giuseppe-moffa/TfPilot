@@ -3,7 +3,17 @@ import useSWR from "swr"
 
 type RequestLike = Record<string, any> | null
 
-const WHITELIST_KEYS = ["status", "statusDerivedAt", "planRun", "applyRun", "approval", "pr", "plan"] as const
+const WHITELIST_KEYS = [
+  "status",
+  "statusDerivedAt",
+  "planRun",
+  "applyRun",
+  "approval",
+  "pr",
+  "plan",
+  "cleanupPr",
+  "timeline",
+] as const
 
 function mergeRequest(prev: RequestLike, next: RequestLike): RequestLike {
   if (!next) return prev
@@ -23,7 +33,7 @@ function mergeRequest(prev: RequestLike, next: RequestLike): RequestLike {
       continue
     }
     if (next[key] !== undefined) {
-      if (key === "planRun" || key === "applyRun" || key === "approval" || key === "pr") {
+      if (key === "planRun" || key === "applyRun" || key === "approval" || key === "pr" || key === "cleanupPr") {
         merged[key] = { ...(prev as any)[key], ...(next as any)[key] }
       } else {
         merged[key] = next[key]
