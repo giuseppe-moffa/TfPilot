@@ -229,6 +229,15 @@ function RequestDetailPage() {
   }, [requestId])
 
   const { request, mutate: mutateStatus } = useRequestStatus(requestId, initialRequest)
+  const optimisticUpdate = React.useCallback(
+    (updates: Record<string, any>) => {
+      mutateStatus(
+        (prev: any) => (prev ? { ...prev, ...updates } : prev),
+        false
+      )
+    },
+    [mutateStatus]
+  )
 
   React.useEffect(() => {
     if (!request) return
@@ -303,6 +312,7 @@ function RequestDetailPage() {
     }
     setIsApplying(true)
     setActionError(null)
+    optimisticUpdate({ status: "applying", statusDerivedAt: new Date().toISOString() })
     try {
       const res = await fetch("/api/github/apply", {
         method: "POST",
@@ -327,6 +337,7 @@ function RequestDetailPage() {
     if (!requestId || isDestroying || isDestroyed) return
     setDestroyStatus("pending")
     setDestroyError(null)
+    optimisticUpdate({ status: "destroying", statusDerivedAt: new Date().toISOString() })
     try {
       const res = await fetch(`/api/requests/${requestId}/destroy`, {
         method: "POST",
@@ -348,6 +359,7 @@ function RequestDetailPage() {
     if (!requestId || !statusSlice || statusSlice.status !== "approved") return
     try {
       setMergeStatus("pending")
+      optimisticUpdate({ status: "merged", statusDerivedAt: new Date().toISOString() })
       const res = await fetch("/api/github/merge", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -371,6 +383,7 @@ function RequestDetailPage() {
     setIsApproving(true)
     setApproveStatus("pending")
     setApproveModalOpen(true)
+    optimisticUpdate({ status: "approved", statusDerivedAt: new Date().toISOString() })
     try {
       const res = await fetch(`/api/requests/${requestId}/approve`, {
         method: "POST",
@@ -435,6 +448,14 @@ function RequestDetailPage() {
   const isPlanning =
     requestStatus === "planning" || requestStatus === "pr_open" || requestStatus === "created" || requestStatus === "pending"
   const isFailed = requestStatus === "failed" || applyFailed || planFailed
+
+  // Reset transient apply UI state once backend reflects completion or failure
+  React.useEffect(() => {
+    if (applySucceeded || applyFailed || requestStatus === "applied" || requestStatus === "failed") {
+      setApplyStatus("idle")
+      setIsApplying(false)
+    }
+  }, [applySucceeded, applyFailed, requestStatus])
 
   function computeStepInfo() {
     if (isDestroyed) {
@@ -732,6 +753,19 @@ function RequestDetailPage() {
                   <TooltipTrigger asChild>
                     <Button
                       size="sm"
+                      className={cn(
+                        "h-9",
+                        (!statusSlice ||
+                          statusSlice.status === "approved" ||
+                          statusSlice.status === "applied" ||
+                          isMerged ||
+                          isApplied ||
+                          isDestroying ||
+                          isDestroyed ||
+                          isApplyingDerived ||
+                          isFailed) &&
+                          "cursor-not-allowed bg-muted text-muted-foreground opacity-70"
+                      )}
                       disabled={
                         !statusSlice ||
                         statusSlice.status === "approved" ||
@@ -747,21 +781,15 @@ function RequestDetailPage() {
                         setApproveStatus("idle")
                         setApproveModalOpen(true)
                       }}
-                      className={cn(
-                        "cursor-pointer rounded-md bg-primary px-3 py-1.5 text-primary-foreground hover:bg-primary/90",
-                        ((!statusSlice) ||
-                        statusSlice.status === "approved" ||
-                        statusSlice.status === "applied" ||
-                        isMerged ||
-                        isApplied ||
-                        isDestroying ||
-                        isDestroyed ||
-                        isApplyingDerived ||
-                        isFailed) &&
-                          "cursor-not-allowed bg-muted text-muted-foreground opacity-60"
-                      )}
                     >
-                      Approve
+                      {isApproving ? (
+                        <span className="inline-flex items-center gap-2">
+                          <Loader2 className="size-4 animate-spin" />
+                          Approving…
+                        </span>
+                      ) : (
+                        "Approve"
+                      )}
                     </Button>
                   </TooltipTrigger>
                   {requestStatus !== "pending" && requestStatus !== "planned" && (
@@ -775,18 +803,25 @@ function RequestDetailPage() {
                   <TooltipTrigger asChild>
                     <Button
                       size="sm"
+                      className={cn(
+                        "h-9",
+                        (!statusSlice || statusSlice.status !== "approved" || isMerged || isDestroying || isDestroyed || isFailed) &&
+                          "cursor-not-allowed bg-muted text-muted-foreground opacity-70"
+                      )}
                       disabled={!statusSlice || statusSlice.status !== "approved" || isMerged || isDestroying || isDestroyed || isFailed}
                       onClick={() => {
                         setMergeStatus("idle")
                         setMergeModalOpen(true)
                       }}
-                      className={cn(
-                        "cursor-pointer rounded-md bg-primary px-3 py-1.5 text-primary-foreground hover:bg-primary/90",
-                        (!statusSlice || statusSlice.status !== "approved" || isMerged || isDestroying || isDestroyed || isFailed) &&
-                          "cursor-not-allowed bg-muted text-muted-foreground opacity-60"
-                      )}
                     >
-                      Merge
+                      {mergeStatus === "pending" ? (
+                        <span className="inline-flex items-center gap-2">
+                          <Loader2 className="size-4 animate-spin" />
+                          Merging…
+                        </span>
+                      ) : (
+                        "Merge"
+                      )}
                     </Button>
                   </TooltipTrigger>
                   {requestStatus !== "approved" && (
@@ -800,16 +835,16 @@ function RequestDetailPage() {
                   <TooltipTrigger asChild>
                     <Button
                       size="sm"
+                      className={cn(
+                        "h-9",
+                        (!isMerged || isApplied || isApplyingDerived || isDestroying || isDestroyed || isFailed) &&
+                          "cursor-not-allowed bg-muted text-muted-foreground opacity-70"
+                      )}
                       disabled={!isMerged || isApplied || isApplyingDerived || isDestroying || isDestroyed || isFailed}
                       onClick={() => {
                         setApplyStatus("idle")
                         setApplyModalOpen(true)
                       }}
-                      className={cn(
-                        "cursor-pointer rounded-md bg-primary px-3 py-1.5 text-primary-foreground hover:bg-primary/90",
-                        (!isMerged || isApplied || isApplyingDerived || isDestroying || isDestroyed || isFailed) &&
-                          "cursor-not-allowed bg-muted text-muted-foreground opacity-60"
-                      )}
                     >
                       {isApplyingDerived ? (
                         <span className="inline-flex items-center gap-2">
@@ -833,17 +868,17 @@ function RequestDetailPage() {
                     <Button
                       size="sm"
                       variant="destructive"
+                      className={cn(
+                        "h-9",
+                        (isDestroying || isDestroyed || isApplying || !isApplied) &&
+                          "cursor-not-allowed bg-muted text-muted-foreground opacity-70"
+                      )}
                       disabled={isDestroying || isDestroyed || isApplying || !isApplied}
                       onClick={() => {
                         setDestroyStatus("idle")
                         setDestroyError(null)
                         setDestroyModalOpen(true)
                       }}
-                      className={cn(
-                        "cursor-pointer rounded-md bg-destructive px-3 py-1.5 text-destructive-foreground hover:bg-destructive/90",
-                        (isDestroying || isDestroyed || isApplying || !isApplied) &&
-                          "cursor-not-allowed bg-muted text-muted-foreground opacity-60"
-                      )}
                     >
                       Destroy
                     </Button>

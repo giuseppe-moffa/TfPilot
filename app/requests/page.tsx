@@ -1,9 +1,9 @@
 "use client"
 
 import * as React from "react"
+import useSWR from "swr"
 import Link from "next/link"
 
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -104,7 +104,19 @@ function SkeletonRow() {
 }
 
 export default function RequestsPage() {
-  const [isLoading, setIsLoading] = React.useState(true)
+  const fetcher = React.useCallback(async (url: string) => {
+    const res = await fetch(url, { cache: "no-store" })
+    if (!res.ok) throw new Error("Failed to fetch requests")
+    return res.json()
+  }, [])
+
+  const swr = useSWR("/api/requests", fetcher, {
+    revalidateOnFocus: true,
+    refreshInterval: 8000,
+  })
+  const { data, error } = swr
+  const isValidating = (swr as any).isValidating ?? false
+
   const [requests, setRequests] = React.useState<RequestRow[]>([])
   const [statusFilter, setStatusFilter] = React.useState<"active" | "destroyed" | "all">("active")
   const [searchTerm, setSearchTerm] = React.useState("")
@@ -114,53 +126,21 @@ export default function RequestsPage() {
   const { isConnected } = useAwsConnection()
 
   React.useEffect(() => {
-    let active = true
-    async function load() {
-      try {
-        const res = await fetch("/api/requests")
-        if (!res.ok) throw new Error("Failed to fetch requests")
-        const data = (await res.json()) as {
-          success: boolean
-          requests?: Array<{
-            id: string
-            project: string
-            environment: string
-            module?: string
-            config?: Record<string, unknown>
-            receivedAt?: string
-            status?: RequestRow["status"]
-            pullRequest?: { status?: string }
-          }>
-        }
-        if (!active) return
-        const rows =
-          data.requests?.map((r) => ({
-            id: r.id,
-            project: r.project,
-            environment: r.environment,
-            module: r.module,
-            service:
-              typeof r.config?.["name"] === "string"
-                ? (r.config["name"] as string)
-                : undefined,
-            status: r.status ?? ("pending" as const),
-            createdAt: r.receivedAt,
-            config: r.config,
-            pullRequest: r.pullRequest,
-          })) ?? []
-        setRequests(rows)
-      } catch (error) {
-        console.error("[requests] fetch error", error)
-        if (active) setRequests([])
-      } finally {
-        if (active) setIsLoading(false)
-      }
-    }
-    load()
-    return () => {
-      active = false
-    }
-  }, [])
+    const rows =
+      data?.requests?.map((r: any) => ({
+        id: r.id,
+        project: r.project,
+        environment: r.environment,
+        module: r.module,
+        service:
+          typeof r.config?.["name"] === "string" ? (r.config["name"] as string) : undefined,
+        status: r.status ?? ("pending" as const),
+        createdAt: r.receivedAt,
+        config: r.config,
+        pullRequest: r.pullRequest,
+      })) ?? []
+    setRequests(rows)
+  }, [data])
 
   const moduleOptions = React.useMemo(() => {
     const set = new Set<string>()
@@ -177,6 +157,8 @@ export default function RequestsPage() {
     })
     return Array.from(set)
   }, [requests])
+
+  const isLoading = (!data && !error) || isValidating
 
   const filteredRequests = React.useMemo(() => {
     const term = searchTerm.trim().toLowerCase()

@@ -53,7 +53,6 @@ const fetcher = async (url: string) => {
 
 export function useRequestStatus(requestId?: string, initial?: RequestLike) {
   const prevDataRef = React.useRef<RequestLike>(initial ?? null)
-  const unchangedRef = React.useRef(0)
 
   const swr: any = useSWR(
     requestId ? `/api/requests/${requestId}/sync` : null,
@@ -69,17 +68,8 @@ export function useRequestStatus(requestId?: string, initial?: RequestLike) {
       refreshInterval: (latest: unknown): number => {
         if (!requestId) return 0
         const status = (latest as any)?.status ?? prevDataRef.current?.status
-        if (status === "complete" || status === "failed") return 0
-        return unchangedRef.current >= 3 ? 15000 : 5000
-      },
-      onSuccess: (latest: any) => {
-        const prevString = JSON.stringify(prevDataRef.current ?? {})
-        const nextString = JSON.stringify(latest ?? {})
-        if (prevString === nextString) {
-          unchangedRef.current += 1
-        } else {
-          unchangedRef.current = 0
-        }
+        if (status === "complete" || status === "failed" || status === "destroyed") return 0
+        return 3000
       },
     }
   )
