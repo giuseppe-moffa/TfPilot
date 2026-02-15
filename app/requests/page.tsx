@@ -29,6 +29,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Eye, Search } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useAwsConnection } from "../providers"
 import type { RequestStatus } from "@/lib/requests/status"
@@ -111,8 +112,10 @@ export default function RequestsPage() {
   }, [])
 
   const swr = useSWR("/api/requests", fetcher, {
-    revalidateOnFocus: true,
+    revalidateOnFocus: false,
     refreshInterval: 8000,
+    revalidateOnReconnect: true,
+    keepPreviousData: true,
   })
   const { data, error } = swr
   const isValidating = (swr as any).isValidating ?? false
@@ -158,11 +161,12 @@ export default function RequestsPage() {
     return Array.from(set)
   }, [requests])
 
-  const isLoading = (!data && !error) || isValidating
+  const isInitialLoading = !data && !error
+  const isRefreshing = isValidating && !!data
 
   const filteredRequests = React.useMemo(() => {
     const term = searchTerm.trim().toLowerCase()
-    return requests.filter((row) => {
+    const filtered = requests.filter((row) => {
       const status = row.status
       const isDestroyed = status === "destroyed" || status === "destroying"
       if (statusFilter === "destroyed" && !isDestroyed) return false
@@ -186,16 +190,23 @@ export default function RequestsPage() {
         .toLowerCase()
       return haystack.includes(term)
     })
+
+    return filtered.sort((a, b) => {
+      const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0
+      const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0
+      return bTime - aTime
+    })
   }, [requests, statusFilter, envFilter, moduleFilter, projectFilter, searchTerm])
 
-  const showEmpty = !isLoading && filteredRequests.length === 0
+  const showEmpty = !isInitialLoading && filteredRequests.length === 0
+  const isLoading = isInitialLoading
   return (
     <div className="space-y-4">
       <Card>
         <CardHeader className="border-b">
           <CardTitle className="text-xl font-semibold">Requests</CardTitle>
           <CardDescription>
-            Track infrastructure requests and their latest plan status.
+            Track infrastructure requests and their latest status
           </CardDescription>
           <CardAction>
             <Button asChild className="cursor-pointer">
@@ -205,12 +216,15 @@ export default function RequestsPage() {
         </CardHeader>
         <CardContent className="pt-6">
           <div className="mb-4 flex flex-wrap items-center gap-3">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
-              placeholder="Search requests"
+                placeholder=""
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="h-9 w-72 px-3 focus-visible:ring-0 focus-visible:ring-offset-0"
+                className="h-9 w-72 pl-9 pr-3 focus-visible:ring-0 focus-visible:ring-offset-0"
             />
+            </div>
             {(["active", "destroyed", "all"] as const).map((value) => (
               <Button
                 key={value}
@@ -222,7 +236,9 @@ export default function RequestsPage() {
               </Button>
             ))}
             <Select value={envFilter} onValueChange={(val) => setEnvFilter(val as typeof envFilter)}>
-              <SelectTrigger className="h-9 min-w-[130px] rounded-md border border-input bg-transparent px-3 text-sm text-foreground shadow-none focus-visible:ring-0 focus-visible:ring-offset-0">
+              <SelectTrigger
+                className="h-9 min-w-[130px] rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-none hover:bg-background data-[state=open]:bg-background dark:bg-[#0b1222] dark:hover:bg-[#0b1222] dark:data-[state=open]:bg-[#0b1222] focus-visible:ring-0 focus-visible:ring-offset-0"
+              >
                 <SelectValue placeholder="All envs" />
               </SelectTrigger>
               <SelectContent>
@@ -232,7 +248,9 @@ export default function RequestsPage() {
               </SelectContent>
             </Select>
             <Select value={moduleFilter} onValueChange={(val) => setModuleFilter(val)}>
-              <SelectTrigger className="h-9 min-w-[130px] rounded-md border border-input bg-transparent px-3 text-sm text-foreground shadow-none focus-visible:ring-0 focus-visible:ring-offset-0">
+              <SelectTrigger
+                className="h-9 min-w-[130px] rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-none hover:bg-background data-[state=open]:bg-background dark:bg-[#0b1222] dark:hover:bg-[#0b1222] dark:data-[state=open]:bg-[#0b1222] focus-visible:ring-0 focus-visible:ring-offset-0"
+              >
                 <SelectValue placeholder="All modules" />
               </SelectTrigger>
               <SelectContent>
@@ -245,7 +263,9 @@ export default function RequestsPage() {
               </SelectContent>
             </Select>
             <Select value={projectFilter} onValueChange={(val) => setProjectFilter(val)}>
-              <SelectTrigger className="h-9 min-w-[130px] rounded-md border border-input bg-transparent px-3 text-sm text-foreground shadow-none focus-visible:ring-0 focus-visible:ring-offset-0">
+              <SelectTrigger
+                className="h-9 min-w/[130px] rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-none hover:bg-background data-[state=open]:bg-background dark:bg-[#0b1222] dark:hover:bg-[#0b1222] dark:data-[state=open]:bg-[#0b1222] focus-visible:ring-0 focus-visible:ring-offset-0"
+              >
                 <SelectValue placeholder="All projects" />
               </SelectTrigger>
               <SelectContent>
@@ -285,7 +305,7 @@ export default function RequestsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {isLoading &&
+              {isInitialLoading &&
                 Array.from({ length: 5 }).map((_, idx) => (
                   <SkeletonRow key={idx} />
                 ))}
@@ -328,8 +348,10 @@ export default function RequestsPage() {
                       {formatTimestamp(item.createdAt)}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button size="sm" variant="secondary" asChild className="cursor-pointer">
-                        <Link href={`/requests/${item.id}`}>View Request</Link>
+                      <Button size="icon" variant="ghost" asChild className="cursor-pointer" aria-label="View request">
+                        <Link href={`/requests/${item.id}`}>
+                          <Eye className="h-4 w-4 text-primary" />
+                        </Link>
                       </Button>
                     </TableCell>
                   </TableRow>

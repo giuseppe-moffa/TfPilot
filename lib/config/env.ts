@@ -15,6 +15,9 @@ type Env = {
   TFPILOT_REQUESTS_BUCKET: string
   TFPILOT_CHAT_LOGS_BUCKET: string
   TFPILOT_PROD_ALLOWED_USERS: string[]
+  TFPILOT_ADMINS: string[]
+  TFPILOT_APPROVERS: string[]
+  TFPILOT_ALLOWED_REGIONS: string[]
 }
 
 function required(name: keyof Env, fallback?: string) {
@@ -50,6 +53,9 @@ export const env: Env = {
   TFPILOT_REQUESTS_BUCKET: required("TFPILOT_REQUESTS_BUCKET"),
   TFPILOT_CHAT_LOGS_BUCKET: required("TFPILOT_CHAT_LOGS_BUCKET"),
   TFPILOT_PROD_ALLOWED_USERS: list("TFPILOT_PROD_ALLOWED_USERS", []),
+  TFPILOT_ADMINS: list("TFPILOT_ADMINS", []),
+  TFPILOT_APPROVERS: list("TFPILOT_APPROVERS", []),
+  TFPILOT_ALLOWED_REGIONS: list("TFPILOT_ALLOWED_REGIONS", []),
 }
 
 let logged = false

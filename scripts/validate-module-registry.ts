@@ -70,18 +70,17 @@ async function main() {
       continue
     }
 
-    const reqDiff = diffSets(`${entry.type} required`, new Set(entry.required), vars.required, vars.optional)
+    const requiredFields = new Set<string>((entry.fields ?? []).filter((f: any) => f.required).map((f: any) => f.name))
+    const allFields = new Set<string>((entry.fields ?? []).map((f: any) => f.name))
+
+    const reqDiff = diffSets(`${entry.type} required`, requiredFields, vars.required, vars.optional)
     if (reqDiff.missingInTf.length > 0) {
       errors.push(`${entry.type}: required in registry but not in variables.tf -> ${reqDiff.missingInTf.join(", ")}`)
     }
-    const optDiff = diffSets(`${entry.type} optional`, new Set(entry.optional), vars.required, vars.optional)
-    if (optDiff.missingInTf.length > 0) {
-      errors.push(`${entry.type}: optional in registry but not in variables.tf -> ${optDiff.missingInTf.join(", ")}`)
-    }
 
-    const tfMissing = [...vars.required].filter((k) => !entry.required.includes(k) && !entry.optional.includes(k))
-    if (tfMissing.length > 0) {
-      errors.push(`${entry.type}: variables.tf has fields not in registry -> ${tfMissing.join(", ")}`)
+    const registryMissing = [...vars.required].filter((k) => !allFields.has(k))
+    if (registryMissing.length > 0) {
+      errors.push(`${entry.type}: variables.tf has fields not in registry -> ${registryMissing.join(", ")}`)
     }
   }
 

@@ -4,6 +4,8 @@ import { gh } from "@/lib/github/client"
 import { getRequest, updateRequest } from "@/lib/storage/requestsStore"
 import { getSessionFromCookies } from "@/lib/auth/session"
 import { env } from "@/lib/config/env"
+import { logLifecycleEvent } from "@/lib/logs/lifecycle"
+import { getUserRole } from "@/lib/auth/roles"
 
 export async function POST(req: NextRequest) {
   try {
@@ -15,6 +17,10 @@ export async function POST(req: NextRequest) {
     const session = await getSessionFromCookies()
     if (!session) {
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
+    }
+    const role = getUserRole(session.login)
+    if (role !== "approver" && role !== "admin") {
+      return NextResponse.json({ error: "Merge not permitted for your role" }, { status: 403 })
     }
 
     const token = await getGitHubAccessToken(req)
@@ -73,6 +79,18 @@ export async function POST(req: NextRequest) {
       prUrl: current.prUrl ?? request.prUrl,
       updatedAt: new Date().toISOString(),
     }))
+
+    await logLifecycleEvent({
+      requestId: request.id,
+      event: "pr_merged",
+      actor: session.login,
+      source: "api/github/merge",
+      data: {
+        prNumber: request.prNumber,
+        mergedSha: mergeJson.sha,
+        targetRepo: `${request.targetOwner}/${request.targetRepo}`,
+      },
+    })
 
     return NextResponse.json({ ok: true, mergedSha: mergeJson.sha })
   } catch (error) {

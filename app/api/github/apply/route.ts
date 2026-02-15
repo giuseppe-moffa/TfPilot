@@ -4,6 +4,8 @@ import { gh } from "@/lib/github/client"
 import { env } from "@/lib/config/env"
 import { getRequest, updateRequest } from "@/lib/storage/requestsStore"
 import { getSessionFromCookies } from "@/lib/auth/session"
+import { logLifecycleEvent } from "@/lib/logs/lifecycle"
+import { getUserRole } from "@/lib/auth/roles"
 
 export async function POST(req: NextRequest) {
   try {
@@ -15,6 +17,10 @@ export async function POST(req: NextRequest) {
     const session = await getSessionFromCookies()
     if (!session) {
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
+    }
+    const role = getUserRole(session.login)
+    if (role !== "approver" && role !== "admin") {
+      return NextResponse.json({ error: "Apply not permitted for your role" }, { status: 403 })
     }
 
     const token = await getGitHubAccessToken(req)
@@ -45,7 +51,7 @@ export async function POST(req: NextRequest) {
     }
 
     const dispatchBody = {
-      ref: "main",
+      ref: base,
       inputs: {
         request_id: request.id,
         environment: request.environment ?? "dev",
@@ -87,6 +93,18 @@ export async function POST(req: NextRequest) {
       },
       updatedAt: new Date().toISOString(),
     }))
+
+    await logLifecycleEvent({
+      requestId: request.id,
+      event: "apply_dispatched",
+      actor: session.login,
+      source: "api/github/apply",
+      data: {
+        applyRunId,
+        applyRunUrl,
+        targetRepo: `${owner}/${repo}`,
+      },
+    })
 
     return NextResponse.json({ ok: true })
   } catch (error) {

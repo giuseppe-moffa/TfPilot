@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { CheckCircle2, Github, Loader2, Link as LinkIcon } from "lucide-react"
+import { CheckCircle2, Github, Loader2, Link as LinkIcon, Wand2, Sparkles } from "lucide-react"
 import useSWR from "swr"
 import { useParams } from "next/navigation"
 
@@ -23,6 +23,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { Code } from "@/components/ui/code"
 import { Separator } from "@/components/ui/separator"
 import { cn } from "@/lib/utils"
@@ -32,6 +34,29 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { AssistantHelper } from "@/components/assistant-helper"
+import { AssistantDrawer } from "@/components/assistant-drawer"
+
+type FieldMeta = {
+  name: string
+  type: "string" | "number" | "boolean" | "map" | "list" | "enum"
+  required?: boolean
+  default?: unknown
+  description?: string
+  enum?: string[]
+  immutable?: boolean
+  readOnly?: boolean
+  sensitive?: boolean
+  risk_level?: "low" | "medium" | "high"
+  category?: string
+}
+
+type ModuleSchema = {
+  type: string
+  category: string
+  description: string
+  fields: FieldMeta[]
+}
 
 const steps = [
   { key: "submitted", label: "Submitted" },
@@ -165,6 +190,62 @@ function normalizePlanHeadings(text: string) {
   return text.replace(headingRe, "$1")
 }
 
+function humanize(text?: string) {
+  if (!text) return ""
+  return text
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+function formatEventName(event?: string) {
+  if (!event) return "Event"
+  const friendly: Record<string, string> = {
+    request_created: "Request Created",
+    plan_dispatched: "Plan Dispatched",
+    request_approved: "Request Approved",
+    pr_merged: "PR Merged",
+    apply_dispatched: "Apply Dispatched",
+    destroy_dispatched: "Destroy Dispatched",
+    configuration_updated: "Configuration Updated",
+  }
+  return friendly[event] ?? humanize(event)
+}
+
+function buildLink(key: string, value: string, data?: Record<string, unknown>) {
+  if (value.startsWith("http://") || value.startsWith("https://")) return value
+  const targetRepo = typeof data?.targetRepo === "string" ? data.targetRepo : undefined
+  if (targetRepo) {
+    if (/pr(number)?/i.test(key) && value) {
+      return `https://github.com/${targetRepo}/pull/${value}`
+    }
+    if (/sha|commit/i.test(key) && /^[a-fA-F0-9]{7,40}$/.test(value)) {
+      return `https://github.com/${targetRepo}/commit/${value}`
+    }
+    if (/branch/i.test(key) && value) {
+      return `https://github.com/${targetRepo}/tree/${value}`
+    }
+    if (key === "targetRepo") {
+      return `https://github.com/${targetRepo}`
+    }
+  }
+  return null
+}
+
+function formatDataEntry(key: string, value: unknown, data?: Record<string, unknown>) {
+  const label = humanize(key)
+  if (value === null || value === undefined) return { label, value: "—" }
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    const strVal = String(value)
+    const href = buildLink(key, strVal, data)
+    return { label, value: strVal, href }
+  }
+  try {
+    return { label, value: JSON.stringify(value) }
+  } catch {
+    return { label, value: String(value) }
+  }
+}
+
 function RequestDetailPage() {
   const routeParams = useParams()
   const requestId =
@@ -200,6 +281,14 @@ function RequestDetailPage() {
   const [initialRequest, setInitialRequest] = React.useState<any>(null)
   const [initialLoading, setInitialLoading] = React.useState<boolean>(true)
   const [statusSlice, setStatusSlice] = React.useState<any>(null)
+  const [updateModalOpen, setUpdateModalOpen] = React.useState(false)
+  const [moduleSchemas, setModuleSchemas] = React.useState<ModuleSchema[] | null>(null)
+  const [patchText, setPatchText] = React.useState("{\n}")
+  const [patchError, setPatchError] = React.useState<string | null>(null)
+  const [patchSubmitting, setPatchSubmitting] = React.useState(false)
+  const [assistantOpen, setAssistantOpen] = React.useState(false)
+  const [assistantMode, setAssistantMode] = React.useState<"suggest" | "ask">("suggest")
+  const drawerWidth = 520
 
   const fetcher = React.useCallback(async (url: string) => {
     const res = await fetch(url)
@@ -227,6 +316,21 @@ function RequestDetailPage() {
       cancelled = true
     }
   }, [requestId])
+
+  React.useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch("/api/modules/schema", { cache: "no-store" })
+        const data = await res.json()
+        if (!data?.success || data.schemaVersion !== 2 || !Array.isArray(data.modules)) {
+          throw new Error("Schema contract v2 required")
+        }
+        setModuleSchemas(data.modules as ModuleSchema[])
+      } catch (err) {
+        console.error("[request detail] failed to load schema", err)
+      }
+    })()
+  }, [])
 
   const { request, mutate: mutateStatus } = useRequestStatus(requestId, initialRequest)
   const optimisticUpdate = React.useCallback(
@@ -287,6 +391,49 @@ function RequestDetailPage() {
     dedupingInterval: 5000,
     revalidateOnFocus: false,
   })
+
+  const logsKey = requestId ? [`request-logs`, requestId] : null
+  const { data: logsData, isLoading: logsLoading, mutate: mutateLogs } = useSWR(
+    logsKey,
+    () => fetcher(`/api/requests/${requestId}/logs`),
+    {
+      keepPreviousData: true,
+      revalidateOnFocus: true,
+      refreshInterval: 8000,
+      revalidateOnReconnect: true,
+    }
+  )
+
+  const eventOrder: Record<string, number> = {
+    request_created: 0,
+    plan_dispatched: 1,
+    configuration_updated: 2,
+    request_approved: 3,
+    pr_merged: 4,
+    apply_dispatched: 5,
+    destroy_dispatched: 6,
+  }
+
+  const updateAllowedFields = React.useMemo(() => {
+    const schema = moduleSchemas?.find((s) => s.type === request?.module)
+    const fields = schema
+      ? schema.fields.filter((f: FieldMeta) => !(f.readOnly || f.immutable)).map((f: FieldMeta) => f.name)
+      : Object.keys(request?.config ?? {})
+    return fields
+  }, [moduleSchemas, request?.module, request?.config])
+
+  const sortedEvents = React.useMemo(() => {
+    if (!logsData?.events) return []
+    return [...logsData.events].sort((a: any, b: any) => {
+      const ao = eventOrder[a?.event ?? ""] ?? 99
+      const bo = eventOrder[b?.event ?? ""] ?? 99
+      if (ao !== bo) return ao - bo
+      const ta = Date.parse(a?.timestamp ?? "")
+      const tb = Date.parse(b?.timestamp ?? "")
+      if (!Number.isNaN(ta) && !Number.isNaN(tb)) return ta - tb
+      return 0
+    })
+  }, [logsData?.events])
 
   async function handleApplyOnly() {
     if (!requestId || !memoStatusSlice || memoStatusSlice.status !== "approved") return
@@ -352,6 +499,41 @@ function RequestDetailPage() {
     } catch (err: any) {
       setDestroyStatus("error")
       setDestroyError(err?.message || "Failed to dispatch destroy")
+    }
+  }
+
+  async function handlePatchSubmit() {
+    setPatchError(null)
+    if (!requestId) {
+      setPatchError("Missing requestId")
+      return
+    }
+    let parsed: Record<string, unknown> | null = null
+    try {
+      const obj = JSON.parse(patchText)
+      if (!obj || typeof obj !== "object" || Array.isArray(obj)) throw new Error()
+      parsed = obj
+    } catch {
+      setPatchError("Patch must be valid JSON object")
+      return
+    }
+    setPatchSubmitting(true)
+    try {
+      const res = await fetch("/api/requests/update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ requestId, patch: parsed }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(data?.error || "Failed to submit update")
+      }
+      setUpdateModalOpen(false)
+      await mutateStatus(undefined, true)
+    } catch (err: any) {
+      setPatchError(err?.message || "Failed to submit update")
+    } finally {
+      setPatchSubmitting(false)
     }
   }
 
@@ -568,18 +750,34 @@ function RequestDetailPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div
+      className="space-y-6 transition-[margin-right]"
+      style={{ marginRight: assistantOpen ? drawerWidth : 0 }}
+    >
       <div className="grid gap-6 md:grid-cols-2">
         <Card>
           <CardHeader className="border-b">
-            <CardTitle className="text-xl font-semibold flex items-center gap-2">
-              <span>Request {request.id}</span>
-              {isDestroyed && <Badge variant="secondary">Destroyed</Badge>}
-              {isDestroying && !isDestroyed && <Badge variant="secondary">Destroying</Badge>}
-            </CardTitle>
-            <CardDescription>
-              Overview of request metadata and execution timeline.
-            </CardDescription>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <CardTitle className="text-xl font-semibold flex items-center gap-2">
+                  <span>Request {request.id}</span>
+                  {isDestroyed && <Badge variant="secondary">Destroyed</Badge>}
+                  {isDestroying && !isDestroyed && <Badge variant="secondary">Destroying</Badge>}
+                  {request.revision ? <Badge variant="secondary">Rev {request.revision}</Badge> : null}
+                </CardTitle>
+                <CardDescription>
+                  Overview of request metadata and execution timeline
+                </CardDescription>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="outline" onClick={() => setUpdateModalOpen(true)}>
+                  Update Configuration
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setAssistantOpen(true)}>
+                  <Sparkles className="mr-2 h-4 w-4" /> Assistant
+                </Button>
+              </div>
+            </div>
           </CardHeader>
           <CardContent className="grid gap-4 pt-6 md:grid-cols-2">
             <div className="space-y-2">
@@ -633,7 +831,7 @@ function RequestDetailPage() {
           <CardHeader className="border-b">
             <CardTitle className="text-lg font-semibold">Status Timeline</CardTitle>
             <CardDescription>
-              Track the lifecycle of this infrastructure request.
+              Track the lifecycle of this infrastructure request
             </CardDescription>
           </CardHeader>
           <CardContent className="pt-6">
@@ -681,6 +879,12 @@ function RequestDetailPage() {
         </Card>
       </div>
 
+      {Array.isArray(request.previousPrs) && request.previousPrs.length > 0 && (
+        <div className="rounded-md border border-border bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:bg-amber-900/30 dark:text-amber-100">
+          This request has a newer revision. Older PR was superseded.
+        </div>
+      )}
+
       {(request.pullRequest || request.pr) && (
         <Card>
           <CardHeader className="border-b">
@@ -689,7 +893,7 @@ function RequestDetailPage() {
               GitHub Pull Request
             </CardTitle>
             <CardDescription>
-              Review the proposed changes linked to this request.
+              Review the proposed changes linked to this request
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 pt-4">
@@ -1022,7 +1226,7 @@ function RequestDetailPage() {
                 <p className="text-sm text-muted-foreground">No apply output yet.</p>
               )
             ) : (
-              <p className="text-sm text-muted-foreground">Click Load to fetch apply output.</p>
+              <p className="text-sm text-muted-foreground">Click Load to fetch apply output</p>
             )}
               {applyOutput?.rawLogUrl && (
                 <a className="text-sm text-primary hover:underline" href={applyOutput.rawLogUrl} target="_blank" rel="noreferrer">
@@ -1092,6 +1296,158 @@ function RequestDetailPage() {
           </CardContent>
         </Card>
       )}
+
+      <Card>
+        <CardHeader className="border-b">
+          <CardTitle className="flex items-center gap-2 text-lg font-semibold">
+            Lifecycle History
+          </CardTitle>
+          <CardDescription>Recent lifecycle events for this request</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3 pt-4">
+          {logsLoading && sortedEvents.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Loading logs...</p>
+          ) : sortedEvents.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No lifecycle events recorded yet.</p>
+          ) : (
+            <div className="space-y-2">
+              {sortedEvents.map((evt: any, idx: number) => (
+                <div
+                  key={`${evt.timestamp ?? idx}-${idx}`}
+                  className="rounded-md border border-border bg-card px-3 py-2 text-sm text-foreground"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex flex-col">
+                      <span className="font-medium">{formatEventName(evt.event)}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {evt.actor ? `by ${evt.actor}` : "System"}
+                      </span>
+                    </div>
+                    <span className="text-xs text-muted-foreground">
+                      {evt.timestamp ? formatDate(evt.timestamp) : ""}
+                    </span>
+                  </div>
+                  {evt.data ? (
+                    <div className="mt-2 space-y-1 text-xs text-foreground">
+                      {Object.entries(evt.data).map(([k, v]) => {
+                        const entry = formatDataEntry(k, v, evt.data)
+                        return (
+                          <div key={k} className="rounded bg-muted px-2 py-1">
+                            <span className="font-medium">{entry.label}: </span>
+                            {entry.href ? (
+                              <a
+                                className="text-primary hover:underline"
+                                href={entry.href}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                {entry.value}
+                              </a>
+                            ) : (
+                              <span className="text-muted-foreground">{entry.value}</span>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Dialog
+        open={updateModalOpen}
+        onOpenChange={(val: boolean) => {
+          if (!val) {
+            setUpdateModalOpen(false)
+          }
+        }}
+      >
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>Update configuration</DialogTitle>
+            <DialogDescription>Submit a patch for this request. We will open a new PR and supersede any open PR.</DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-[1.2fr_0.8fr]">
+            <details className="space-y-3 rounded-md border border-border bg-card p-3" open={false}>
+              <summary className="cursor-pointer text-sm font-medium text-foreground">Advanced (dangerous)</summary>
+              <div className="text-xs text-muted-foreground">
+                Raw JSON patch bypasses typed safety. Prefer using the assistant or form controls.
+              </div>
+              <Textarea
+                className="min-h-[240px] font-mono text-xs"
+                value={patchText}
+                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setPatchText(e.target.value)}
+                placeholder='{"field": "newValue"}'
+              />
+              {patchError && <div className="text-xs text-destructive">{patchError}</div>}
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setPatchText("{\n}")} disabled={patchSubmitting}>
+                  Reset
+                </Button>
+                <Button onClick={handlePatchSubmit} disabled={patchSubmitting}>
+                  {patchSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                  {patchSubmitting ? "Submitting..." : "Submit update"}
+                </Button>
+              </div>
+            </details>
+            <AssistantDrawer
+              isOpen={assistantOpen}
+              onClose={() => setAssistantOpen(false)}
+              header={
+                <div className="inline-flex rounded-md bg-muted/40 p-1 text-xs">
+                  <Button
+                    size="sm"
+                    variant={assistantMode === "suggest" ? "default" : "ghost"}
+                    onClick={() => setAssistantMode("suggest")}
+                  >
+                    Suggest
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={assistantMode === "ask" ? "default" : "ghost"}
+                    onClick={() => setAssistantMode("ask")}
+                  >
+                    Ask
+                  </Button>
+                </div>
+              }
+              subheader={
+                <>
+                  <div>Assistant suggests; you decide what to apply.</div>
+                  <div className="text-[11px] text-muted-foreground">
+                    Working on: {request.module} • {request.project}/{request.environment}
+                  </div>
+                </>
+              }
+              width={drawerWidth}
+            >
+              <AssistantHelper
+                context={{
+                  project: request.project,
+                  environment: request.environment,
+                  module: request.module,
+                  fieldsMeta:
+                    moduleSchemas
+                      ?.find((m: ModuleSchema) => m.type === request.module)
+                      ?.fields?.filter((f: FieldMeta) => !(f.readOnly || f.immutable)) ??
+                    [],
+                  currentValues: request.config ?? {},
+                }}
+                mode={assistantMode}
+                onModeChange={setAssistantMode}
+                onApplyPatch={(patch) => {
+                  setPatchText(JSON.stringify(patch, null, 2))
+                  setPatchError(null)
+                }}
+              />
+            </AssistantDrawer>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={mergeModalOpen}

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import crypto from "crypto"
 
 import { gh } from "@/lib/github/client"
 import { getGitHubAccessToken } from "@/lib/github/auth"
@@ -6,9 +7,12 @@ import { getEnvTargetFile, getModuleType } from "@/lib/infra/moduleType"
 import { resolveInfraRepo } from "@/config/infra-repos"
 import { env, logEnvDebug } from "@/lib/config/env"
 import { saveRequest, listRequests } from "@/lib/storage/requestsStore"
-import { moduleRegistry, type ModuleRegistryEntry } from "@/config/module-registry"
+import { moduleRegistry, type ModuleRegistryEntry, type ModuleField } from "@/config/module-registry"
 import { generateRequestId } from "@/lib/requests/id"
+import { buildResourceName, validateResourceName } from "@/lib/requests/naming"
 import { getSessionFromCookies } from "@/lib/auth/session"
+import { logLifecycleEvent } from "@/lib/logs/lifecycle"
+import { getUserRole } from "@/lib/auth/roles"
 
 type RequestPayload = {
   project?: string
@@ -26,6 +30,7 @@ type StoredRequest = {
   receivedAt: string
   updatedAt: string
   status: string
+  revision?: number
   reason?: string
   statusDerivedAt?: string
   plan?: { diff: string }
@@ -33,6 +38,8 @@ type StoredRequest = {
   applyRun?: { runId?: number; url?: string; status?: string; conclusion?: string }
   approval?: { approved?: boolean; approvers?: string[] }
   pr?: { number?: number; url?: string; merged?: boolean; headSha?: string; open?: boolean }
+  activePrNumber?: number
+  previousPrs?: number[]
   targetOwner?: string
   targetRepo?: string
   targetBase?: string
@@ -44,12 +51,15 @@ type StoredRequest = {
   prUrl?: string
   commitSha?: string
   mergedSha?: string
+  moduleRef?: { repo: string; path: string; commitSha: string; resolvedAt: string }
+  registryRef?: { commitSha: string; resolvedAt: string }
+  rendererVersion?: string
+  render?: { renderHash: string; inputsHash?: string; reproducible?: boolean; computedAt: string }
 }
 
 const PLAN_WORKFLOW = env.GITHUB_PLAN_WORKFLOW_FILE
+const RENDERER_VERSION = "tfpilot-renderer@1"
 logEnvDebug()
-
-type FieldType = "string" | "number" | "boolean" | "map" | "list"
 
 function validatePayload(body: RequestPayload) {
   const errors: string[] = []
@@ -102,6 +112,35 @@ function toSnakeCase(key: string) {
   return key.replace(/([A-Z])/g, "_$1").replace(/-/g, "_").toLowerCase()
 }
 
+function sortValue(val: any): any {
+  if (Array.isArray(val)) return val.map((v) => sortValue(v))
+  if (val && typeof val === "object") {
+    const sorted: Record<string, any> = {}
+    for (const [k, v] of Object.entries(val).sort(([a], [b]) => a.localeCompare(b))) {
+      sorted[k] = sortValue(v)
+    }
+    return sorted
+  }
+  return val
+}
+
+function stableStringify(val: any) {
+  return JSON.stringify(sortValue(val))
+}
+
+function sha256(input: string) {
+  return crypto.createHash("sha256").update(input).digest("hex")
+}
+
+function getRegistryCommitSha() {
+  return (
+    process.env.VERCEL_GIT_COMMIT_SHA ||
+    process.env.GITHUB_SHA ||
+    process.env.TFPILOT_APP_COMMIT ||
+    "unknown"
+  )
+}
+
 function normalizeConfigKeys(raw: Record<string, unknown>): Record<string, unknown> {
   if (!raw || typeof raw !== "object") return {}
   const out: Record<string, unknown> = {}
@@ -110,6 +149,45 @@ function normalizeConfigKeys(raw: Record<string, unknown>): Record<string, unkno
     out[snake] = v
   }
   return out
+}
+
+function validatePolicy(config: Record<string, unknown>) {
+  const name =
+    typeof config.name === "string" && config.name.trim()
+      ? (config.name as string).trim()
+      : typeof config.bucket_name === "string" && config.bucket_name.trim()
+        ? (config.bucket_name as string).trim()
+        : typeof config.queue_name === "string" && config.queue_name.trim()
+          ? (config.queue_name as string).trim()
+          : undefined
+
+  if (name && !/^[a-z0-9-]{3,63}$/i.test(name)) {
+    throw new Error("Resource name must be 3-63 chars, alphanumeric and dashes only")
+  }
+
+  if (env.TFPILOT_ALLOWED_REGIONS.length > 0) {
+    const regionCandidate =
+      (typeof config.aws_region === "string" && config.aws_region) ||
+      (typeof config.region === "string" && config.region) ||
+      ""
+    if (regionCandidate && !env.TFPILOT_ALLOWED_REGIONS.includes(regionCandidate)) {
+      throw new Error(`Region ${regionCandidate} is not allowed`)
+    }
+  }
+}
+
+function appendRequestIdToNames(config: Record<string, unknown>, requestId: string) {
+  const fields = ["name", "bucket_name", "queue_name", "service_name"]
+  for (const field of fields) {
+    const current = config[field]
+    if (typeof current !== "string") continue
+    const trimmed = current.trim()
+    if (!trimmed) continue
+    if (trimmed.includes(requestId)) continue
+
+    const candidate = buildResourceName(trimmed, requestId)
+    config[field] = candidate
+  }
 }
 
 async function fetchRepoFile(token: string, owner: string, repo: string, filePath: string): Promise<string | null> {
@@ -169,73 +247,133 @@ ${renderedInputs.join("\n")}
 }`
 }
 
-function buildModuleConfig(entry: ModuleRegistryEntry, rawConfig: Record<string, unknown>, ctx: { requestId: string; project: string; environment: string }) {
-  const cfg: Record<string, unknown> = { ...(rawConfig ?? {}) }
-
-function coerceByType(type: FieldType | undefined, value: unknown): unknown {
-    switch (type) {
-      case "string":
-        return value === undefined || value === null ? undefined : String(value)
-      case "number":
-        return typeof value === "number" ? value : value === undefined || value === null ? undefined : Number(value)
-      case "boolean":
-        return typeof value === "boolean" ? value : value === undefined || value === null ? undefined : Boolean(value)
-      case "map":
-        if (value && typeof value === "object" && !Array.isArray(value)) {
-          const out: Record<string, string> = {}
-          for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-            if (v === undefined || v === null) continue
-            out[k] = String(v)
-          }
-          return out
-        }
-        return undefined
-      case "list":
-        return Array.isArray(value) ? value : undefined
-      default:
-        return value
+function coerceByType(field: ModuleField | undefined, value: unknown): unknown {
+  if (!field) return value
+  switch (field.type) {
+    case "string":
+      return value === undefined || value === null ? undefined : String(value)
+    case "number": {
+      if (typeof value === "number") return value
+      if (value === undefined || value === null) return undefined
+      const n = Number(value)
+      return Number.isNaN(n) ? undefined : n
     }
-  }
-
-  // strip unwanted keys
-  for (const key of entry.strip ?? []) {
-    delete cfg[key]
-  }
-
-  // apply defaults (if not present)
-  if (entry.defaults) {
-    for (const [k, v] of Object.entries(entry.defaults)) {
-      if (cfg[k] === undefined) {
-        cfg[k] = v
+    case "boolean":
+      if (typeof value === "boolean") return value
+      if (value === undefined || value === null) return undefined
+      if (typeof value === "string") {
+        const v = value.trim().toLowerCase()
+        if (["true", "1", "yes", "on"].includes(v)) return true
+        if (["false", "0", "no", "off"].includes(v)) return false
       }
+      return Boolean(value)
+    case "map":
+      if (value && typeof value === "object" && !Array.isArray(value)) {
+        const out: Record<string, string> = {}
+        for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+          if (v === undefined || v === null) continue
+          out[k] = String(v)
+        }
+        return out
+      }
+      return undefined
+    case "list":
+      if (Array.isArray(value)) return value
+      if (value === undefined || value === null) return undefined
+      if (typeof value === "string") {
+        const text = value.trim()
+        if (!text) return undefined
+        try {
+          const parsed = JSON.parse(text)
+          if (Array.isArray(parsed)) return parsed
+        } catch {
+          /* ignore */
+        }
+        return text.split(",").map((v) => v.trim()).filter(Boolean)
+      }
+      return undefined
+    case "enum":
+      if (value === undefined || value === null) return undefined
+      return String(value)
+    default:
+      return value
+  }
+}
+
+function buildFieldMap(entry: ModuleRegistryEntry): Record<string, ModuleField> {
+  const map: Record<string, ModuleField> = {}
+  for (const f of entry.fields ?? []) {
+    map[f.name] = f
+  }
+  return map
+}
+
+function applyDefaults(fields: Record<string, ModuleField>, cfg: Record<string, unknown>) {
+  for (const f of Object.values(fields)) {
+    if (cfg[f.name] === undefined && f.default !== undefined) {
+      cfg[f.name] = f.default
     }
   }
+}
 
-  // compute derived fields
-  const computed = entry.compute ? entry.compute(cfg, ctx) : {}
-  const merged = { ...cfg, ...computed }
-
-  // keep only required + optional + computed keys
-  const allowed = new Set([
-    ...entry.required,
-    ...entry.optional,
-    ...Object.keys(computed),
-  ])
-  const finalConfig: Record<string, unknown> = {}
-  for (const [k, v] of Object.entries(merged)) {
-    if (allowed.has(k)) {
-      const fieldType = (entry.fieldTypes as Record<string, FieldType> | undefined)?.[k as string]
-      finalConfig[k] = coerceByType(fieldType, v)
-    }
-  }
-
-  // validate required
-  const missing = entry.required.filter((k) => finalConfig[k] === undefined || finalConfig[k] === null || finalConfig[k] === "")
+function validateRequired(fields: Record<string, ModuleField>, cfg: Record<string, unknown>) {
+  const missing = Object.values(fields)
+    .filter((f) => f.required)
+    .map((f) => f.name)
+    .filter((k) => cfg[k] === undefined || cfg[k] === null || cfg[k] === "")
   if (missing.length > 0) {
     throw new Error(`Missing required config: ${missing.join(", ")}`)
   }
+}
+
+function validateEnum(fields: Record<string, ModuleField>, cfg: Record<string, unknown>) {
+  for (const f of Object.values(fields)) {
+    if (f.type === "enum" && f.enum && cfg[f.name] !== undefined) {
+      const val = cfg[f.name]
+      if (!f.enum.includes(String(val))) {
+        throw new Error(`Invalid value for ${f.name}; expected one of ${f.enum.join(", ")}`)
+      }
+    }
+  }
+}
+
+function normalizeByFields(entry: ModuleRegistryEntry, rawConfig: Record<string, unknown>, ctx: { requestId: string; project: string; environment: string }) {
+  const fields = buildFieldMap(entry)
+  const allowed = new Set(Object.keys(fields))
+
+  const initial: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(rawConfig ?? {})) {
+    if (!allowed.has(k)) continue
+    const field = fields[k]
+    if (field.readOnly || field.immutable) continue
+    initial[k] = coerceByType(field, v)
+  }
+
+  applyDefaults(fields, initial)
+  validateEnum(fields, initial)
+
+  const computed = entry.compute ? entry.compute(initial, ctx) : {}
+  const merged = { ...initial, ...computed }
+
+  const finalConfig: Record<string, unknown> = {}
+  for (const k of Object.keys(fields)) {
+    if (merged[k] !== undefined) {
+      finalConfig[k] = merged[k]
+    }
+  }
+
+  validateRequired(fields, finalConfig)
+  validateEnum(fields, finalConfig)
 
   return finalConfig
+}
+
+function buildModuleConfig(entry: ModuleRegistryEntry, rawConfig: Record<string, unknown>, ctx: { requestId: string; project: string; environment: string }) {
+  if (!entry.fields || entry.fields.length === 0) {
+    throw new Error(`Module ${entry.type} missing fields schema (schema contract v2 required)`)
+  }
+  const cfg: Record<string, unknown> = { ...(rawConfig ?? {}) }
+  return normalizeByFields(entry, cfg, ctx)
 }
 
 async function generateTerraformFiles(
@@ -383,6 +521,7 @@ async function createBranchCommitPrAndPlan(
     planHeadSha,
     planRunId: workflowRunId,
     planRunUrl: workflowRunUrl,
+    baseSha,
   }
 }
 
@@ -401,6 +540,10 @@ export async function POST(request: NextRequest) {
     const session = await getSessionFromCookies()
     if (!session) {
       return NextResponse.json({ success: false, error: "Not authenticated" }, { status: 401 })
+    }
+    const role = getUserRole(session.login)
+    if (role === "viewer") {
+      return NextResponse.json({ success: false, error: "Insufficient role" }, { status: 403 })
     }
 
     // validate module exists based on registry
@@ -443,6 +586,7 @@ export async function POST(request: NextRequest) {
       config: normalizedConfig,
       receivedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+      revision: 1,
       status: "created",
       plan: { diff: planDiffForModule(body.module) },
     }
@@ -452,6 +596,11 @@ export async function POST(request: NextRequest) {
       project: newRequest.project,
       environment: newRequest.environment,
     })
+
+    appendRequestIdToNames(newRequest.config, requestId)
+
+    // Policy checks (naming, region allowlist)
+    validatePolicy(newRequest.config)
 
     const generated = await generateTerraformFiles(
       token,
@@ -463,10 +612,45 @@ export async function POST(request: NextRequest) {
     )
     const ghResult = await createBranchCommitPrAndPlan(token, newRequest, generated.files, targetRepo)
 
+    const resolvedAt = new Date().toISOString()
+    const moduleCommitSha = ghResult.baseSha ?? "unknown"
+    const registryCommitSha = getRegistryCommitSha()
+    newRequest.moduleRef = {
+      repo: `${targetRepo.owner}/${targetRepo.repo}`,
+      path: `modules/${newRequest.module}`,
+      commitSha: moduleCommitSha,
+      resolvedAt,
+    }
+    newRequest.registryRef = {
+      commitSha: registryCommitSha,
+      resolvedAt,
+    }
+    newRequest.rendererVersion = RENDERER_VERSION
+    const renderPayload = {
+      moduleCommit: moduleCommitSha,
+      registryCommit: registryCommitSha,
+      normalizedInputs: newRequest.config,
+      rendererVersion: RENDERER_VERSION,
+    }
+    newRequest.render = {
+      renderHash: `sha256:${sha256(stableStringify(renderPayload))}`,
+      inputsHash: `sha256:${sha256(stableStringify(newRequest.config))}`,
+      reproducible: true,
+      computedAt: resolvedAt,
+    }
+
     newRequest.branchName = ghResult.branchName
     newRequest.prNumber = ghResult.prNumber
     newRequest.prUrl = ghResult.prUrl
     newRequest.commitSha = ghResult.commitSha
+    newRequest.activePrNumber = ghResult.prNumber
+    newRequest.pr = {
+      number: ghResult.prNumber,
+      url: ghResult.prUrl,
+      merged: false,
+      headSha: ghResult.planHeadSha,
+      open: true,
+    }
     newRequest.status = "planning"
     newRequest.targetOwner = targetRepo.owner
     newRequest.targetRepo = targetRepo.repo
@@ -480,6 +664,32 @@ export async function POST(request: NextRequest) {
     }
 
     await saveRequest(newRequest)
+
+    await logLifecycleEvent({
+      requestId,
+      event: "plan_dispatched",
+      actor: session.login,
+      source: "api/requests",
+      data: {
+        branch: newRequest.branchName,
+        planRunId: newRequest.planRun?.runId,
+        planRunUrl: newRequest.planRun?.url,
+        targetRepo: `${targetRepo.owner}/${targetRepo.repo}`,
+      },
+    })
+
+    await logLifecycleEvent({
+      requestId,
+      event: "request_created",
+      actor: session.login,
+      source: "api/requests",
+      data: {
+        project: newRequest.project,
+        environment: newRequest.environment,
+        module: newRequest.module,
+        targetRepo: `${targetRepo.owner}/${targetRepo.repo}`,
+      },
+    })
 
     return NextResponse.json({
       success: true,

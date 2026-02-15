@@ -5,6 +5,8 @@ import { getGitHubAccessToken } from "@/lib/github/auth"
 import { gh } from "@/lib/github/client"
 import { env } from "@/lib/config/env"
 import { archiveRequest, getRequest, updateRequest } from "@/lib/storage/requestsStore"
+import { logLifecycleEvent } from "@/lib/logs/lifecycle"
+import { getUserRole } from "@/lib/auth/roles"
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ requestId: string }> }) {
   try {
@@ -16,6 +18,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
     const session = await getSessionFromCookies()
     if (!session) {
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
+    }
+    const role = getUserRole(session.login)
+    if (role !== "admin") {
+      return NextResponse.json({ error: "Destroy not permitted for your role" }, { status: 403 })
     }
 
     const token = await getGitHubAccessToken(req)
@@ -103,32 +109,23 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
       updatedAt: now,
     }))
 
+    await logLifecycleEvent({
+      requestId: request.id,
+      event: "destroy_dispatched",
+      actor: session.login,
+      source: "api/requests/[requestId]/destroy",
+      data: {
+        destroyRunId: destroyRunId ?? request.destroyRun?.runId,
+        destroyRunUrl: destroyRunUrl ?? request.destroyRun?.url,
+        targetRepo: `${request.targetOwner}/${request.targetRepo}`,
+      },
+    })
+
     // Write an archive copy under history/ while keeping the active tombstone
     try {
       await archiveRequest(updated)
     } catch (archiveError) {
       console.error("[api/requests/destroy] archive failed", archiveError)
-    }
-
-    // Dispatch cleanup PR workflow (non-blocking)
-    if (env.GITHUB_CLEANUP_WORKFLOW_FILE && request.targetOwner && request.targetRepo) {
-      const cleanupInputs = {
-        request_id: request.id,
-        environment: request.environment ?? "dev",
-        target_base: request.targetBase ?? env.GITHUB_DEFAULT_BASE_BRANCH,
-        cleanup_paths: (request.targetFiles ?? []).join(","),
-        target_env_path: request.targetEnvPath ?? "",
-        auto_merge: isProd ? "false" : "true",
-      }
-      gh(token, `/repos/${request.targetOwner}/${request.targetRepo}/actions/workflows/${env.GITHUB_CLEANUP_WORKFLOW_FILE}/dispatches`, {
-        method: "POST",
-        body: JSON.stringify({
-          ref: request.targetBase ?? env.GITHUB_DEFAULT_BASE_BRANCH,
-          inputs: cleanupInputs,
-        }),
-      }).catch((err) => {
-        console.error("[api/requests/destroy] cleanup workflow dispatch failed", err)
-      })
     }
 
     return NextResponse.json({ ok: true, destroyRunId, destroyRunUrl, request: updated })

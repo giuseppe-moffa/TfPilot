@@ -22,7 +22,7 @@ async function ghWithRetry(token: string, url: string, attempts = 3, delayMs = 3
 }
 
 import { deriveStatus } from "@/lib/requests/status"
-import { getRequest, saveRequest } from "@/lib/storage/requestsStore"
+import { getRequest, updateRequest } from "@/lib/storage/requestsStore"
 import { env } from "@/lib/config/env"
 
 function extractPlan(log: string) {
@@ -282,8 +282,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
       request.status = derived.status
       request.reason = derived.reason
     }
-    request.statusDerivedAt = new Date().toISOString()
-    request.updatedAt = new Date().toISOString()
+    const nowIso = new Date().toISOString()
+    request.statusDerivedAt = nowIso
+    request.updatedAt = nowIso
 
     // If apply run failed, reflect failure so UI allows recovery actions
     if (request.applyRun?.conclusion === "failure") {
@@ -313,9 +314,26 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
     }
     request.timeline = timeline
 
-    await saveRequest(request)
+    const updated = await updateRequest(requestId, (current) => ({
+      ...current,
+      pr: request.pr,
+      prNumber: request.prNumber ?? current.prNumber,
+      prUrl: request.prUrl ?? current.prUrl,
+      pullRequest: request.pullRequest ?? current.pullRequest,
+      planRun: request.planRun,
+      applyRun: request.applyRun,
+      approval: request.approval,
+      cleanupPr: request.cleanupPr,
+      status: request.status,
+      reason: request.reason,
+      statusDerivedAt: request.statusDerivedAt,
+      updatedAt: request.updatedAt,
+      timeline: request.timeline,
+      plan: request.plan,
+      destroyRun: request.destroyRun,
+    }))
 
-    return NextResponse.json({ ok: true, request })
+    return NextResponse.json({ ok: true, request: updated })
   } catch (error) {
     console.error("[api/requests/sync] error", error)
     return NextResponse.json({ error: "Failed to sync request" }, { status: 500 })

@@ -45,7 +45,7 @@ export default function NavBar() {
         {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
       </Button>
       <AwsConnectionBadge />
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-6">
         {user ? (
           <>
             {user.avatarUrl && (

@@ -1,13 +1,25 @@
+export type FieldType = "string" | "number" | "boolean" | "map" | "list" | "enum"
+
+export type ModuleField = {
+  name: string
+  type: FieldType
+  required?: boolean
+  default?: unknown
+  description?: string
+  enum?: string[]
+  immutable?: boolean
+  readOnly?: boolean
+  sensitive?: boolean
+  risk_level?: "low" | "medium" | "high"
+  category?: string
+}
+
 export type ModuleRegistryEntry = {
   type: string
   category?: string
   description?: string
-  required: string[]
-  optional: string[]
-  defaults?: Record<string, unknown>
-  strip?: string[]
   compute?: (config: Record<string, unknown>, ctx: { requestId: string; project: string; environment: string }) => Record<string, unknown>
-  fieldTypes?: Record<string, "string" | "number" | "boolean" | "map" | "list">
+  fields: ModuleField[]
 }
 
 export const moduleRegistry: ModuleRegistryEntry[] = [
@@ -15,32 +27,11 @@ export const moduleRegistry: ModuleRegistryEntry[] = [
     type: "s3-bucket",
     category: "storage",
     description: "S3 bucket",
-    required: ["name", "project", "environment", "request_id", "tags"],
-    optional: ["bucket_name", "versioning_enabled", "force_destroy", "kms_key_arn", "block_public_access", "enable_lifecycle"],
-    defaults: { versioning_enabled: true, block_public_access: true, enable_lifecycle: true },
-    strip: ["region", "acl", "encryption_enabled", "encryption_type", "public"],
-    fieldTypes: {
-      name: "string",
-      project: "string",
-      environment: "string",
-      request_id: "string",
-      bucket_name: "string",
-      versioning_enabled: "boolean",
-      force_destroy: "boolean",
-      kms_key_arn: "string",
-      block_public_access: "boolean",
-      enable_lifecycle: "boolean",
-      tags: "map",
-    },
     compute: (config, ctx) => {
-      const nameFromConfig = typeof config.name === "string" && config.name.trim() ? config.name.trim() : undefined
-      const bucketFromConfig =
-        typeof config.bucket_name === "string" && config.bucket_name.trim() ? (config.bucket_name as string).trim() : undefined
-      const name = nameFromConfig ?? bucketFromConfig ?? `req-${ctx.requestId.toLowerCase()}`
       const userTags =
         config.tags && typeof config.tags === "object" && !Array.isArray(config.tags) ? (config.tags as Record<string, string>) : {}
       return {
-        name,
+        ...config,
         project: ctx.project,
         environment: ctx.environment,
         request_id: ctx.requestId,
@@ -53,53 +44,127 @@ export const moduleRegistry: ModuleRegistryEntry[] = [
         },
       }
     },
+    fields: [
+      {
+        name: "name",
+        type: "string",
+        required: true,
+        immutable: true,
+        readOnly: true,
+        description: "Logical resource name (used for tagging and derived names)",
+      },
+      {
+        name: "project",
+        type: "string",
+        required: true,
+        readOnly: true,
+        immutable: true,
+        description: "Project identifier",
+      },
+      {
+        name: "environment",
+        type: "string",
+        required: true,
+        readOnly: true,
+        immutable: true,
+        description: "Environment identifier",
+      },
+      {
+        name: "request_id",
+        type: "string",
+        required: true,
+        readOnly: true,
+        immutable: true,
+        description: "Request correlation id",
+      },
+      {
+        name: "bucket_name",
+        type: "string",
+        required: true,
+        description: "Bucket name (must be globally unique)",
+        immutable: true,
+      },
+      {
+        name: "versioning_enabled",
+        type: "boolean",
+        required: false,
+        default: true,
+        description: "Enable S3 versioning",
+      },
+      {
+        name: "force_destroy",
+        type: "boolean",
+        required: false,
+        default: false,
+        description: "Allow bucket deletion with objects present",
+        risk_level: "high",
+        category: "advanced",
+      },
+      {
+        name: "kms_key_arn",
+        type: "string",
+        required: false,
+        description: "KMS key ARN for SSE-KMS encryption",
+        sensitive: true,
+        category: "advanced",
+      },
+      {
+        name: "block_public_access",
+        type: "boolean",
+        required: false,
+        default: true,
+        description: "Block public ACLs and bucket policies",
+        risk_level: "high",
+      },
+      {
+        name: "enable_lifecycle",
+        type: "boolean",
+        required: false,
+        default: false,
+        description: "Enable default lifecycle configuration",
+        category: "advanced",
+      },
+      {
+        name: "noncurrent_expiration_days",
+        type: "number",
+        required: false,
+        default: 30,
+        description: "Expire noncurrent object versions after N days",
+        category: "advanced",
+      },
+      {
+        name: "abort_multipart_days",
+        type: "number",
+        required: false,
+        default: 7,
+        description: "Abort incomplete multipart uploads after N days",
+        category: "advanced",
+      },
+      {
+        name: "encryption_mode",
+        type: "enum",
+        required: false,
+        default: "sse-s3",
+        enum: ["sse-s3", "sse-kms-aws-managed", "sse-kms-cmk"],
+        description: "Server-side encryption: SSE-S3 (AES256), AWS-managed KMS, or customer-managed KMS",
+      },
+      {
+        name: "tags",
+        type: "map",
+        required: true,
+        description: "Resource tags",
+      },
+    ],
   },
   {
     type: "sqs-queue",
     category: "messaging",
     description: "SQS queue",
-    required: ["name", "project", "environment", "request_id", "tags"],
-    optional: [
-      "fifo",
-      "dlq_enabled",
-      "max_receive_count",
-      "message_retention_seconds",
-      "dlq_message_retention_seconds",
-      "visibility_timeout_seconds",
-      "receive_wait_time_seconds",
-      "kms_key_id",
-    ],
-    defaults: {
-      dlq_enabled: true,
-      max_receive_count: 5,
-      message_retention_seconds: 345600,
-      dlq_message_retention_seconds: 1209600,
-      visibility_timeout_seconds: 30,
-      receive_wait_time_seconds: 20,
-    },
-    fieldTypes: {
-      name: "string",
-      project: "string",
-      environment: "string",
-      request_id: "string",
-      fifo: "boolean",
-      dlq_enabled: "boolean",
-      max_receive_count: "number",
-      message_retention_seconds: "number",
-      dlq_message_retention_seconds: "number",
-      visibility_timeout_seconds: "number",
-      receive_wait_time_seconds: "number",
-      kms_key_id: "string",
-      tags: "map",
-    },
-    strip: [],
     compute: (config, ctx) => {
-      const nameFromConfig = typeof config.name === "string" && config.name.trim() ? config.name.trim() : undefined
-      const name = nameFromConfig ?? `req-${ctx.requestId.toLowerCase()}`
       const userTags =
         config.tags && typeof config.tags === "object" && !Array.isArray(config.tags) ? (config.tags as Record<string, string>) : {}
       return {
-        name,
+        ...config,
         project: ctx.project,
         environment: ctx.environment,
         request_id: ctx.requestId,
@@ -112,39 +177,57 @@ export const moduleRegistry: ModuleRegistryEntry[] = [
         },
       }
     },
+    fields: [
+      { name: "name", type: "string", required: true, immutable: true, description: "Queue logical name" },
+      { name: "project", type: "string", required: true, readOnly: true, immutable: true, description: "Project identifier" },
+      {
+        name: "environment",
+        type: "string",
+        required: true,
+        readOnly: true,
+        immutable: true,
+        description: "Environment identifier",
+      },
+      {
+        name: "request_id",
+        type: "string",
+        required: true,
+        readOnly: true,
+        immutable: true,
+        description: "Request correlation id",
+      },
+      { name: "fifo", type: "boolean", default: false, description: "Use FIFO queue", required: false },
+      { name: "dlq_enabled", type: "boolean", default: true, description: "Enable dead-letter queue", required: false },
+      { name: "max_receive_count", type: "number", default: 5, description: "DLQ max receive count", required: false },
+      {
+        name: "message_retention_seconds",
+        type: "number",
+        default: 345600,
+        description: "Primary queue retention (seconds)",
+        required: false,
+      },
+      {
+        name: "dlq_message_retention_seconds",
+        type: "number",
+        default: 1209600,
+        description: "DLQ retention (seconds)",
+        required: false,
+      },
+      { name: "visibility_timeout_seconds", type: "number", default: 30, description: "Visibility timeout (seconds)", required: false },
+      { name: "receive_wait_time_seconds", type: "number", default: 20, description: "Long polling wait time (seconds)", required: false },
+      { name: "kms_key_id", type: "string", description: "KMS key id for SSE", sensitive: true, required: false, category: "advanced" },
+      { name: "tags", type: "map", required: true, description: "Resource tags" },
+    ],
   },
   {
     type: "ecs-service",
     category: "compute",
     description: "ECS service",
-    required: ["name", "project", "environment", "request_id", "cluster_arn", "container_image", "cpu", "memory", "container_port", "subnet_ids", "security_group_ids", "aws_region", "tags"],
-    optional: ["desired_count", "environment_variables"],
-    defaults: { desired_count: 1 },
-    fieldTypes: {
-      name: "string",
-      project: "string",
-      environment: "string",
-      request_id: "string",
-      cluster_arn: "string",
-      container_image: "string",
-      cpu: "number",
-      memory: "number",
-      container_port: "number",
-      subnet_ids: "list",
-      security_group_ids: "list",
-      aws_region: "string",
-      desired_count: "number",
-      environment_variables: "map",
-      tags: "map",
-    },
-    strip: [],
     compute: (config, ctx) => {
-      const nameFromConfig = typeof config.name === "string" && config.name.trim() ? config.name.trim() : undefined
-      const name = nameFromConfig ?? `req-${ctx.requestId.toLowerCase()}`
       const userTags =
         config.tags && typeof config.tags === "object" && !Array.isArray(config.tags) ? (config.tags as Record<string, string>) : {}
       return {
-        name,
+        ...config,
         project: ctx.project,
         environment: ctx.environment,
         request_id: ctx.requestId,
@@ -157,32 +240,47 @@ export const moduleRegistry: ModuleRegistryEntry[] = [
         },
       }
     },
+    fields: [
+      { name: "name", type: "string", required: true, immutable: true, description: "Service logical name" },
+      { name: "project", type: "string", required: true, readOnly: true, immutable: true, description: "Project identifier" },
+      {
+        name: "environment",
+        type: "string",
+        required: true,
+        readOnly: true,
+        immutable: true,
+        description: "Environment identifier",
+      },
+      {
+        name: "request_id",
+        type: "string",
+        required: true,
+        readOnly: true,
+        immutable: true,
+        description: "Request correlation id",
+      },
+      { name: "cluster_arn", type: "string", required: true, description: "ECS cluster ARN" },
+      { name: "container_image", type: "string", required: true, description: "Container image" },
+      { name: "cpu", type: "number", required: true, description: "Task CPU units" },
+      { name: "memory", type: "number", required: true, description: "Task memory (MB)" },
+      { name: "container_port", type: "number", required: true, description: "Container port" },
+      { name: "subnet_ids", type: "list", required: true, description: "Subnet IDs for tasks" },
+      { name: "security_group_ids", type: "list", required: true, description: "Security group IDs" },
+      { name: "aws_region", type: "string", required: true, description: "AWS region" },
+      { name: "desired_count", type: "number", required: false, default: 1, description: "Desired task count" },
+      { name: "environment_variables", type: "map", required: false, description: "Environment variables", category: "advanced" },
+      { name: "tags", type: "map", required: true, description: "Resource tags" },
+    ],
   },
   {
     type: "iam-role-app",
     category: "iam",
     description: "Application IAM role",
-    required: ["name", "project", "environment", "request_id", "assume_role_policy_json"],
-    optional: ["inline_policies", "managed_policy_arns", "tags"],
-    defaults: {},
-    fieldTypes: {
-      name: "string",
-      project: "string",
-      environment: "string",
-      request_id: "string",
-      assume_role_policy_json: "string",
-      inline_policies: "map",
-      managed_policy_arns: "list",
-      tags: "map",
-    },
-    strip: [],
     compute: (config, ctx) => {
-      const nameFromConfig = typeof config.name === "string" && config.name.trim() ? config.name.trim() : undefined
-      const name = nameFromConfig ?? `req-${ctx.requestId.toLowerCase()}`
       const userTags =
         config.tags && typeof config.tags === "object" && !Array.isArray(config.tags) ? (config.tags as Record<string, string>) : {}
       return {
-        name,
+        ...config,
         project: ctx.project,
         environment: ctx.environment,
         request_id: ctx.requestId,
@@ -195,5 +293,29 @@ export const moduleRegistry: ModuleRegistryEntry[] = [
         },
       }
     },
+    fields: [
+      { name: "name", type: "string", required: true, immutable: true, description: "Role name" },
+      { name: "project", type: "string", required: true, readOnly: true, immutable: true, description: "Project identifier" },
+      {
+        name: "environment",
+        type: "string",
+        required: true,
+        readOnly: true,
+        immutable: true,
+        description: "Environment identifier",
+      },
+      {
+        name: "request_id",
+        type: "string",
+        required: true,
+        readOnly: true,
+        immutable: true,
+        description: "Request correlation id",
+      },
+      { name: "assume_role_policy_json", type: "string", required: true, description: "Assume role policy JSON" },
+      { name: "inline_policies", type: "map", required: false, description: "Inline policies", category: "advanced" },
+      { name: "managed_policy_arns", type: "list", required: false, description: "Attached managed policies", category: "advanced" },
+      { name: "tags", type: "map", required: false, description: "Resource tags" },
+    ],
   },
 ]

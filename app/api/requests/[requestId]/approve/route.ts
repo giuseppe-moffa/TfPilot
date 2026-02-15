@@ -5,6 +5,8 @@ import { getSessionFromCookies } from "@/lib/auth/session"
 import { env } from "@/lib/config/env"
 import { getGitHubAccessToken } from "@/lib/github/auth"
 import { gh } from "@/lib/github/client"
+import { logLifecycleEvent } from "@/lib/logs/lifecycle"
+import { getUserRole } from "@/lib/auth/roles"
 
 export async function POST(_req: NextRequest, { params }: { params: Promise<{ requestId: string }> }) {
   try {
@@ -20,6 +22,10 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ re
     const session = await getSessionFromCookies()
     if (!session) {
       return NextResponse.json({ success: false, error: "Not authenticated" }, { status: 401 })
+    }
+    const role = getUserRole(session.login)
+    if (role !== "approver" && role !== "admin") {
+      return NextResponse.json({ success: false, error: "Approval not permitted for your role" }, { status: 403 })
     }
 
     const existing = await getRequest(requestId).catch(() => null)
@@ -70,6 +76,17 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ re
       updatedAt: now,
       timeline: nextTimeline,
     }))
+
+    await logLifecycleEvent({
+      requestId,
+      event: "request_approved",
+      actor: session.login,
+      source: "api/requests/[requestId]/approve",
+      data: {
+        prNumber,
+        targetRepo: `${existing.targetOwner}/${existing.targetRepo}`,
+      },
+    })
 
     return NextResponse.json({ success: true, request: updated }, { status: 200 })
   } catch (error) {
