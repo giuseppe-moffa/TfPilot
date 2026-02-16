@@ -160,20 +160,57 @@ jobs:
         timeout-minutes: 10
         run: |
           echo "Waiting for ECS service to stabilize..."
-          aws ecs wait services-stable \
-            --cluster ${{ env.ECS_CLUSTER }} \
-            --services ${{ env.ECS_SERVICE }} \
-            --region ${{ env.AWS_REGION }} || {
-            echo "Service did not stabilize. Checking status..."
-            aws ecs describe-services \
+          
+          # Poll manually with timeout instead of using wait command
+          MAX_ATTEMPTS=40
+          ATTEMPT=0
+          SLEEP_INTERVAL=15
+          
+          while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+            ATTEMPT=$((ATTEMPT + 1))
+            echo "Checking service status (attempt $ATTEMPT/$MAX_ATTEMPTS)..."
+            
+            SERVICE_STATUS=$(aws ecs describe-services \
               --cluster ${{ env.ECS_CLUSTER }} \
               --services ${{ env.ECS_SERVICE }} \
               --region ${{ env.AWS_REGION }} \
-              --query 'services[0].{Events:events[0:5]}' \
-              --output json | jq '.'
-            exit 1
-          }
-          echo "Service is stable!"
+              --output json)
+            
+            RUNNING=$(echo "$SERVICE_STATUS" | jq -r '.services[0].runningCount // 0')
+            DESIRED=$(echo "$SERVICE_STATUS" | jq -r '.services[0].desiredCount // 0')
+            DEPLOYMENT_COUNT=$(echo "$SERVICE_STATUS" | jq -r '.services[0].deployments | length')
+            
+            echo "  Running: $RUNNING, Desired: $DESIRED, Deployments: $DEPLOYMENT_COUNT"
+            
+            # Service is stable if:
+            # 1. Running count matches desired count
+            # 2. Only one active deployment (no in-progress deployments)
+            if [ "$RUNNING" -eq "$DESIRED" ] && [ "$RUNNING" -gt 0 ] && [ "$DEPLOYMENT_COUNT" -eq 1 ]; then
+              PRIMARY_DEPLOYMENT=$(echo "$SERVICE_STATUS" | jq -r '.services[0].deployments[0]')
+              DEPLOYMENT_STATUS=$(echo "$PRIMARY_DEPLOYMENT" | jq -r '.status')
+              DEPLOYMENT_RUNNING=$(echo "$PRIMARY_DEPLOYMENT" | jq -r '.runningCount // 0')
+              
+              if [ "$DEPLOYMENT_STATUS" = "PRIMARY" ] && [ "$DEPLOYMENT_RUNNING" -eq "$DESIRED" ]; then
+                echo "✅ Service is stable! Running: $RUNNING/$DESIRED"
+                exit 0
+              fi
+            fi
+            
+            if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
+              echo "  Waiting ${SLEEP_INTERVAL}s before next check..."
+              sleep $SLEEP_INTERVAL
+            fi
+          done
+          
+          echo "❌ Service did not stabilize within timeout. Final status:"
+          echo "$SERVICE_STATUS" | jq '{
+            Status: .services[0].status,
+            Running: .services[0].runningCount,
+            Desired: .services[0].desiredCount,
+            Deployments: .services[0].deployments,
+            Events: .services[0].events[0:5]
+          }'
+          exit 1
 
       - name: Verify deployment
         run: |
