@@ -120,12 +120,14 @@ jobs:
             --output table
 
       - name: Wait for service stability
+        timeout-minutes: 10
         run: |
           echo "Waiting for ECS service to stabilize..."
           aws ecs wait services-stable \
             --cluster ${{ env.ECS_CLUSTER }} \
             --services ${{ env.ECS_SERVICE }} \
-            --region ${{ env.AWS_REGION }}
+            --region ${{ env.AWS_REGION }} \
+            --max-attempts 40
           echo "Service is stable!"
 
       - name: Verify deployment
