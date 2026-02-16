@@ -1,4 +1,6 @@
-import { toSnakeCase } from "@/components/agent-chat"
+function toSnakeCase(key: string) {
+  return key.replace(/([A-Z])/g, "_$1").replace(/-/g, "_").toLowerCase()
+}
 
 type Policy = {
   nameRegex: string

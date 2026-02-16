@@ -36,6 +36,7 @@ import {
 } from "@/components/ui/tooltip"
 import { AssistantHelper } from "@/components/assistant-helper"
 import { AssistantDrawer } from "@/components/assistant-drawer"
+import { SuggestionPanel } from "@/components/suggestion-panel"
 
 type FieldMeta = {
   name: string
@@ -287,8 +288,9 @@ function RequestDetailPage() {
   const [patchError, setPatchError] = React.useState<string | null>(null)
   const [patchSubmitting, setPatchSubmitting] = React.useState(false)
   const [assistantOpen, setAssistantOpen] = React.useState(false)
-  const [assistantMode, setAssistantMode] = React.useState<"suggest" | "ask">("suggest")
   const drawerWidth = 520
+  const [assistantStateOverride, setAssistantStateOverride] = React.useState<any>(null)
+  const [panelAssistantState, setPanelAssistantState] = React.useState<any>(null)
 
   const fetcher = React.useCallback(async (url: string) => {
     const res = await fetch(url)
@@ -359,6 +361,14 @@ function RequestDetailPage() {
       return next
     })
   }, [request])
+
+  React.useEffect(() => {
+    // Set panelAssistantState from request only if we don't have a more recent assistant state
+    // This ensures that fresh assistant responses take priority over persisted request data
+    if (!panelAssistantState && !assistantStateOverride) {
+      setPanelAssistantState(request?.assistant_state ?? null)
+    }
+  }, [request, panelAssistantState, assistantStateOverride])
 
   const memoStatusSlice = React.useMemo(() => statusSlice, [statusSlice])
 
@@ -1397,27 +1407,9 @@ function RequestDetailPage() {
             <AssistantDrawer
               isOpen={assistantOpen}
               onClose={() => setAssistantOpen(false)}
-              header={
-                <div className="inline-flex rounded-md bg-muted/40 p-1 text-xs">
-                  <Button
-                    size="sm"
-                    variant={assistantMode === "suggest" ? "default" : "ghost"}
-                    onClick={() => setAssistantMode("suggest")}
-                  >
-                    Suggest
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant={assistantMode === "ask" ? "default" : "ghost"}
-                    onClick={() => setAssistantMode("ask")}
-                  >
-                    Ask
-                  </Button>
-                </div>
-              }
               subheader={
                 <>
-                  <div>Assistant suggests; you decide what to apply.</div>
+                  <div>Chat with the assistant about this request.</div>
                   <div className="text-[11px] text-muted-foreground">
                     Working on: {request.module} • {request.project}/{request.environment}
                   </div>
@@ -1425,6 +1417,31 @@ function RequestDetailPage() {
               }
               width={drawerWidth}
             >
+              <div className="h-full">
+                {(() => {
+                  const finalAssistantState = assistantStateOverride ?? panelAssistantState ?? request.assistant_state
+                  if (typeof console !== "undefined") {
+                    console.info("[page.tsx] SuggestionPanel props:", {
+                      hasAssistantStateOverride: !!assistantStateOverride,
+                      hasPanelAssistantState: !!panelAssistantState,
+                      hasRequestAssistantState: !!request.assistant_state,
+                      finalAssistantStateKeys: finalAssistantState ? Object.keys(finalAssistantState) : [],
+                      patchKeys: finalAssistantState?.patch ? Object.keys(finalAssistantState.patch) : [],
+                      suggestionsCount: finalAssistantState?.suggestions?.length ?? 0,
+                      clarificationsCount: finalAssistantState?.clarifications?.length ?? 0,
+                    })
+                  }
+                  return (
+                    <SuggestionPanel
+                      request={{
+                        ...request,
+                        assistant_state: finalAssistantState,
+                      }}
+                      requestId={request.id}
+                      onRefresh={() => mutateStatus(undefined, true)}
+                    />
+                  )
+                })()}
               <AssistantHelper
                 context={{
                   project: request.project,
@@ -1437,13 +1454,12 @@ function RequestDetailPage() {
                     [],
                   currentValues: request.config ?? {},
                 }}
-                mode={assistantMode}
-                onModeChange={setAssistantMode}
-                onApplyPatch={(patch) => {
-                  setPatchText(JSON.stringify(patch, null, 2))
-                  setPatchError(null)
+                  onAssistantState={(state) => {
+                    setAssistantStateOverride(state)
+                    setPanelAssistantState(state)
                 }}
               />
+              </div>
             </AssistantDrawer>
           </div>
         </DialogContent>

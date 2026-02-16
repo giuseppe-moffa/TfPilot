@@ -24,6 +24,7 @@ async function ghWithRetry(token: string, url: string, attempts = 3, delayMs = 3
 import { deriveStatus } from "@/lib/requests/status"
 import { getRequest, updateRequest } from "@/lib/storage/requestsStore"
 import { env } from "@/lib/config/env"
+import { ensureAssistantState } from "@/lib/assistant/state"
 
 function extractPlan(log: string) {
   const lower = log.toLowerCase()
@@ -59,7 +60,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
     const token = await getGitHubAccessToken(req)
     if (!token) return NextResponse.json({ error: "GitHub not connected" }, { status: 401 })
 
-    const request = await getRequest(requestId).catch(() => null)
+    const request = ensureAssistantState(await getRequest(requestId).catch(() => null))
     if (!request) return NextResponse.json({ error: "Request not found" }, { status: 404 })
 
     if (!request.targetOwner || !request.targetRepo) {

@@ -6,6 +6,7 @@ import { ArrowLeft, Info, Loader2, Sparkles } from "lucide-react"
 
 import { AssistantHelper } from "@/components/assistant-helper"
 import { AssistantDrawer } from "@/components/assistant-drawer"
+import { SuggestionPanel } from "@/components/suggestion-panel"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -57,6 +58,7 @@ const FieldCard = ({
   required,
   children,
   alignEnd = false,
+  fullWidth = false,
 }: {
   id?: string
   label: string
@@ -64,10 +66,13 @@ const FieldCard = ({
   required?: boolean
   children: React.ReactNode
   alignEnd?: boolean
+  fullWidth?: boolean
 }) => (
   <div
     id={id}
-    className="rounded-lg border border-border bg-card/80 px-3 py-3 shadow-sm transition focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-primary/20 focus-within:ring-offset-0"
+    className={`rounded-lg border border-border bg-card/80 px-3 py-3 shadow-sm transition focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-primary/20 focus-within:ring-offset-0 ${
+      fullWidth ? 'md:col-span-2' : ''
+    }`}
   >
     <div className="flex items-start gap-3">
       <div className="flex-1">
@@ -91,11 +96,10 @@ export default function NewRequestPage() {
   const [loadingSubmit, setLoadingSubmit] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [formValues, setFormValues] = React.useState<Record<string, any>>({})
-  const [reviewOpen, setReviewOpen] = React.useState(false)
+  const [assistantState, setAssistantState] = React.useState<any>(null)
   const projects = listProjects()
   const environments = project ? listEnvironments(project) : []
   const [assistantOpen, setAssistantOpen] = React.useState(false)
-  const [assistantMode, setAssistantMode] = React.useState<"suggest" | "ask">("suggest")
   const drawerWidth = 520
   const [activeField, setActiveField] = React.useState<string | null>(null)
 
@@ -148,7 +152,6 @@ export default function NewRequestPage() {
   const handleModuleChange = (value: string) => {
     setModuleName(value)
     setFormValues({})
-    setReviewOpen(false)
     const mod = modules.find((m) => m.type === value)
     setDefaults(mod)
   }
@@ -157,11 +160,23 @@ export default function NewRequestPage() {
     setFormValues((prev) => ({ ...prev, [key]: value }))
   }
 
+  const prevActiveFieldRef = React.useRef<string | null>(null)
   React.useEffect(() => {
-    if (!activeField) return
-    const el = document.getElementById(`field-${activeField}`)
-    el?.focus?.({ preventScroll: true })
-  }, [formValues, activeField])
+    // Only focus if activeField actually changed (not on every render)
+    if (!activeField || activeField === prevActiveFieldRef.current) return
+    prevActiveFieldRef.current = activeField
+    
+    // Use setTimeout to avoid interfering with current focus
+    const timeoutId = setTimeout(() => {
+      const el = document.getElementById(`field-${activeField}`)
+      const input = el?.querySelector('input, textarea') as HTMLElement
+      if (input && document.activeElement !== input) {
+        input.focus({ preventScroll: true })
+      }
+    }, 0)
+    
+    return () => clearTimeout(timeoutId)
+  }, [activeField])
 
   function toConfigValue(field: FieldMeta, val: any) {
     if (val === "" || val === undefined || val === null) return undefined
@@ -210,13 +225,62 @@ export default function NewRequestPage() {
   const buildConfig = React.useCallback(() => {
     if (!selectedModule) return {}
     const cfg: Record<string, unknown> = {}
+    const fieldMap = new Map(selectedModule.fields.map(f => [f.name, f]))
+    
+    // Step 1: Include all fields that have non-empty values
+    // Note: immutable fields should be included (they can be set initially), only readOnly fields are skipped
     for (const field of selectedModule.fields) {
-      if (field.readOnly || field.immutable) continue
-      const raw = formValues[field.name]
+      if (field.readOnly) continue
+      const raw = formValues[field.name] ?? field.default
       const parsed = toConfigValue(field, raw)
-      if (parsed === undefined) continue
-      cfg[field.name] = parsed
+      if (parsed !== undefined) {
+        cfg[field.name] = parsed
+      }
     }
+    
+    // Step 2: Explicitly ensure all required fields are included (even if empty)
+    // This guarantees required fields are always in the config
+    // Note: readOnly fields that are required should still be included (they may be auto-generated)
+    for (const field of selectedModule.fields) {
+      if (field.required && !(field.name in cfg)) {
+        // For 'name' field, try to derive from common name fields if not provided
+        if (field.name === 'name' && !(field.name in formValues)) {
+          // Try common name fields: bucket_name, queue_name, service_name
+          const nameFields = ['bucket_name', 'queue_name', 'service_name']
+          let derivedName: string | undefined
+          for (const nameField of nameFields) {
+            const value = formValues[nameField]
+            if (value && typeof value === 'string' && value.trim()) {
+              derivedName = value.trim()
+              break
+            }
+          }
+          cfg[field.name] = derivedName ?? field.default ?? ""
+        } else {
+          // Use value from formValues if it exists, otherwise use default or empty string
+          const raw = formValues[field.name] ?? field.default ?? ""
+          // For required fields, include the raw value even if toConfigValue returns undefined
+          // The backend will validate and provide proper error messages
+          cfg[field.name] = raw
+        }
+      }
+    }
+    
+    // Step 3: Include any other formValues that are in the schema but not yet in config
+    for (const [key, value] of Object.entries(formValues)) {
+      if (key in cfg) continue // Already included
+      const field = fieldMap.get(key)
+      if (!field || field.readOnly) continue
+      // Field exists in schema, include it
+      const parsed = toConfigValue(field, value)
+      if (parsed !== undefined) {
+        cfg[key] = parsed
+      } else if (value !== undefined && value !== null && value !== "") {
+        // Include non-empty values even if toConfigValue returned undefined
+        cfg[key] = value
+      }
+    }
+    
     return cfg
   }, [formValues, selectedModule])
 
@@ -226,6 +290,27 @@ export default function NewRequestPage() {
       setError("Project, environment, and module are required.")
       return
     }
+    
+    // Validate that 'name' will be available in the config
+    const cfg = buildConfig()
+    const nameValue = cfg.name
+    if (!nameValue || typeof nameValue !== 'string' || !nameValue.trim()) {
+      setError("Name is required.")
+      return
+    }
+    
+    // Validate AWS resource name format: lowercase alphanumeric and hyphens only, max 63 chars
+    const trimmedName = nameValue.trim()
+    const awsNameRegex = /^[a-z0-9-]+$/
+    if (!awsNameRegex.test(trimmedName)) {
+      setError("Name must contain only lowercase letters, numbers, and hyphens (no spaces or uppercase letters).")
+      return
+    }
+    if (trimmedName.length > 63) {
+      setError("Name must be 63 characters or less.")
+      return
+    }
+    
     setLoadingSubmit(true)
     try {
       const res = await fetch("/api/requests", {
@@ -235,7 +320,7 @@ export default function NewRequestPage() {
           project,
           environment,
           module: moduleName,
-          config: buildConfig(),
+          config: cfg,
         }),
       })
       const data = await res.json().catch(() => ({}))
@@ -252,21 +337,9 @@ export default function NewRequestPage() {
     }
   }
 
-  const applyAssistantPatch = (patch: Record<string, unknown>) => {
-    if (!selectedModule) return
-    const allowed = new Set(selectedModule.fields.filter((f) => !f.readOnly && !f.immutable).map((f) => f.name))
-    const next = { ...formValues }
-    for (const [k, v] of Object.entries(patch)) {
-      if (!allowed.has(k)) continue
-      next[k] = v
-    }
-    setFormValues(next)
-    setReviewOpen(true)
-  }
+  const configObject = React.useMemo(() => buildConfig(), [buildConfig])
 
-  const configObject = buildConfig()
-
-  const renderField = (field: FieldMeta) => {
+  const renderField = (field: FieldMeta, fullWidth = false) => {
     const value = formValues[field.name] ?? field.default ?? ""
     const description = field.description ?? ""
 
@@ -298,6 +371,7 @@ export default function NewRequestPage() {
             label={formatLabel(field.name)}
             description={description}
             required={field.required}
+            fullWidth={fullWidth}
           >
             <Select value={String(value ?? "")} onValueChange={(v) => handleFieldChange(field.name, v)}>
               <SelectTrigger className="w-full">
@@ -321,8 +395,10 @@ export default function NewRequestPage() {
             label={formatLabel(field.name)}
             description={description}
             required={field.required}
+            fullWidth={fullWidth}
           >
             <Textarea
+              key={`textarea-${field.name}`}
               value={typeof value === "string" ? value : JSON.stringify(value ?? {}, null, 2)}
               className="mt-1 min-h-[120px]"
               onFocus={() => setActiveField(field.name)}
@@ -339,8 +415,10 @@ export default function NewRequestPage() {
             label={formatLabel(field.name)}
             description={description}
             required={field.required}
+            fullWidth={fullWidth}
           >
             <Textarea
+              key={`textarea-list-${field.name}`}
               value={Array.isArray(value) ? value.join(",") : String(value ?? "")}
               className="mt-1 min-h-[120px]"
               onFocus={() => setActiveField(field.name)}
@@ -357,8 +435,10 @@ export default function NewRequestPage() {
             label={formatLabel(field.name)}
             description={description}
             required={field.required}
+            fullWidth={fullWidth}
           >
             <Input
+              key={`input-number-${field.name}`}
               type="number"
               className="mt-1"
               value={String(value ?? "")}
@@ -376,8 +456,10 @@ export default function NewRequestPage() {
             label={formatLabel(field.name)}
             description={description}
             required={field.required}
+            fullWidth={fullWidth}
           >
             <Input
+              key={`input-${field.name}`}
               className="mt-1"
               value={String(value ?? "")}
               onFocus={() => setActiveField(field.name)}
@@ -406,7 +488,7 @@ export default function NewRequestPage() {
       className="flex h-[calc(100vh-4rem)] flex-col bg-background text-foreground transition-[margin-right]"
       style={{ marginRight: assistantOpen ? drawerWidth : 0 }}
     >
-      <header className="flex items-center justify-between gap-3 border-b border-border bg-background/80 px-4 py-3 backdrop-blur">
+      <header className="flex items-center justify-between gap-3 bg-background/80 px-4 py-3 backdrop-blur">
         <div className="flex items-center gap-3">
           <Link href="/requests">
             <Button variant="ghost" size="sm" className="gap-2">
@@ -414,7 +496,7 @@ export default function NewRequestPage() {
               Back
             </Button>
           </Link>
-          <h1 className="text-lg font-semibold">New Request (Form)</h1>
+          <h1 className="text-lg font-semibold">New Request</h1>
         </div>
         <Button size="sm" variant="outline" onClick={() => setAssistantOpen(true)}>
           <Sparkles className="mr-2 h-4 w-4" /> Assistant
@@ -484,12 +566,7 @@ export default function NewRequestPage() {
           </Card>
 
           <Card className="space-y-4 rounded-lg border border-border bg-card p-4 shadow-sm">
-            <div className="flex items-center justify-between">
-              <div className="text-base font-semibold">Configuration</div>
-              <Button variant="ghost" size="sm" onClick={() => setReviewOpen((v) => !v)}>
-                Review
-              </Button>
-            </div>
+            <div className="text-base font-semibold">Configuration</div>
             {!selectedModule && <div className="text-sm text-muted-foreground">Select a module to view its inputs.</div>}
             {selectedModule && (
               <div className="space-y-6">
@@ -497,16 +574,16 @@ export default function NewRequestPage() {
                   <Info className="h-4 w-4" />
                   Fill required fields; optional fields may be left empty. Values are sent to the server for validation.
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-3">
                   <div className="text-sm font-semibold">Core settings</div>
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                    {fieldsCore.map((f) => renderField(f))}
+                  <div className="space-y-3">
+                    {fieldsCore.map((f) => renderField(f, false))}
                   </div>
                 </div>
                 {fieldsAdvanced.length > 0 && (
                   <details className="rounded-lg border border-border bg-card p-3" open={false}>
                     <summary className="cursor-pointer text-sm font-semibold">Advanced settings</summary>
-                    <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <div className="mt-3 space-y-3">
                       {fieldsAdvanced.map((f) => renderField(f))}
                     </div>
                   </details>
@@ -515,71 +592,36 @@ export default function NewRequestPage() {
             )}
           </Card>
 
-          {reviewOpen && (
-            <Card className="space-y-3 rounded-lg border border-border bg-card p-4 shadow-sm">
-              <div className="flex items-center justify-between">
-                <div className="text-base font-semibold">Configuration Summary</div>
-                <Button
-                  disabled={loadingSubmit || !project || !environment || !moduleName}
-                  onClick={handleSubmit}
-                >
-                  {loadingSubmit ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  {loadingSubmit ? "Submitting..." : "Create Request"}
-                </Button>
-              </div>
-              <div className="space-y-2 text-sm">
-                {summaryItems.length === 0 && <div className="text-muted-foreground">No fields set.</div>}
-                {summaryItems.map((item) => (
-                  <div key={item.label} className="flex items-center justify-between rounded border border-border px-2 py-1">
-                    <span className="font-medium">{item.label}</span>
-                    <span className="text-muted-foreground text-xs">{JSON.stringify(item.value)}</span>
-                  </div>
-                ))}
-              </div>
-              <details className="rounded-md border border-border bg-muted/30 p-3 text-xs">
-                <summary className="cursor-pointer font-medium text-foreground">View JSON payload</summary>
-                <pre className="mt-2 whitespace-pre-wrap break-words text-muted-foreground">
-                  {JSON.stringify(
-                    {
-                      project,
-                      environment,
-                      module: moduleName,
-                      config: configObject,
-                    },
-                    null,
-                    2
-                  )}
-                </pre>
-              </details>
-              {error && <div className="text-xs text-destructive">{error}</div>}
-            </Card>
-          )}
+          <Card className="space-y-3 rounded-lg border border-border bg-card p-4 shadow-sm">
+            <div className="text-base font-semibold">Configuration Summary</div>
+            <div className="space-y-2 text-sm">
+              {summaryItems.length === 0 && <div className="text-muted-foreground">No fields set.</div>}
+              {summaryItems.map((item) => (
+                <div key={item.label} className="flex items-center justify-between rounded border border-border px-2 py-1">
+                  <span className="font-medium">{item.label}</span>
+                  <span className="text-muted-foreground text-xs">{JSON.stringify(item.value)}</span>
+                </div>
+              ))}
+            </div>
+            {error && <div className="text-xs text-destructive">{error}</div>}
+            <div className="flex justify-end pt-2">
+              <Button
+                disabled={loadingSubmit || !project || !environment || !moduleName}
+                onClick={handleSubmit}
+              >
+                {loadingSubmit ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                {loadingSubmit ? "Creating..." : "Create Request"}
+              </Button>
+            </div>
+          </Card>
         </div>
 
         <AssistantDrawer
           isOpen={assistantOpen}
           onClose={() => setAssistantOpen(false)}
-          header={
-            <div className="inline-flex rounded-md bg-muted/40 p-1 text-xs">
-              <Button
-                size="sm"
-                variant={assistantMode === "suggest" ? "default" : "ghost"}
-                onClick={() => setAssistantMode("suggest")}
-              >
-                Suggest
-              </Button>
-              <Button
-                size="sm"
-                variant={assistantMode === "ask" ? "default" : "ghost"}
-                onClick={() => setAssistantMode("ask")}
-              >
-                Ask
-              </Button>
-            </div>
-          }
           subheader={
             <>
-              <div>Assistant suggests; you decide what to apply.</div>
+              <div>Chat with the assistant about this request.</div>
               <div className="text-[11px] text-muted-foreground">
                 Working on: {moduleName || "module"} • {project || "project"}/{environment || "env"}
               </div>
@@ -587,22 +629,37 @@ export default function NewRequestPage() {
           }
           width={drawerWidth}
         >
-          <AssistantHelper
-            context={{
-              project,
-              environment,
-              module: moduleName,
-              currentValues: configObject,
-              fieldsMeta: selectedModule?.fields ?? [],
-            }}
-            mode={assistantMode}
-            onModeChange={setAssistantMode}
-            onApplyPatch={applyAssistantPatch}
-            onScrollToField={(field) => {
-              const el = document.getElementById(`field-${field}`)
-              if (el) el.scrollIntoView({ behavior: "smooth", block: "center" })
-            }}
-          />
+          <div className="h-full">
+            <SuggestionPanel
+              request={React.useMemo(() => ({
+                id: "new-request",
+                project,
+                environment,
+                module: moduleName,
+                config: configObject,
+                assistant_state: assistantState,
+              }), [project, environment, moduleName, configObject, assistantState])}
+              requestId="new-request"
+              onRefresh={() => {}} // No-op for new requests
+              onConfigUpdate={(updates) => {
+                setFormValues(prev => ({ ...prev, ...updates }))
+              }}
+              onAssistantStateClear={() => {
+                console.log("[NewRequest] Clearing assistant state")
+                setAssistantState(null)
+              }}
+            />
+            <AssistantHelper
+              context={{
+                project,
+                environment,
+                module: moduleName,
+                currentValues: configObject,
+                fieldsMeta: selectedModule?.fields ?? [],
+              }}
+              onAssistantState={setAssistantState}
+            />
+          </div>
         </AssistantDrawer>
       </div>
     </div>

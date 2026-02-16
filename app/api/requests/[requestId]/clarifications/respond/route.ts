@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 
-import { getSessionFromCookies } from "@/lib/auth/session"
 import { moduleRegistry, type ModuleField, type ModuleRegistryEntry } from "@/config/module-registry"
 import { ensureAssistantState, isAllowedPatchPath } from "@/lib/assistant/state"
+import { getSessionFromCookies } from "@/lib/auth/session"
 import { getRequest, updateRequest } from "@/lib/storage/requestsStore"
 import { buildResourceName } from "@/lib/requests/naming"
 import { env } from "@/lib/config/env"
@@ -227,22 +227,17 @@ function applyPatchToConfig(target: Record<string, unknown>, op: PatchOp) {
   cursor[parts[parts.length - 1]] = op.value
 }
 
-export async function POST(req: NextRequest, context: { params: Promise<{ requestId: string }> }) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ requestId: string }> }) {
   try {
-    const { requestId } = await context.params
-    if (!requestId) {
-      return NextResponse.json({ success: false, error: "Missing requestId" }, { status: 400 })
-    }
-
+    const { requestId } = await params
     const session = await getSessionFromCookies()
     if (!session) {
       return NextResponse.json({ success: false, error: "Not authenticated" }, { status: 401 })
     }
 
-    const body = (await req.json()) as { suggestionIds?: string[] }
-    const suggestionIds = Array.isArray(body?.suggestionIds) ? body.suggestionIds : []
-    if (suggestionIds.length === 0) {
-      return NextResponse.json({ success: false, error: "No suggestions selected" }, { status: 400 })
+    const body = (await req.json()) as { clarificationId?: string; answer?: unknown }
+    if (!body.clarificationId) {
+      return NextResponse.json({ success: false, error: "clarificationId is required" }, { status: 400 })
     }
 
     const fetched = await getRequest(requestId).catch(() => null)
@@ -256,21 +251,52 @@ export async function POST(req: NextRequest, context: { params: Promise<{ reques
       return NextResponse.json({ success: false, error: msg }, { status: 409 })
     }
 
+    const clarification = baseRequest.assistant_state.clarifications.find((c: any) => c.id === body.clarificationId)
+    if (!clarification) {
+      return NextResponse.json({ success: false, error: "Clarification not found" }, { status: 404 })
+    }
+
     const regEntry = moduleRegistry.find((m) => m.type === baseRequest.module)
     if (!regEntry) {
       return NextResponse.json({ success: false, error: "Unknown module for request" }, { status: 400 })
     }
 
     const fieldsMap = buildFieldMap(regEntry)
+    const patchOps: PatchOp[] = []
 
-    const selected = baseRequest.assistant_state.suggestions.filter((s: any) =>
-      suggestionIds.includes(s.id)
-    )
-    if (selected.length === 0) {
-      return NextResponse.json({ success: false, error: "No matching suggestions found" }, { status: 400 })
+    if (clarification.type === "text") {
+      const textVal = typeof body.answer === "string" ? body.answer : String(body.answer ?? "")
+      if (clarification.constraints?.regex) {
+        const re = new RegExp(clarification.constraints.regex)
+        if (!re.test(textVal)) {
+          return NextResponse.json({ success: false, error: "Answer does not satisfy regex constraint" }, { status: 400 })
+        }
+      }
+      if (clarification.constraints?.min !== undefined && textVal.length < clarification.constraints.min) {
+        return NextResponse.json({ success: false, error: "Answer shorter than minimum" }, { status: 400 })
+      }
+      if (clarification.constraints?.max !== undefined && textVal.length > clarification.constraints.max) {
+        return NextResponse.json({ success: false, error: "Answer longer than maximum" }, { status: 400 })
+      }
+      if (!clarification.patchesFromText) {
+        return NextResponse.json({ success: false, error: "No patch mapping for text clarification" }, { status: 400 })
+      }
+      patchOps.push({ op: "set", path: clarification.patchesFromText.path, value: textVal })
+    } else if (clarification.type === "choice" || clarification.type === "boolean") {
+      const normalizedKey = typeof body.answer === "string" ? body.answer : body.answer === true ? "true" : body.answer === false ? "false" : String(body.answer ?? "")
+      const options = clarification.options ?? []
+      const match = options.find((o: any) => o.key === normalizedKey)
+      if (!match && options.length > 0) {
+        return NextResponse.json({ success: false, error: "Invalid choice" }, { status: 400 })
+      }
+      const key = match?.key ?? normalizedKey
+      const optionPatches = clarification.patchesByOption?.[key]
+      if (!optionPatches || optionPatches.length === 0) {
+        return NextResponse.json({ success: false, error: "No patches for selected option" }, { status: 400 })
+      }
+      patchOps.push(...optionPatches)
     }
 
-    const patchOps: PatchOp[] = selected.flatMap((s: any) => s.patch ?? [])
     for (const op of patchOps) {
       if (!isAllowedPatchPath(op.path)) {
         return NextResponse.json({ success: false, error: "Patch path not allowed" }, { status: 400 })
@@ -300,27 +326,27 @@ export async function POST(req: NextRequest, context: { params: Promise<{ reques
       const withAssistant = ensureAssistantState(current)
       const appliedLog = {
         ts: new Date().toISOString(),
-        source: "suggestion" as const,
+        source: "clarification" as const,
         patch: patchOps,
       }
-      const appliedIds = new Set<string>(withAssistant.assistant_state.applied_suggestion_ids ?? [])
-      for (const id of suggestionIds) appliedIds.add(id)
-
       return {
         ...withAssistant,
         config: finalConfig,
         assistant_state: {
           ...withAssistant.assistant_state,
-          applied_suggestion_ids: Array.from(appliedIds),
+          clarifications_resolved: {
+            ...(withAssistant.assistant_state.clarifications_resolved ?? {}),
+            [clarification.id]: { answer: body.answer, ts: new Date().toISOString() },
+          },
           applied_patch_log: [...withAssistant.assistant_state.applied_patch_log, appliedLog],
         },
-      updatedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       }
     })
 
     return NextResponse.json({ success: true, request: updated }, { status: 200 })
   } catch (error) {
-    console.error("[api/requests/apply] error", error)
-    return NextResponse.json({ success: false, error: "Failed to apply to configuration" }, { status: 400 })
-}
+    console.error("[clarifications/respond] error", error)
+    return NextResponse.json({ success: false, error: "Failed to apply clarification" }, { status: 400 })
+  }
 }

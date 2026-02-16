@@ -12,6 +12,7 @@ import { getSessionFromCookies } from "@/lib/auth/session"
 import { getUserRole } from "@/lib/auth/roles"
 import { logLifecycleEvent } from "@/lib/logs/lifecycle"
 import { buildResourceName } from "@/lib/requests/naming"
+import { ensureAssistantState } from "@/lib/assistant/state"
 
 const PLAN_WORKFLOW = env.GITHUB_PLAN_WORKFLOW_FILE
 const RENDERER_VERSION = "tfpilot-renderer@1"
@@ -85,7 +86,8 @@ function appendRequestIdToNames(config: Record<string, unknown>, requestId: stri
     if (trimmed.includes(requestId)) continue
 
     const candidate = buildResourceName(trimmed, requestId)
-    config[field] = candidate
+    // AWS resource names must be lowercase
+    config[field] = candidate.toLowerCase()
   }
 }
 
@@ -460,7 +462,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: "GitHub not connected" }, { status: 401 })
     }
 
-    const current = await getRequest(body.requestId)
+    const current = ensureAssistantState(await getRequest(body.requestId))
     if (!current) {
       return NextResponse.json({ success: false, error: "Request not found" }, { status: 404 })
     }

@@ -13,6 +13,7 @@ import { buildResourceName, validateResourceName } from "@/lib/requests/naming"
 import { getSessionFromCookies } from "@/lib/auth/session"
 import { logLifecycleEvent } from "@/lib/logs/lifecycle"
 import { getUserRole } from "@/lib/auth/roles"
+import { ensureAssistantState } from "@/lib/assistant/state"
 
 type RequestPayload = {
   project?: string
@@ -186,7 +187,8 @@ function appendRequestIdToNames(config: Record<string, unknown>, requestId: stri
     if (trimmed.includes(requestId)) continue
 
     const candidate = buildResourceName(trimmed, requestId)
-    config[field] = candidate
+    // AWS resource names must be lowercase
+    config[field] = candidate.toLowerCase()
   }
 }
 
@@ -345,7 +347,9 @@ function normalizeByFields(entry: ModuleRegistryEntry, rawConfig: Record<string,
   for (const [k, v] of Object.entries(rawConfig ?? {})) {
     if (!allowed.has(k)) continue
     const field = fields[k]
-    if (field.readOnly || field.immutable) continue
+    // Only skip readOnly fields (auto-populated by system)
+    // Immutable fields should be included for initial creation, they just can't be changed later
+    if (field.readOnly) continue
     initial[k] = coerceByType(field, v)
   }
 
@@ -357,8 +361,30 @@ function normalizeByFields(entry: ModuleRegistryEntry, rawConfig: Record<string,
 
   const finalConfig: Record<string, unknown> = {}
   for (const k of Object.keys(fields)) {
+    // Include from merged (initial + computed) if available
     if (merged[k] !== undefined) {
       finalConfig[k] = merged[k]
+    } else {
+      // For immutable/readOnly fields that were filtered out from initial, include from rawConfig if provided
+      const field = fields[k]
+      if (field && rawConfig[k] !== undefined) {
+        // Include immutable fields (even if readOnly) from rawConfig for initial creation
+        if (field.immutable || (field.readOnly && field.required)) {
+          finalConfig[k] = coerceByType(field, rawConfig[k])
+        }
+      }
+    }
+  }
+
+  // Derive 'name' from bucket_name/queue_name/service_name if not provided and name is required
+  if (!finalConfig.name && fields.name?.required) {
+    const nameFields = ['bucket_name', 'queue_name', 'service_name']
+    for (const nameField of nameFields) {
+      const value = finalConfig[nameField] || rawConfig[nameField]
+      if (value && typeof value === 'string' && value.trim()) {
+        finalConfig.name = value.trim()
+        break
+      }
     }
   }
 
@@ -663,7 +689,9 @@ export async function POST(request: NextRequest) {
       headSha: ghResult.planHeadSha,
     }
 
-    await saveRequest(newRequest)
+    const newRequestWithAssistant = ensureAssistantState(newRequest)
+
+    await saveRequest(newRequestWithAssistant)
 
     await logLifecycleEvent({
       requestId,
@@ -671,9 +699,9 @@ export async function POST(request: NextRequest) {
       actor: session.login,
       source: "api/requests",
       data: {
-        branch: newRequest.branchName,
-        planRunId: newRequest.planRun?.runId,
-        planRunUrl: newRequest.planRun?.url,
+        branch: newRequestWithAssistant.branchName,
+        planRunId: newRequestWithAssistant.planRun?.runId,
+        planRunUrl: newRequestWithAssistant.planRun?.url,
         targetRepo: `${targetRepo.owner}/${targetRepo.repo}`,
       },
     })
@@ -684,9 +712,9 @@ export async function POST(request: NextRequest) {
       actor: session.login,
       source: "api/requests",
       data: {
-        project: newRequest.project,
-        environment: newRequest.environment,
-        module: newRequest.module,
+        project: newRequestWithAssistant.project,
+        environment: newRequestWithAssistant.environment,
+        module: newRequestWithAssistant.module,
         targetRepo: `${targetRepo.owner}/${targetRepo.repo}`,
       },
     })
@@ -694,8 +722,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       requestId,
-      plan: newRequest.plan,
-      prUrl: newRequest.prUrl,
+      plan: newRequestWithAssistant.plan,
+      prUrl: newRequestWithAssistant.prUrl,
     })
   } catch (error) {
     console.error("[api/requests] error parsing request:", error)

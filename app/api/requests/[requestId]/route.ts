@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 
 import { getRequest } from "@/lib/storage/requestsStore"
+import { ensureAssistantState } from "@/lib/assistant/state"
 
 export async function GET(_req: Request, { params }: { params: Promise<{ requestId: string }> }) {
   const { requestId } = await params
@@ -9,7 +10,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ request
   }
 
   try {
-    const request = await getRequest(requestId)
+    const request = ensureAssistantState(await getRequest(requestId))
     if (!request) {
       return NextResponse.json({ error: "Not found" }, { status: 404 })
     }
