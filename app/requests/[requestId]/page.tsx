@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { CheckCircle2, Github, Loader2, Link as LinkIcon, Wand2, Sparkles } from "lucide-react"
+import { CheckCircle2, Github, Loader2, Link as LinkIcon, Wand2, Sparkles, Download } from "lucide-react"
 import useSWR from "swr"
 import { useParams } from "next/navigation"
 
@@ -37,6 +37,7 @@ import {
 import { AssistantHelper } from "@/components/assistant-helper"
 import { AssistantDrawer } from "@/components/assistant-drawer"
 import { SuggestionPanel } from "@/components/suggestion-panel"
+import { useAuth } from "@/app/providers"
 
 type FieldMeta = {
   name: string
@@ -413,6 +414,18 @@ function RequestDetailPage() {
       revalidateOnReconnect: true,
     }
   )
+
+  const canDestroyKey = requestId ? [`can-destroy`, requestId] : null
+  const { data: canDestroyData, isLoading: canDestroyLoading } = useSWR(
+    canDestroyKey,
+    () => fetcher(`/api/requests/${requestId}/can-destroy`),
+    {
+      keepPreviousData: true,
+      revalidateOnFocus: false,
+    }
+  )
+  // Default to false (disabled) until we know for sure - safer for prod destroy
+  const canDestroy = canDestroyData?.canDestroy === true
 
   const eventOrder: Record<string, number> = {
     request_created: 0,
@@ -1084,10 +1097,10 @@ function RequestDetailPage() {
                       variant="destructive"
                       className={cn(
                         "h-9",
-                        (isDestroying || isDestroyed || isApplying || !isApplied) &&
+                        (isDestroying || isDestroyed || isApplying || !isApplied || !canDestroy) &&
                           "cursor-not-allowed bg-muted text-muted-foreground opacity-70"
                       )}
-                      disabled={isDestroying || isDestroyed || isApplying || !isApplied}
+                      disabled={isDestroying || isDestroyed || isApplying || !isApplied || !canDestroy}
                       onClick={() => {
                         setDestroyStatus("idle")
                         setDestroyError(null)
@@ -1097,7 +1110,15 @@ function RequestDetailPage() {
                       Destroy
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Destroy the resources for this request</TooltipContent>
+                  <TooltipContent>
+                    {!canDestroy
+                      ? canDestroyData?.reason === "not_in_destroy_prod_allowlist"
+                        ? "You're not allowed to destroy prod requests"
+                        : canDestroyData?.reason === "requires_admin_role"
+                          ? "Destroy requires admin role"
+                          : "Destroy not permitted"
+                      : "Destroy the resources for this request"}
+                  </TooltipContent>
                 </Tooltip>
               </div>
             </TooltipProvider>
@@ -1309,10 +1330,42 @@ function RequestDetailPage() {
 
       <Card>
         <CardHeader className="border-b">
-          <CardTitle className="flex items-center gap-2 text-lg font-semibold">
-            Lifecycle History
-          </CardTitle>
-          <CardDescription>Recent lifecycle events for this request</CardDescription>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-lg font-semibold">
+                Lifecycle History
+              </CardTitle>
+              <CardDescription>Recent lifecycle events for this request</CardDescription>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={async () => {
+                try {
+                  const res = await fetch(`/api/requests/${requestId}/audit-export`)
+                  if (!res.ok) {
+                    const err = await res.json().catch(() => ({}))
+                    throw new Error(err?.error || "Failed to download audit log")
+                  }
+                  const blob = await res.blob()
+                  const url = window.URL.createObjectURL(blob)
+                  const a = document.createElement("a")
+                  a.href = url
+                  a.download = `audit-${requestId}.json`
+                  document.body.appendChild(a)
+                  a.click()
+                  window.URL.revokeObjectURL(url)
+                  document.body.removeChild(a)
+                } catch (err: any) {
+                  console.error("[audit-export] error", err)
+                  setActionError(err?.message || "Failed to download audit log")
+                }
+              }}
+            >
+              <Download className="mr-2 h-4 w-4" />
+              Download audit log
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="space-y-3 pt-4">
           {logsLoading && sortedEvents.length === 0 ? (

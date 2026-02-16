@@ -25,6 +25,7 @@ import { deriveStatus } from "@/lib/requests/status"
 import { getRequest, updateRequest } from "@/lib/storage/requestsStore"
 import { env } from "@/lib/config/env"
 import { ensureAssistantState } from "@/lib/assistant/state"
+import { sendAdminNotification, formatRequestNotification } from "@/lib/notifications/email"
 
 function extractPlan(log: string) {
   const lower = log.toLowerCase()
@@ -62,6 +63,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
 
     const request = ensureAssistantState(await getRequest(requestId).catch(() => null))
     if (!request) return NextResponse.json({ error: "Request not found" }, { status: 404 })
+
+    // Store previous state for transition detection
+    const previousPlanConclusion = request.planRun?.conclusion
+    const previousApplyConclusion = request.applyRun?.conclusion
+    const previousDestroyConclusion = request.destroyRun?.conclusion
+    const previousStatus = request.status
 
     if (!request.targetOwner || !request.targetRepo) {
       return NextResponse.json({ error: "Request missing repo info" }, { status: 400 })
@@ -273,6 +280,21 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
       }
     }
 
+    if (request.destroyRun?.runId) {
+      try {
+        const runRes = await ghWithRetry(token, `/repos/${request.targetOwner}/${request.targetRepo}/actions/runs/${request.destroyRun.runId}`)
+        const runJson = (await runRes.json()) as { status?: string; conclusion?: string; html_url?: string }
+        request.destroyRun = {
+          ...request.destroyRun,
+          status: runJson.status ?? request.destroyRun.status,
+          conclusion: runJson.conclusion ?? request.destroyRun.conclusion,
+          url: runJson.html_url ?? request.destroyRun.url,
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+
     const derived = deriveStatus({
       pr: request.pr,
       planRun: request.planRun,
@@ -291,6 +313,48 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
     if (request.applyRun?.conclusion === "failure") {
       request.status = "failed"
       request.reason = "Apply failed"
+    }
+
+    // Email notifications on lifecycle transitions (deduplicated by checking previous state)
+    // Apply success/failure
+    if (request.applyRun?.conclusion && request.applyRun.conclusion !== previousApplyConclusion) {
+      const actor = request.applyRun.conclusion === "success" ? (request.approval?.approvers?.[0] || "system") : "system"
+      if (request.applyRun.conclusion === "success") {
+        const { subject, body } = formatRequestNotification("apply_success", request, actor, request.applyRun.url)
+        await sendAdminNotification(subject, body).catch((err) =>
+          console.error("[api/requests/sync] failed to send apply_success email", err)
+        )
+      } else if (request.applyRun.conclusion === "failure") {
+        const { subject, body } = formatRequestNotification("apply_failed", request, actor, request.applyRun.url)
+        await sendAdminNotification(subject, body).catch((err) =>
+          console.error("[api/requests/sync] failed to send apply_failed email", err)
+        )
+      }
+    }
+
+    // Destroy success/failure
+    if (request.destroyRun?.conclusion && request.destroyRun.conclusion !== previousDestroyConclusion) {
+      const actor = "system" // Destroy actor is typically from destroy endpoint, but we don't have it here
+      if (request.destroyRun.conclusion === "success") {
+        const { subject, body } = formatRequestNotification("destroy_success", request, actor, request.destroyRun.url)
+        await sendAdminNotification(subject, body).catch((err) =>
+          console.error("[api/requests/sync] failed to send destroy_success email", err)
+        )
+      } else if (request.destroyRun.conclusion === "failure") {
+        const { subject, body } = formatRequestNotification("destroy_failed", request, actor, request.destroyRun.url)
+        await sendAdminNotification(subject, body).catch((err) =>
+          console.error("[api/requests/sync] failed to send destroy_failed email", err)
+        )
+      }
+    }
+
+    // Plan failure
+    if (request.planRun?.conclusion === "failure" && request.planRun.conclusion !== previousPlanConclusion) {
+      const actor = "system"
+      const { subject, body } = formatRequestNotification("plan_failed", request, actor, request.planRun.url)
+      await sendAdminNotification(subject, body).catch((err) =>
+        console.error("[api/requests/sync] failed to send plan_failed email", err)
+      )
     }
 
     // Timeline updates for cleanup PR

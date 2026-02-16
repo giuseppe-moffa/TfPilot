@@ -28,7 +28,9 @@ Terraform self-service platform (Next.js + API) with S3-backed state, GitHub Act
 
 ### Environment (see `env.example`)
 - Buckets/region: `TFPILOT_REQUESTS_BUCKET`, `TFPILOT_CHAT_LOGS_BUCKET`, `TFPILOT_DEFAULT_REGION`
-- Prod guardrails: `TFPILOT_PROD_ALLOWED_USERS` (comma-separated GitHub usernames)
+- Prod guardrails: `TFPILOT_PROD_ALLOWED_USERS` (comma-separated GitHub usernames for general prod access), `TFPILOT_DESTROY_PROD_ALLOWED_USERS` (comma-separated GitHub usernames for prod destroy - separate allowlist)
+- RBAC: `TFPILOT_ADMINS`, `TFPILOT_APPROVERS` (comma-separated GitHub usernames)
+- Email notifications: `TFPILOT_ADMIN_EMAILS` (comma-separated email addresses), `TFPILOT_EMAIL_FROM` (sender address, must be verified in AWS SES)
 - Workflows: `GITHUB_PLAN_WORKFLOW_FILE`, `GITHUB_APPLY_WORKFLOW_FILE`, `GITHUB_DESTROY_WORKFLOW_FILE`, `GITHUB_CLEANUP_WORKFLOW_FILE`
 - Auth: Session secret, GitHub app/OAuth variables for token exchange
 
@@ -41,8 +43,10 @@ Ensure env vars above are set (buckets/region, workflow filenames, session secre
 
 ### Security & guardrails
 - Session validation on all APIs; prod allow-list on approve/merge/apply/destroy/cleanup dispatch.
+- Separate prod destroy allowlist (`TFPILOT_DESTROY_PROD_ALLOWED_USERS`) for additional protection against accidental prod resource destruction.
 - All request/chat data in S3; chat logs enforced SSE-S3.
 - S3 module supports `block_public_access` and `enable_lifecycle` toggles.
+- Audit export: Downloadable JSON audit logs for each request (request metadata, lifecycle events, workflow runs).
 
 ### AI Assistant Flow
 - **Schema-driven**: Assistant uses module registry schema to understand required/optional fields, types, defaults, and constraints.
@@ -52,5 +56,5 @@ Ensure env vars above are set (buckets/region, workflow filenames, session secre
 - **Integration**: Assistant helper component in UI provides chat interface; suggestion panel displays patches and clarifications; form-based UI allows direct input with assistant guidance.
 
 ### Observability
-- **Current**: UI polling (SWR) for list and per-request sync; statuses surfaced for plan/apply/destroy; cleanup PR displayed. Lifecycle events logged to S3 (JSON format) for plan/approve/merge/apply/destroy/cleanup/configuration_updated events. Request detail pages show timeline of events.
-- **Gaps/TODO**: Slack/email notifications on apply/destroy/plan failure; summary/metrics/health endpoints; drift detection; cost estimation.
+- **Current**: UI polling (SWR) for list and per-request sync; statuses surfaced for plan/apply/destroy; cleanup PR displayed. Lifecycle events logged to S3 (JSON format) for plan/approve/merge/apply/destroy/cleanup/configuration_updated events. Request detail pages show timeline of events. Downloadable audit logs (JSON export) for compliance and troubleshooting. Admin email notifications (AWS SES) for apply/destroy/plan success and failure events.
+- **Gaps/TODO**: Slack notifications; summary/metrics/health endpoints; drift detection; cost estimation.

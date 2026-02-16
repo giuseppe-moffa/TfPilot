@@ -45,6 +45,23 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
       }
     }
 
+    // Additional prod destroy allowlist check (separate from general prod access)
+    if (isProd && env.TFPILOT_DESTROY_PROD_ALLOWED_USERS.length > 0) {
+      if (!env.TFPILOT_DESTROY_PROD_ALLOWED_USERS.includes(session.login)) {
+        await logLifecycleEvent({
+          requestId: request.id,
+          event: "destroy_blocked",
+          actor: session.login,
+          source: "api/requests/[requestId]/destroy",
+          data: {
+            reason: "not_in_destroy_prod_allowlist",
+            environment: request.environment,
+          },
+        })
+        return NextResponse.json({ error: "You're not allowed to destroy prod requests" }, { status: 403 })
+      }
+    }
+
     // Fire cleanup PR workflow first so code removal is ready before destroy completes
     if (env.GITHUB_CLEANUP_WORKFLOW_FILE && request.targetOwner && request.targetRepo) {
       const cleanupInputs = {
