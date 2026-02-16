@@ -122,12 +122,22 @@ jobs:
       - name: Check service status before wait
         run: |
           echo "Current service status:"
-          aws ecs describe-services \
+          SERVICE_STATUS=$(aws ecs describe-services \
             --cluster ${{ env.ECS_CLUSTER }} \
             --services ${{ env.ECS_SERVICE }} \
             --region ${{ env.AWS_REGION }} \
-            --query 'services[0].{Status:status,Running:runningCount,Desired:desiredCount,Deployments:deployments[0].{Status:status,Running:runningCount,Pending:pendingCount,Failed:failedTasks}}}' \
-            --output json | jq '.'
+            --output json)
+          echo "$SERVICE_STATUS" | jq '{
+            Status: .services[0].status,
+            Running: .services[0].runningCount,
+            Desired: .services[0].desiredCount,
+            Deployment: .services[0].deployments[0] | {
+              Status: .status,
+              Running: .runningCount,
+              Pending: .pendingCount,
+              Failed: .failedTasks
+            }
+          }'
           
           echo ""
           echo "Target group health:"
