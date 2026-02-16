@@ -39,8 +39,19 @@ async function fetchGithubUser(token: string) {
 }
 
 function buildRedirectUri(req: NextRequest) {
+  // Always prefer the environment variable if set
   const envRedirect = process.env.GITHUB_OAUTH_REDIRECT
   if (envRedirect) return envRedirect
+  
+  // Fallback: use the Host header (which should be the public domain via ALB)
+  const host = req.headers.get('host')
+  if (host) {
+    // Use https for production, http for localhost
+    const protocol = host.includes('localhost') ? 'http:' : 'https:'
+    return `${protocol}//${host}/api/auth/github/callback`
+  }
+  
+  // Last resort: use the request origin
   const origin = req.nextUrl.origin
   return `${origin}/api/auth/github/callback`
 }
