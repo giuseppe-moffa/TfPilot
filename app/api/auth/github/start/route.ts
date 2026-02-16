@@ -6,18 +6,27 @@ import { clearStateCookie, setStateCookie } from "@/lib/auth/session"
 function buildRedirectUri(req: NextRequest) {
   // Always prefer the environment variable if set
   const envRedirect = process.env.GITHUB_OAUTH_REDIRECT
-  if (envRedirect) return envRedirect
+  if (envRedirect) {
+    console.log('[auth/github/start] Using GITHUB_OAUTH_REDIRECT:', envRedirect)
+    return envRedirect
+  }
   
   // Fallback: use the Host header (which should be the public domain via ALB)
   const host = req.headers.get('host')
+  console.log('[auth/github/start] Host header:', host)
+  
   if (host && !host.includes('compute.internal') && !host.includes('localhost')) {
     // Use https for production
-    return `https://${host}/api/auth/github/callback`
+    const uri = `https://${host}/api/auth/github/callback`
+    console.log('[auth/github/start] Using Host header:', uri)
+    return uri
   }
   
-  // If Host header is internal/localhost, try to use the public domain from env or default
-  const publicDomain = process.env.NEXT_PUBLIC_DOMAIN || 'tfpilot.com'
-  return `https://${publicDomain}/api/auth/github/callback`
+  // If Host header is internal/localhost, use the hardcoded public domain
+  const publicDomain = 'tfpilot.com'
+  const uri = `https://${publicDomain}/api/auth/github/callback`
+  console.log('[auth/github/start] Using fallback domain:', uri)
+  return uri
 }
 
 export async function GET(req: NextRequest) {
@@ -28,6 +37,7 @@ export async function GET(req: NextRequest) {
 
   const state = randomBytes(16).toString("base64url")
   const redirectUri = buildRedirectUri(req)
+  console.log('[auth/github/start] Final redirect URI being sent to GitHub:', redirectUri)
   const scope = ["read:user", "repo"].join(" ")
 
   const params = new URLSearchParams({
@@ -38,6 +48,7 @@ export async function GET(req: NextRequest) {
   })
 
   const url = `https://github.com/login/oauth/authorize?${params.toString()}`
+  console.log('[auth/github/start] Redirecting to GitHub OAuth with redirect_uri:', redirectUri)
   const res = NextResponse.redirect(url)
   setStateCookie(res, state)
   // clear any stale session state cookie first to avoid buildup

@@ -41,18 +41,27 @@ async function fetchGithubUser(token: string) {
 function buildRedirectUri(req: NextRequest) {
   // Always prefer the environment variable if set
   const envRedirect = process.env.GITHUB_OAUTH_REDIRECT
-  if (envRedirect) return envRedirect
+  if (envRedirect) {
+    console.log('[auth/github/callback] Using GITHUB_OAUTH_REDIRECT:', envRedirect)
+    return envRedirect
+  }
   
   // Fallback: use the Host header (which should be the public domain via ALB)
   const host = req.headers.get('host')
+  console.log('[auth/github/callback] Host header:', host)
+  
   if (host && !host.includes('compute.internal') && !host.includes('localhost')) {
     // Use https for production
-    return `https://${host}/api/auth/github/callback`
+    const uri = `https://${host}/api/auth/github/callback`
+    console.log('[auth/github/callback] Using Host header:', uri)
+    return uri
   }
   
-  // If Host header is internal/localhost, try to use the public domain from env or default
-  const publicDomain = process.env.NEXT_PUBLIC_DOMAIN || 'tfpilot.com'
-  return `https://${publicDomain}/api/auth/github/callback`
+  // If Host header is internal/localhost, use the hardcoded public domain
+  const publicDomain = 'tfpilot.com'
+  const uri = `https://${publicDomain}/api/auth/github/callback`
+  console.log('[auth/github/callback] Using fallback domain:', uri)
+  return uri
 }
 
 export async function GET(req: NextRequest) {
@@ -67,6 +76,7 @@ export async function GET(req: NextRequest) {
 
   try {
     const redirectUri = buildRedirectUri(req)
+    console.log('[auth/github/callback] Using redirect URI for token exchange:', redirectUri)
     const token = await exchangeCodeForToken(code, redirectUri)
     const user = await fetchGithubUser(token)
 
