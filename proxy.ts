@@ -35,8 +35,13 @@ export function proxy(req: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  // For authenticated users, let the client-side page.tsx handle the redirect logic
-  // It will redirect to /login if no user, or /aws/connect or /requests based on connection status
+  // For root path, redirect authenticated users to /requests (client will handle AWS connection check)
+  if (pathname === "/") {
+    const url = req.nextUrl.clone()
+    url.pathname = "/requests"
+    return NextResponse.redirect(url)
+  }
+
   return NextResponse.next()
 }
 

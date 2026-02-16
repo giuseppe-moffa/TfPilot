@@ -11,13 +11,15 @@ export default function Home() {
   const { isConnected } = useAwsConnection()
 
   React.useEffect(() => {
+    // Middleware handles server-side redirects, but as a fallback:
     if (loading) return
     if (!user) {
       router.replace("/login")
       return
     }
-    router.replace(isConnected ? "/requests" : "/aws/connect")
-  }, [isConnected, router, user, loading])
+    // Redirect to /requests (which will handle AWS connection check via its own logic)
+    router.replace("/requests")
+  }, [router, user, loading])
 
   return null
 }
