@@ -3,6 +3,38 @@ import { NextRequest, NextResponse } from "next/server"
 import { getRequest, updateRequest } from "@/lib/storage/requestsStore"
 import { logLifecycleEvent } from "@/lib/logs/lifecycle"
 
+/**
+ * Validates a GitHub token by making a lightweight API call to verify it's valid
+ * Uses a timeout to prevent hanging if GitHub API is slow/unavailable
+ */
+async function validateGitHubToken(token: string): Promise<boolean> {
+  try {
+    // Use AbortController for timeout (5 seconds max)
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 5000)
+
+    const res = await fetch("https://api.github.com/user", {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/vnd.github+json",
+        "User-Agent": "TfPilot",
+      },
+      signal: controller.signal,
+    })
+    
+    clearTimeout(timeoutId)
+    // Token is valid if we get a 200 response
+    return res.ok
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      console.error("[api/requests/drift-result] Token validation timeout")
+    } else {
+      console.error("[api/requests/drift-result] Token validation error:", error)
+    }
+    return false
+  }
+}
+
 export async function POST(req: NextRequest, { params }: { params: Promise<{ requestId: string }> }) {
   try {
     const { requestId } = await params
@@ -17,11 +49,31 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
       return NextResponse.json({ error: "requestId required" }, { status: 400 })
     }
 
-    // Simple auth check - verify GitHub token in header (basic validation)
+    // Validate GitHub token - must be present and valid
     const authHeader = req.headers.get("authorization")
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      console.warn("[api/requests/drift-result] Missing or invalid Authorization header")
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
+
+    const token = authHeader.replace("Bearer ", "").trim()
+    if (!token) {
+      console.warn("[api/requests/drift-result] Empty token")
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    // Validate token with GitHub API
+    const isValidToken = await validateGitHubToken(token)
+    if (!isValidToken) {
+      const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || 
+                 req.headers.get("x-real-ip") || 
+                 "unknown"
+      console.warn(`[api/requests/drift-result] Invalid GitHub token from IP: ${ip}, requestId: ${requestId}`)
+      return NextResponse.json({ error: "Unauthorized: Invalid token" }, { status: 401 })
+    }
+
+    // Log successful authentication for security monitoring
+    console.log(`[api/requests/drift-result] Valid token, processing drift result for requestId: ${requestId}`)
 
     const request = await getRequest(requestId).catch(() => null)
     if (!request) {

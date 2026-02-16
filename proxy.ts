@@ -14,7 +14,22 @@ const PUBLIC_PATHS = [
 ]
 
 function isPublic(pathname: string) {
-  return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p))
+  // Check exact matches or prefix matches
+  if (PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p))) {
+    return true
+  }
+  
+  // Allow drift-eligible endpoint (for GitHub Actions)
+  if (pathname === "/api/requests/drift-eligible") {
+    return true
+  }
+  
+  // Allow drift-result endpoint (has Bearer token auth in route handler)
+  if (pathname.match(/^\/api\/requests\/[^/]+\/drift-result$/)) {
+    return true
+  }
+  
+  return false
 }
 
 export function proxy(req: NextRequest) {

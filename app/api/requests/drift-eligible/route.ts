@@ -2,8 +2,46 @@ import { NextRequest, NextResponse } from "next/server"
 
 import { listRequests } from "@/lib/storage/requestsStore"
 
-export async function GET(_req: NextRequest) {
+/**
+ * Basic rate limiting check - simple in-memory counter (for production, use Redis or similar)
+ * This is a basic protection against abuse
+ */
+const requestCounts = new Map<string, { count: number; resetAt: number }>()
+const RATE_LIMIT_WINDOW_MS = 60 * 1000 // 1 minute
+const RATE_LIMIT_MAX_REQUESTS = 30 // Max requests per minute per IP
+
+function checkRateLimit(ip: string): boolean {
+  const now = Date.now()
+  const record = requestCounts.get(ip)
+
+  if (!record || now > record.resetAt) {
+    requestCounts.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS })
+    return true
+  }
+
+  if (record.count >= RATE_LIMIT_MAX_REQUESTS) {
+    return false
+  }
+
+  record.count++
+  return true
+}
+
+export async function GET(req: NextRequest) {
   try {
+    // Basic rate limiting by IP
+    const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || 
+               req.headers.get("x-real-ip") || 
+               "unknown"
+    
+    if (!checkRateLimit(ip)) {
+      console.warn(`[api/requests/drift-eligible] Rate limit exceeded for IP: ${ip}`)
+      return NextResponse.json(
+        { success: false, error: "Rate limit exceeded" },
+        { status: 429 }
+      )
+    }
+
     // Get all requests (with higher limit for drift checking)
     const allRequests = await listRequests(500)
 
@@ -45,13 +83,19 @@ export async function GET(_req: NextRequest) {
     })
 
     // Return minimal metadata for workflow dispatch
+    // Only expose what's necessary - request ID, project, and environment
+    // targetOwner/targetRepo are only needed for workflow dispatch, but we can minimize exposure
     const result = eligible.map((request: any) => ({
       id: request.id,
       project: request.project,
       environment: request.environment,
-      targetOwner: request.targetOwner,
-      targetRepo: request.targetRepo,
+      // Only include targetOwner/targetRepo if they exist (needed for workflow dispatch)
+      ...(request.targetOwner && { targetOwner: request.targetOwner }),
+      ...(request.targetRepo && { targetRepo: request.targetRepo }),
     }))
+
+    // Log access for security monitoring (without sensitive data)
+    console.log(`[api/requests/drift-eligible] Returning ${result.length} eligible requests to IP: ${ip}`)
 
     return NextResponse.json({
       success: true,
