@@ -38,11 +38,15 @@ export function LoginClient() {
               Sign-in failed. Please try again.
             </div>
           )}
-          <Button asChild className="w-full gap-2">
-            <Link href="/api/auth/github/start" className="flex items-center justify-center gap-2">
-              <Github className="h-4 w-4" />
-              Continue with GitHub
-            </Link>
+          <Button 
+            className="w-full gap-2" 
+            onClick={() => {
+              // Force full page navigation to avoid RSC/CORS issues
+              window.location.href = '/api/auth/github/start'
+            }}
+          >
+            <Github className="h-4 w-4" />
+            Continue with GitHub
           </Button>
           <p className="text-xs text-muted-foreground">
             We request scopes: <code>read:user</code> and <code>repo</code> (for private repos). No
