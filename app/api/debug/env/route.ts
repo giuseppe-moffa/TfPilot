@@ -1,11 +1,15 @@
 import { NextResponse } from "next/server"
 
-import { env } from "@/lib/config/env"
+// Mark as dynamic to prevent build-time evaluation
+export const dynamic = 'force-dynamic'
 
 export async function GET() {
   if (process.env.NODE_ENV === "production") {
     return NextResponse.json({ error: "Not found" }, { status: 404 })
   }
+
+  // Import env lazily to avoid build-time errors
+  const { env } = await import("@/lib/config/env")
 
   return NextResponse.json({
     githubOwner: env.GITHUB_DEFAULT_OWNER,
