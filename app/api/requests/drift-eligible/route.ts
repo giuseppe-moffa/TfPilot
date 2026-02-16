@@ -27,9 +27,46 @@ function checkRateLimit(ip: string): boolean {
   return true
 }
 
+/**
+ * Validates the shared webhook secret for drift endpoints
+ * Uses constant-time comparison to prevent timing attacks
+ */
+function validateWebhookSecret(providedSecret: string | null): boolean {
+  const expectedSecret = process.env.TFPILOT_WEBHOOK_SECRET
+  if (!expectedSecret) {
+    console.error("[api/requests/drift-eligible] TFPILOT_WEBHOOK_SECRET not configured")
+    return false
+  }
+
+  if (!providedSecret) {
+    return false
+  }
+
+  // Constant-time comparison to prevent timing attacks
+  if (providedSecret.length !== expectedSecret.length) {
+    return false
+  }
+
+  let result = 0
+  for (let i = 0; i < expectedSecret.length; i++) {
+    result |= providedSecret.charCodeAt(i) ^ expectedSecret.charCodeAt(i)
+  }
+  return result === 0
+}
+
 export async function GET(req: NextRequest) {
   try {
-    // Basic rate limiting by IP
+    // Validate shared webhook secret
+    const providedSecret = req.headers.get("x-tfpilot-secret")
+    if (!validateWebhookSecret(providedSecret)) {
+      const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || 
+                 req.headers.get("x-real-ip") || 
+                 "unknown"
+      console.warn(`[api/requests/drift-eligible] Invalid webhook secret from IP: ${ip}`)
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    // Basic rate limiting by IP (additional protection)
     const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || 
                req.headers.get("x-real-ip") || 
                "unknown"
