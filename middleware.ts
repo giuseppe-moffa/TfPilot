@@ -17,7 +17,7 @@ function isPublic(pathname: string) {
   return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p))
 }
 
-export function proxy(req: NextRequest) {
+export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
 
   if (isPublic(pathname)) {
@@ -37,10 +37,6 @@ export function proxy(req: NextRequest) {
 
   // For authenticated users, let the client-side page.tsx handle the redirect logic
   // It will redirect to /login if no user, or /aws/connect or /requests based on connection status
-  if (pathname === "/") {
-    return NextResponse.next()
-  }
-
   return NextResponse.next()
 }
 
