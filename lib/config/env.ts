@@ -23,10 +23,21 @@ type Env = {
   TFPILOT_EMAIL_FROM: string
 }
 
+// Check if we're in Next.js build phase (when env vars aren't available)
+// During Docker build, these won't be set, so we provide placeholders
+const isBuildTime = !process.env.VERCEL && 
+                    !process.env.AWS_EXECUTION_ENV && 
+                    !process.env.ECS_CONTAINER_METADATA_URI &&
+                    process.env.NODE_ENV === 'production'
+
 function required(name: keyof Env, fallback?: string) {
   const val = process.env[name]
   if (val) return val
   if (fallback !== undefined) return fallback
+  // During build time, provide placeholder values (they'll be available at runtime via SSM)
+  if (isBuildTime) {
+    return `__BUILD_PLACEHOLDER_${name}__`
+  }
   throw new Error(`Missing ${name}`)
 }
 
