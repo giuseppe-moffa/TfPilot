@@ -14,6 +14,7 @@ env:
   ECR_REPOSITORY: tfpilot
   ECS_CLUSTER: tfpilot-cluster
   ECS_SERVICE: tfpilot-service
+  ECS_TASK_FAMILY: tfpilot
   CONTAINER_NAME: tfpilot
 
 permissions:
@@ -82,14 +83,14 @@ jobs:
         id: task-def
         run: |
           TASK_DEF=$(aws ecs describe-task-definition \
-            --task-definition ${{ env.ECS_SERVICE }} \
+            --task-definition ${{ env.ECS_TASK_FAMILY }} \
             --region ${{ env.AWS_REGION }} \
             --query 'taskDefinition' \
             --output json)
           
           NEW_TASK_DEF=$(echo $TASK_DEF | \
             jq --arg IMAGE "${{ steps.ecr-repo.outputs.repository_uri }}:${{ steps.image-tag.outputs.tag }}" \
-            '.containerDefinitions[0].image = $IMAGE | .containerDefinitions[0].name = "${{ env.CONTAINER_NAME }}"')
+            '.containerDefinitions[0].image = $IMAGE | .containerDefinitions[0].name = "${{ env.CONTAINER_NAME }}" | del(.taskDefinitionArn) | del(.revision) | del(.status) | del(.requiresAttributes) | del(.compatibilities) | del(.registeredAt) | del(.registeredBy)')
           
           echo "$NEW_TASK_DEF" > task-definition.json
           echo "Updated task definition with image: ${{ steps.ecr-repo.outputs.repository_uri }}:${{ steps.image-tag.outputs.tag }}"
@@ -102,10 +103,17 @@ jobs:
 
       - name: Deploy to ECS
         run: |
+          # Get the latest task definition revision
+          TASK_DEF_ARN=$(aws ecs describe-task-definition \
+            --task-definition ${{ env.ECS_TASK_FAMILY }} \
+            --region ${{ env.AWS_REGION }} \
+            --query 'taskDefinition.taskDefinitionArn' \
+            --output text)
+          
           aws ecs update-service \
             --cluster ${{ env.ECS_CLUSTER }} \
             --service ${{ env.ECS_SERVICE }} \
-            --task-definition ${{ env.ECS_SERVICE }} \
+            --task-definition $TASK_DEF_ARN \
             --force-new-deployment \
             --region ${{ env.AWS_REGION }} \
             --query 'service.{ServiceName:serviceName,Status:status,DesiredCount:desiredCount,RunningCount:runningCount}' \
