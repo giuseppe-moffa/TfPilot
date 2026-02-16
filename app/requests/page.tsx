@@ -29,6 +29,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Badge } from "@/components/ui/badge"
 import { Eye, Search } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useAwsConnection } from "../providers"
@@ -44,6 +45,13 @@ type RequestRow = {
   pullRequest?: { status?: string }
   createdAt?: string
   config?: Record<string, unknown>
+  drift?: {
+    status?: "none" | "detected"
+    lastCheckedAt?: string
+    runId?: number
+    runUrl?: string
+    summary?: string
+  }
 }
 
 type DisplayStatus = "submitted" | "planned" | "approved" | "merged" | "applied" | "destroyed"
@@ -126,6 +134,7 @@ export default function RequestsPage() {
   const [envFilter, setEnvFilter] = React.useState<"all" | "dev" | "prod">("all")
   const [moduleFilter, setModuleFilter] = React.useState<string>("all")
   const [projectFilter, setProjectFilter] = React.useState<string>("all")
+  const [driftFilter, setDriftFilter] = React.useState<boolean>(false)
   const { isConnected } = useAwsConnection()
 
   React.useEffect(() => {
@@ -141,6 +150,7 @@ export default function RequestsPage() {
         createdAt: r.receivedAt,
         config: r.config,
         pullRequest: r.pullRequest,
+        drift: r.drift,
       })) ?? []
     setRequests(rows)
   }, [data])
@@ -175,6 +185,7 @@ export default function RequestsPage() {
       if (envFilter !== "all" && row.environment?.toLowerCase() !== envFilter) return false
       if (moduleFilter !== "all" && row.module !== moduleFilter) return false
       if (projectFilter !== "all" && row.project !== projectFilter) return false
+      if (driftFilter && row.drift?.status !== "detected") return false
 
       if (!term) return true
       const haystack = [
@@ -196,7 +207,7 @@ export default function RequestsPage() {
       const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0
       return bTime - aTime
     })
-  }, [requests, statusFilter, envFilter, moduleFilter, projectFilter, searchTerm])
+  }, [requests, statusFilter, envFilter, moduleFilter, projectFilter, searchTerm, driftFilter])
 
   const showEmpty = !isInitialLoading && filteredRequests.length === 0
   const isLoading = isInitialLoading
@@ -278,6 +289,13 @@ export default function RequestsPage() {
               </SelectContent>
             </Select>
             <Button
+              variant={driftFilter ? "default" : "outline"}
+              className="h-9 px-4 cursor-pointer"
+              onClick={() => setDriftFilter(!driftFilter)}
+            >
+              Show drifted only
+            </Button>
+            <Button
               variant="secondary"
               className="h-9 px-4 cursor-pointer"
               onClick={() => {
@@ -286,6 +304,7 @@ export default function RequestsPage() {
                 setEnvFilter("all")
                 setModuleFilter("all")
                 setProjectFilter("all")
+                setDriftFilter(false)
               }}
             >
               Clear filters
@@ -342,7 +361,14 @@ export default function RequestsPage() {
                       {item.environment}
                     </TableCell>
                     <TableCell className="text-sm text-foreground whitespace-normal break-words leading-tight">
-                      {computeStatus(item).subtitle}
+                      <div className="flex items-center gap-2">
+                        <span>{computeStatus(item).subtitle}</span>
+                        {item.drift?.status === "detected" && (
+                          <Badge variant="destructive" className="text-xs">
+                            Drift
+                          </Badge>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell className="text-muted-foreground whitespace-normal break-words leading-tight">
                       {formatTimestamp(item.createdAt)}

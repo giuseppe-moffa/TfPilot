@@ -8,6 +8,9 @@
 		},
 		{
 			"path": "../../../../payments-terraform"
+		},
+		{
+			"path": "../../../../tfpilot-terraform"
 		}
 	],
 	"settings": {}

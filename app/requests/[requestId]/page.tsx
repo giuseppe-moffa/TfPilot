@@ -772,11 +772,48 @@ function RequestDetailPage() {
     )
   }
 
+  const hasDrift = request.drift?.status === "detected"
+
   return (
     <div
       className="space-y-6 transition-[margin-right]"
       style={{ marginRight: assistantOpen ? drawerWidth : 0 }}
     >
+      {hasDrift && (
+        <Card className="border-destructive bg-destructive/10">
+          <CardContent className="pt-6">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-2">
+                  <Badge variant="destructive">Drift Detected</Badge>
+                  {request.drift?.lastCheckedAt && (
+                    <span className="text-xs text-muted-foreground">
+                      Last checked: {new Date(request.drift.lastCheckedAt).toLocaleString()}
+                    </span>
+                  )}
+                </div>
+                <p className="text-sm text-foreground mb-2">
+                  Infrastructure drift has been detected. Review the plan to see what has changed.
+                </p>
+                {request.drift?.summary && (
+                  <p className="text-xs text-muted-foreground mb-2">{request.drift.summary}</p>
+                )}
+                {request.drift?.runUrl && (
+                  <a
+                    href={request.drift.runUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
+                  >
+                    <LinkIcon className="size-4" />
+                    View drift plan run
+                  </a>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
       <div className="grid gap-6 md:grid-cols-2">
         <Card>
           <CardHeader className="border-b">

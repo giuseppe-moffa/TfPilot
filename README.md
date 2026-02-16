@@ -1,5 +1,7 @@
 ## TfPilot
 
+![Deploy Status](https://github.com/giuseppe-moffa/TfPilot/actions/workflows/deploy.yml/badge.svg)
+
 Terraform self-service platform (Next.js + API) with S3-backed state, GitHub Actions for plan/apply/destroy/cleanup, and an AI-powered assistant for request creation and updates.
 
 ### Architecture
@@ -25,6 +27,8 @@ Terraform self-service platform (Next.js + API) with S3-backed state, GitHub Act
 - **Apply**: Requires merged PR; prod-guarded; records runId/url/status/conclusion back to request. Uses same concurrency controls as plan.
 - **Destroy**: Runs cleanup PR workflow first, then destroy; prod-guarded. Archives request to `history/` after successful destroy.
 - **Cleanup**: Strips only the TfPilot module block; branch `cleanup/{requestId}`; can auto-merge in dev. Required before destroy to remove Terraform block.
+- **Drift-Plan**: Runs terraform plan on base branch to detect infrastructure drift (dev-only). Scheduled nightly via drift-check workflow. Reports drift status back to TfPilot API.
+- **Drift-Check**: Scheduled workflow (2 AM daily) that enumerates eligible dev requests and dispatches drift-plan workflows per request.
 
 ### Environment (see `env.example`)
 - Buckets/region: `TFPILOT_REQUESTS_BUCKET`, `TFPILOT_CHAT_LOGS_BUCKET`, `TFPILOT_DEFAULT_REGION`
@@ -56,5 +60,5 @@ Ensure env vars above are set (buckets/region, workflow filenames, session secre
 - **Integration**: Assistant helper component in UI provides chat interface; suggestion panel displays patches and clarifications; form-based UI allows direct input with assistant guidance.
 
 ### Observability
-- **Current**: UI polling (SWR) for list and per-request sync; statuses surfaced for plan/apply/destroy; cleanup PR displayed. Lifecycle events logged to S3 (JSON format) for plan/approve/merge/apply/destroy/cleanup/configuration_updated events. Request detail pages show timeline of events. Downloadable audit logs (JSON export) for compliance and troubleshooting. Admin email notifications (AWS SES) for apply/destroy/plan success and failure events.
-- **Gaps/TODO**: Slack notifications; summary/metrics/health endpoints; drift detection; cost estimation.
+- **Current**: UI polling (SWR) for list and per-request sync; statuses surfaced for plan/apply/destroy; cleanup PR displayed. Lifecycle events logged to S3 (JSON format) for plan/approve/merge/apply/destroy/cleanup/configuration_updated events. Request detail pages show timeline of events. Downloadable audit logs (JSON export) for compliance and troubleshooting. Admin email notifications (AWS SES) for apply/destroy/plan success and failure events. Passive drift detection (dev-only): nightly terraform plans for successfully applied requests detect infrastructure drift; drift status surfaced in UI with plan run links.
+- **Gaps/TODO**: Slack notifications; summary/metrics/health endpoints; cost estimation.
