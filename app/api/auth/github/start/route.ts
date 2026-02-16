@@ -10,15 +10,14 @@ function buildRedirectUri(req: NextRequest) {
   
   // Fallback: use the Host header (which should be the public domain via ALB)
   const host = req.headers.get('host')
-  if (host) {
-    // Use https for production, http for localhost
-    const protocol = host.includes('localhost') ? 'http:' : 'https:'
-    return `${protocol}//${host}/api/auth/github/callback`
+  if (host && !host.includes('compute.internal') && !host.includes('localhost')) {
+    // Use https for production
+    return `https://${host}/api/auth/github/callback`
   }
   
-  // Last resort: use the request origin
-  const origin = req.nextUrl.origin
-  return `${origin}/api/auth/github/callback`
+  // If Host header is internal/localhost, try to use the public domain from env or default
+  const publicDomain = process.env.NEXT_PUBLIC_DOMAIN || 'tfpilot.com'
+  return `https://${publicDomain}/api/auth/github/callback`
 }
 
 export async function GET(req: NextRequest) {
