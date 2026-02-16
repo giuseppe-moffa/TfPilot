@@ -39,28 +39,20 @@ async function fetchGithubUser(token: string) {
 }
 
 function buildRedirectUri(req: NextRequest) {
-  // Always prefer the environment variable if set
+  // ALWAYS use the hardcoded public domain to avoid any hostname issues
+  // The environment variable should be set, but we'll use a hardcoded fallback
   const envRedirect = process.env.GITHUB_OAUTH_REDIRECT
-  if (envRedirect) {
+  if (envRedirect && envRedirect.includes('tfpilot.com')) {
     console.log('[auth/github/callback] Using GITHUB_OAUTH_REDIRECT:', envRedirect)
     return envRedirect
   }
   
-  // Fallback: use the Host header (which should be the public domain via ALB)
-  const host = req.headers.get('host')
-  console.log('[auth/github/callback] Host header:', host)
-  
-  if (host && !host.includes('compute.internal') && !host.includes('localhost')) {
-    // Use https for production
-    const uri = `https://${host}/api/auth/github/callback`
-    console.log('[auth/github/callback] Using Host header:', uri)
-    return uri
-  }
-  
-  // If Host header is internal/localhost, use the hardcoded public domain
+  // Always use the public domain - never trust the Host header in production
   const publicDomain = 'tfpilot.com'
   const uri = `https://${publicDomain}/api/auth/github/callback`
-  console.log('[auth/github/callback] Using fallback domain:', uri)
+  console.log('[auth/github/callback] Using hardcoded public domain:', uri)
+  console.log('[auth/github/callback] Host header was:', req.headers.get('host'))
+  console.log('[auth/github/callback] GITHUB_OAUTH_REDIRECT env var:', envRedirect || 'NOT_SET')
   return uri
 }
 
