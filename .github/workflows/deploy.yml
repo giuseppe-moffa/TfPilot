@@ -119,6 +119,33 @@ jobs:
             --query 'service.{ServiceName:serviceName,Status:status,DesiredCount:desiredCount,RunningCount:runningCount}' \
             --output table
 
+      - name: Check service status before wait
+        run: |
+          echo "Current service status:"
+          aws ecs describe-services \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --services ${{ env.ECS_SERVICE }} \
+            --region ${{ env.AWS_REGION }} \
+            --query 'services[0].{Status:status,Running:runningCount,Desired:desiredCount,Deployments:deployments[0].{Status:status,Running:runningCount,Pending:pendingCount,Failed:failedTasks}}}' \
+            --output json | jq '.'
+          
+          echo ""
+          echo "Target group health:"
+          TARGET_GROUP_ARN=$(aws elbv2 describe-target-groups \
+            --names tfpilot-tg \
+            --region ${{ env.AWS_REGION }} \
+            --query 'TargetGroups[0].TargetGroupArn' \
+            --output text 2>/dev/null || echo "")
+          if [ -n "$TARGET_GROUP_ARN" ]; then
+            aws elbv2 describe-target-health \
+              --target-group-arn $TARGET_GROUP_ARN \
+              --region ${{ env.AWS_REGION }} \
+              --query 'TargetHealthDescriptions[].[Target.Id,TargetHealth.State,TargetHealth.Reason]' \
+              --output table || echo "No targets registered yet"
+          else
+            echo "Could not find target group"
+          fi
+
       - name: Wait for service stability
         timeout-minutes: 10
         run: |
@@ -126,7 +153,16 @@ jobs:
           aws ecs wait services-stable \
             --cluster ${{ env.ECS_CLUSTER }} \
             --services ${{ env.ECS_SERVICE }} \
-            --region ${{ env.AWS_REGION }}
+            --region ${{ env.AWS_REGION }} || {
+            echo "Service did not stabilize. Checking status..."
+            aws ecs describe-services \
+              --cluster ${{ env.ECS_CLUSTER }} \
+              --services ${{ env.ECS_SERVICE }} \
+              --region ${{ env.AWS_REGION }} \
+              --query 'services[0].{Events:events[0:5]}' \
+              --output json | jq '.'
+            exit 1
+          }
           echo "Service is stable!"
 
       - name: Verify deployment
