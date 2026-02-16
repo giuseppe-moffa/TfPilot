@@ -126,8 +126,7 @@ jobs:
           aws ecs wait services-stable \
             --cluster ${{ env.ECS_CLUSTER }} \
             --services ${{ env.ECS_SERVICE }} \
-            --region ${{ env.AWS_REGION }} \
-            --max-attempts 40
+            --region ${{ env.AWS_REGION }}
           echo "Service is stable!"
 
       - name: Verify deployment
