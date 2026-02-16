@@ -4,12 +4,15 @@
 
 Terraform self-service platform (Next.js + API) with S3-backed state, GitHub Actions for plan/apply/destroy/cleanup, and an AI-powered assistant for request creation and updates.
 
+**Production URL:** [https://tfpilot.com](https://tfpilot.com)
+
 ### Architecture
-- Storage: Requests persisted in S3 (`requests/`), optimistic locking via `version`; destroyed requests archived to `history/`. Assistant state (clarifications, suggestions, patches) stored in request JSON. Lifecycle events logged to S3. Chat logs stored in S3 bucket (e.g., `tfpilot-chat-logs`) with SSE-S3.
-- Auth/RBAC: Session cookie validation in middleware; prod actions (create/approve/merge/apply/destroy/cleanup dispatch) gated by `TFPILOT_PROD_ALLOWED_USERS` allow-list. Role-based access (viewer/developer/approver/admin) enforced on critical routes.
-- GitHub: Workflows for plan/apply/destroy/cleanup dispatched with shared concurrency per project+env+request and OIDC. Cleanup strips only the TfPilot block before destroy. Updates create new PRs and supersede previous ones.
-- UI: Form-based request creation with assistant drawer; requests table with filters (status/env/module/project/search); detail pages with timeline, suggestions panel, clarifications, actions (approve/merge/apply/destroy), apply/destroy dialogs, and cleanup PR info. SWR polling for freshness and optimistic updates on critical actions.
-- AI Assistant: Schema-driven assistant that guides users through module inputs, provides suggestions (patches), asks clarifications (text/choice/boolean), and helps refine configurations. Assistant state persisted in requests with hash-based validation to prevent stale suggestions.
+- **Hosting:** AWS ECS Fargate behind Application Load Balancer (ALB) with HTTPS, deployed via GitHub Actions CI/CD. Infrastructure managed in [tfpilot-terraform](https://github.com/giuseppe-moffa/tfpilot-terraform) repository.
+- **Storage:** Requests persisted in S3 (`requests/`), optimistic locking via `version`; destroyed requests archived to `history/`. Assistant state (clarifications, suggestions, patches) stored in request JSON. Lifecycle events logged to S3. Chat logs stored in S3 bucket (e.g., `tfpilot-chat-logs`) with SSE-S3.
+- **Auth/RBAC:** Session cookie validation in middleware; prod actions (create/approve/merge/apply/destroy/cleanup dispatch) gated by `TFPILOT_PROD_ALLOWED_USERS` allow-list. Role-based access (viewer/developer/approver/admin) enforced on critical routes. GitHub OAuth for authentication.
+- **GitHub:** Workflows for plan/apply/destroy/cleanup dispatched with shared concurrency per project+env+request and OIDC. Cleanup strips only the TfPilot block before destroy. Updates create new PRs and supersede previous ones.
+- **UI:** Form-based request creation with assistant drawer; requests table with filters (status/env/module/project/search); detail pages with timeline, suggestions panel, clarifications, actions (approve/merge/apply/destroy), apply/destroy dialogs, and cleanup PR info. SWR polling for freshness and optimistic updates on critical actions.
+- **AI Assistant:** Schema-driven assistant that guides users through module inputs, provides suggestions (patches), asks clarifications (text/choice/boolean), and helps refine configurations. Assistant state persisted in requests with hash-based validation to prevent stale suggestions.
 
 ### Request lifecycle
 1) **Create**: User selects project/environment/module → fills form or chats with assistant → submits → request created, Terraform generated, PR opened, plan workflow dispatched.
@@ -38,12 +41,33 @@ Terraform self-service platform (Next.js + API) with S3-backed state, GitHub Act
 - Workflows: `GITHUB_PLAN_WORKFLOW_FILE`, `GITHUB_APPLY_WORKFLOW_FILE`, `GITHUB_DESTROY_WORKFLOW_FILE`, `GITHUB_CLEANUP_WORKFLOW_FILE`
 - Auth: Session secret, GitHub app/OAuth variables for token exchange
 
+### Deployment
+
+The application is automatically deployed to AWS ECS Fargate via GitHub Actions on every push to the `main` branch. The deployment workflow:
+
+1. Builds a Docker image using a multi-stage build
+2. Pushes the image to Amazon ECR
+3. Creates a new ECS task definition revision
+4. Updates the ECS service to use the new image
+5. Waits for the service to stabilize
+
+**Infrastructure:** The AWS infrastructure (VPC, ECS, ALB, Route53, etc.) is managed separately in the [tfpilot-terraform](https://github.com/giuseppe-moffa/tfpilot-terraform) repository. See that repository's README for infrastructure setup and management.
+
+**Manual Deployment:** If needed, you can manually trigger a deployment by:
+1. Pushing to the `main` branch, or
+2. Using the "Run workflow" button in the GitHub Actions UI
+
 ### Running locally
 ```bash
 npm install
 npm run dev
 ```
-Ensure env vars above are set (buckets/region, workflow filenames, session secret, allow-list).
+Ensure env vars above are set (buckets/region, workflow filenames, session secret, allow-list). See `env.example` for required variables.
+
+**Note:** For local development, you'll need:
+- AWS credentials configured (for S3 access)
+- GitHub OAuth app credentials
+- OpenAI API key (if using the AI assistant)
 
 ### Security & guardrails
 - Session validation on all APIs; prod allow-list on approve/merge/apply/destroy/cleanup dispatch.
