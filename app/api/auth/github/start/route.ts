@@ -22,10 +22,19 @@ function buildRedirectUri(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
+  console.log('[auth/github/start] ===== OAuth Start Request =====')
+  console.log('[auth/github/start] Request URL:', req.url)
+  console.log('[auth/github/start] Request origin:', req.nextUrl.origin)
+  console.log('[auth/github/start] Host header:', req.headers.get('host'))
+  console.log('[auth/github/start] X-Forwarded-Host:', req.headers.get('x-forwarded-host'))
+  console.log('[auth/github/start] X-Forwarded-Proto:', req.headers.get('x-forwarded-proto'))
+  
   const clientId = process.env.GITHUB_CLIENT_ID
   if (!clientId) {
+    console.error('[auth/github/start] ERROR: Missing GITHUB_CLIENT_ID')
     return NextResponse.json({ error: "Missing GitHub client configuration" }, { status: 500 })
   }
+  console.log('[auth/github/start] GITHUB_CLIENT_ID:', clientId ? 'SET' : 'NOT_SET')
 
   const state = randomBytes(16).toString("base64url")
   const redirectUri = buildRedirectUri(req)
@@ -40,7 +49,11 @@ export async function GET(req: NextRequest) {
   })
 
   const url = `https://github.com/login/oauth/authorize?${params.toString()}`
-  console.log('[auth/github/start] Redirecting to GitHub OAuth with redirect_uri:', redirectUri)
+  console.log('[auth/github/start] Full GitHub OAuth URL:', url.replace(clientId, 'CLIENT_ID_REDACTED'))
+  console.log('[auth/github/start] Redirect URI in params:', redirectUri)
+  console.log('[auth/github/start] State:', state)
+  console.log('[auth/github/start] ===== Redirecting to GitHub =====')
+  
   const res = NextResponse.redirect(url)
   setStateCookie(res, state)
   // clear any stale session state cookie first to avoid buildup

@@ -41,8 +41,12 @@ export function LoginClient() {
           <Button 
             className="w-full gap-2" 
             onClick={() => {
+              console.log('[LoginClient] OAuth button clicked')
+              console.log('[LoginClient] Current location:', window.location.href)
               // Force full page navigation to avoid RSC/CORS issues
-              window.location.href = '/api/auth/github/start'
+              const oauthUrl = '/api/auth/github/start'
+              console.log('[LoginClient] Navigating to:', oauthUrl)
+              window.location.href = oauthUrl
             }}
           >
             <Github className="h-4 w-4" />
