@@ -69,20 +69,16 @@ async function fetchGithubUser(token: string) {
 }
 
 function buildRedirectUri(req: NextRequest) {
-  // ALWAYS use the hardcoded public domain to avoid any hostname issues
-  // The environment variable should be set, but we'll use a hardcoded fallback
+  // Use env so local dev and prod can each set their callback (must match start route).
   const envRedirect = process.env.GITHUB_OAUTH_REDIRECT
-  if (envRedirect && envRedirect.includes('tfpilot.com')) {
+  if (envRedirect) {
     console.log('[auth/github/callback] Using GITHUB_OAUTH_REDIRECT:', envRedirect)
     return envRedirect
   }
-  
-  // Always use the public domain - never trust the Host header in production
+  // Fallback: public domain (never trust Host header in production)
   const publicDomain = 'tfpilot.com'
   const uri = `https://${publicDomain}/api/auth/github/callback`
   console.log('[auth/github/callback] Using hardcoded public domain:', uri)
-  console.log('[auth/github/callback] Host header was:', req.headers.get('host'))
-  console.log('[auth/github/callback] GITHUB_OAUTH_REDIRECT env var:', envRedirect || 'NOT_SET')
   return uri
 }
 
@@ -123,8 +119,11 @@ export async function GET(req: NextRequest) {
     console.log('[auth/github/callback] User fetched:', user.login)
     console.log('[auth/github/callback] Creating session and redirecting to /requests')
 
-    // Build redirect URL using the public domain, not the request URL (which might be internal)
-    const redirectUrl = new URL("/requests", "https://tfpilot.com")
+    // Redirect back to same origin (localhost for dev, tfpilot.com for prod)
+    const baseUrl = process.env.GITHUB_OAUTH_REDIRECT
+      ? new URL(process.env.GITHUB_OAUTH_REDIRECT).origin
+      : "https://tfpilot.com"
+    const redirectUrl = new URL("/requests", baseUrl)
     console.log('[auth/github/callback] Redirecting to:', redirectUrl.toString())
     console.log('[auth/github/callback] Request URL was:', req.url)
     const res = NextResponse.redirect(redirectUrl)

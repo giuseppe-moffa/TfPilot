@@ -1,14 +1,14 @@
 Overview
 
-tfplan provides an internal platform for managing infrastructure requests. The design adopts a minimal, Vercel-like aesthetic with neutral tones and clear spacing. All pages use a centered container (max-w-4xl or max-w-7xl) for content, with a light background and subtle borders/shadows on cards. Use shadcn/ui components (Cards, Forms, Tables, etc.) to build layouts.
+tfplan provides an internal platform for managing infrastructure requests. The design adopts a minimal, Vercel-like aesthetic with neutral tones and clear spacing. All pages use a centered container (max-w-4xl or max-w-7xl) for content. **Use background colors to separate sections, inputs, table rows/columns, and cards—not border colors.** This applies in both light and dark modes: rely on `bg-muted`, `bg-card`, `bg-muted/50`, etc. for visual separation. Use shadcn/ui components (Cards, Forms, Tables, etc.) to build layouts.
 
 Navigation & Layout
 
-Main Nav: A simple top navigation bar with the tfplan logo on the left and key links (e.g. Environments, Requests, Modules, AWS Connect) on the right. Use a <nav> with horizontal <Button> or <Link> items.
+Main Nav: A simple top navigation bar with the tfplan logo on the left and key links (e.g. Environments, Requests, Modules, AWS Connect) on the right. Use a <nav> with horizontal <Button> or <Link> items. Use the same background as cards for consistency: `bg-card` with optional `backdrop-blur`—no border or box shadow.
 
 Global Container: All pages use <main class="min-h-screen p-8"> and a centered inner <div class="max-w-4xl mx-auto"> (or max-w-7xl for wider views) for content.
 
-Sections: Pages are divided into vertical sections (header/title, content body). Use space-y-6 or similar Tailwind spacing between sections. Headings use text-2xl font-bold (as in the Vercel example) and subheaders text-lg font-semibold. Secondary text (e.g. descriptions) uses a muted color (text-gray-600 or text-muted-foreground).
+Sections: Pages are divided into vertical sections (header/title, content body). Separate section headers from content using background contrast (e.g. header `bg-muted/40`, content on `bg-card` or default). Use space-y-6 or similar Tailwind spacing between sections. Headings use text-2xl font-bold (as in the Vercel example) and subheaders text-lg font-semibold. Secondary text (e.g. descriptions) uses a muted color (text-gray-600 or text-muted-foreground).
 
 New Infra Request (/requests/new)
 
@@ -40,7 +40,7 @@ Configuration Summary: Show the chosen project, environment, and module with con
 
 Status Timeline: A vertical timeline showing stages: Requested → Planning → (Awaiting Approval →) Applying → Done. Each step is a row with an icon on the left (e.g. clock or checkmark) and a description on the right.
 
-Use a <Separator> or border between steps.
+Use background or spacing to separate steps (e.g. each step in a subtle bg-muted/30 block), not borders.
 
 Completed steps show a green check icon; pending steps show a spinner or gray circle.
 
@@ -95,7 +95,7 @@ Feedback: <Button> for actions, <Spinner> or animated <div> for loading states.
 
 Icons: Utilize Lucide or Radix icons (e.g. <Icons.Wrench> for modules, <Icons.Cloud> for AWS). Ensure icon sizes are uniform (e.g. w-5 h-5).
 
-Colors: Stick to a neutral palette. Use Tailwind’s gray scale for backgrounds/borders. Highlight important statuses in color (green for success, red for errors). Ensure text meets contrast guidelines.
+Colors: Stick to a neutral palette. Use background colors (e.g. muted, card, muted/50) to separate sections, inputs, and table rows—avoid border colors for separation in both light and dark modes. Highlight important statuses in color (green for success, red for errors). Ensure text meets contrast guidelines.
 
 Design Guidelines
 
@@ -103,11 +103,11 @@ Spacing: Use consistent padding and margins. e.g. page p-8, cards p-6. Between l
 
 Typography: Follow a clear hierarchy. Headings: text-2xl or text-xl (bold). Body text: text-base or text-sm. Muted text: text-gray-600. Align text left.
 
-Colors & Theme: Light theme with white or very light gray backgrounds. Based on minimalism trend, avoid bright colors. Use one accent color for primary buttons (e.g. blue).
+Colors & Theme: Support both light and dark modes. Use background colors to create separation: light theme with white or very light gray (e.g. bg-background, bg-muted/50 for inputs and headers); dark theme with dark surfaces (e.g. bg-muted/40 for inputs). No border-based separation—use bg only. Use one accent color for primary buttons (e.g. blue).
 
 Responsive Behavior: On small screens, collapse multi-column layouts into single column. Navigation may become a hamburger menu or vertical list. Ensure touch targets (buttons, links) are at least 44px high.
 
-Empty & Error States: Provide illustrative icons or subtle illustrations for empty states. Error messages should use a red alert banner. For example, use bg-red-50 border-red-200 for an error card.
+Empty & Error States: Provide illustrative icons or subtle illustrations for empty states. Error messages should use a red alert banner (e.g. bg-red-50 dark:bg-red-950/40, no borders).
 
 Example Project Structure (for reference)
 infraforge-ui/

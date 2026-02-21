@@ -5,19 +5,13 @@ import useSWR from "swr"
 import Link from "next/link"
 
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardAction,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+import { Card } from "@/components/ui/card"
 import {
   Table,
   TableBody,
   TableCell,
   TableHead,
+  TableHeadSortable,
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
@@ -30,6 +24,13 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
+import { StatusIndicator } from "@/components/status-indicator"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { Eye, Search } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useAwsConnection } from "../providers"
@@ -91,13 +92,10 @@ function computeStatus(row: RequestRow): {
 
 function formatTimestamp(iso?: string) {
   if (!iso) return "—"
-  return new Date(iso).toLocaleString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  })
+  const d = new Date(iso)
+  const date = d.toLocaleDateString(undefined, { day: "numeric", month: "short" })
+  const time = d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })
+  return `${date} · ${time}`
 }
 
 function SkeletonRow() {
@@ -129,13 +127,22 @@ export default function RequestsPage() {
   const isValidating = (swr as any).isValidating ?? false
 
   const [requests, setRequests] = React.useState<RequestRow[]>([])
-  const [statusFilter, setStatusFilter] = React.useState<"active" | "destroyed" | "all">("active")
+  type DatasetMode = "active" | "drifted" | "destroyed" | "all"
+  const [datasetMode, setDatasetMode] = React.useState<DatasetMode>("active")
   const [searchTerm, setSearchTerm] = React.useState("")
   const [envFilter, setEnvFilter] = React.useState<"all" | "dev" | "prod">("all")
   const [moduleFilter, setModuleFilter] = React.useState<string>("all")
   const [projectFilter, setProjectFilter] = React.useState<string>("all")
-  const [driftFilter, setDriftFilter] = React.useState<boolean>(false)
+  const [sortKey, setSortKey] = React.useState<"id" | "project" | "module" | "service" | "environment" | "status" | "createdAt">("createdAt")
+  const [sortDirection, setSortDirection] = React.useState<"asc" | "desc">("desc")
   const { isConnected } = useAwsConnection()
+
+  const handleSort = React.useCallback((key: typeof sortKey) => {
+    setSortKey(key)
+    setSortDirection((d) => (sortKey === key ? (d === "asc" ? "desc" : "asc") : "desc"))
+  }, [sortKey])
+
+  const sortDir = (key: typeof sortKey) => (sortKey === key ? sortDirection : null)
 
   React.useEffect(() => {
     const rows =
@@ -179,13 +186,13 @@ export default function RequestsPage() {
     const filtered = requests.filter((row) => {
       const status = row.status
       const isDestroyed = status === "destroyed" || status === "destroying"
-      if (statusFilter === "destroyed" && !isDestroyed) return false
-      if (statusFilter === "active" && isDestroyed) return false
+      if (datasetMode === "destroyed" && !isDestroyed) return false
+      if (datasetMode === "active" && isDestroyed) return false
+      if (datasetMode === "drifted" && row.drift?.status !== "detected") return false
 
       if (envFilter !== "all" && row.environment?.toLowerCase() !== envFilter) return false
       if (moduleFilter !== "all" && row.module !== moduleFilter) return false
       if (projectFilter !== "all" && row.project !== projectFilter) return false
-      if (driftFilter && row.drift?.status !== "detected") return false
 
       if (!term) return true
       const haystack = [
@@ -202,53 +209,85 @@ export default function RequestsPage() {
       return haystack.includes(term)
     })
 
+    const dir = sortDirection === "asc" ? 1 : -1
     return filtered.sort((a, b) => {
-      const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0
-      const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0
-      return bTime - aTime
+      switch (sortKey) {
+        case "id":
+          return dir * (a.id ?? "").localeCompare(b.id ?? "")
+        case "project":
+          return dir * (a.project ?? "").localeCompare(b.project ?? "")
+        case "module":
+          return dir * (a.module ?? "N/A").localeCompare(b.module ?? "N/A")
+        case "service":
+          return dir * (a.service ?? "N/A").localeCompare(b.service ?? "N/A")
+        case "environment":
+          return dir * (a.environment ?? "").localeCompare(b.environment ?? "")
+        case "status":
+          return dir * computeStatus(a).subtitle.localeCompare(computeStatus(b).subtitle)
+        case "createdAt": {
+          const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0
+          const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0
+          return dir * (aTime - bTime)
+        }
+        default:
+          return 0
+      }
     })
-  }, [requests, statusFilter, envFilter, moduleFilter, projectFilter, searchTerm, driftFilter])
+  }, [requests, datasetMode, envFilter, moduleFilter, projectFilter, searchTerm, sortKey, sortDirection])
 
   const showEmpty = !isInitialLoading && filteredRequests.length === 0
   const isLoading = isInitialLoading
   return (
     <div className="space-y-4">
-      <Card>
-        <CardHeader className="border-b">
-          <CardTitle className="text-xl font-semibold">Requests</CardTitle>
-          <CardDescription>
-            Track infrastructure requests and their latest status
-          </CardDescription>
-          <CardAction>
-            <Button asChild className="cursor-pointer">
-              <Link href="/requests/new">New Request</Link>
-            </Button>
-          </CardAction>
-        </CardHeader>
-        <CardContent className="pt-6">
-          <div className="mb-4 flex flex-wrap items-center gap-3">
-            <div className="relative">
+      <Card className="pt-0">
+        <div className="rounded-t-xl py-6 flex flex-wrap items-center justify-between gap-4 px-6">
+          <div>
+            <h2 className="text-xl font-semibold leading-none">Requests</h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              Track infrastructure requests and their latest status
+            </p>
+          </div>
+          <Button asChild size="lg" className="cursor-pointer shrink-0">
+            <Link href="/requests/new">New Request</Link>
+          </Button>
+        </div>
+        <div className="px-6 pt-2 pb-6">
+          <div className="mb-4 flex flex-wrap items-center gap-3 mt-4 min-h-11 pb-4 border-b border-muted/30">
+            <div className="relative h-11 flex items-center">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
+              <Input
                 placeholder=""
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-                className="h-9 w-72 pl-9 pr-3 focus-visible:ring-0 focus-visible:ring-offset-0"
-            />
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="h-11 w-72 pl-9 pr-3 focus-visible:ring-0 focus-visible:ring-offset-0"
+              />
             </div>
-            {(["active", "destroyed", "all"] as const).map((value) => (
-              <Button
-                key={value}
-                variant={statusFilter === value ? "default" : "outline"}
-                className="h-9 px-4 cursor-pointer"
-                onClick={() => setStatusFilter(value)}
-              >
-                {value === "active" ? "Active" : value === "destroyed" ? "Destroyed" : "All"}
-              </Button>
-            ))}
+            <div
+              role="tablist"
+              aria-label="Dataset mode"
+              className="inline-flex h-11 items-stretch rounded-lg bg-filter-bg dark:bg-muted/40 p-1 gap-0"
+            >
+              {(["active", "drifted", "destroyed", "all"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  role="tab"
+                  aria-selected={datasetMode === mode}
+                  className={cn(
+                    "relative flex h-full items-center rounded-md px-3 py-0 text-sm font-medium transition-colors cursor-pointer",
+                    datasetMode === mode
+                      ? "bg-card text-foreground"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                  onClick={() => setDatasetMode(mode)}
+                >
+                  {mode === "active" ? "Active" : mode === "drifted" ? "Drifted" : mode === "destroyed" ? "Destroyed" : "All"}
+                </button>
+              ))}
+            </div>
             <Select value={envFilter} onValueChange={(val) => setEnvFilter(val as typeof envFilter)}>
               <SelectTrigger
-                className="h-9 min-w-[130px] rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-none hover:bg-background data-[state=open]:bg-background dark:bg-[#0b1222] dark:hover:bg-[#0b1222] dark:data-[state=open]:bg-[#0b1222] focus-visible:ring-0 focus-visible:ring-offset-0"
+                className="!h-11 min-w-[130px] rounded-md bg-filter-bg dark:bg-muted/40 px-3 text-sm text-foreground shadow-none hover:bg-filter-bg-hover dark:hover:bg-muted/50 data-[state=open]:bg-filter-bg-active dark:data-[state=open]:bg-muted/50 focus-visible:ring-0 focus-visible:ring-offset-0"
               >
                 <SelectValue placeholder="All envs" />
               </SelectTrigger>
@@ -260,7 +299,7 @@ export default function RequestsPage() {
             </Select>
             <Select value={moduleFilter} onValueChange={(val) => setModuleFilter(val)}>
               <SelectTrigger
-                className="h-9 min-w-[130px] rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-none hover:bg-background data-[state=open]:bg-background dark:bg-[#0b1222] dark:hover:bg-[#0b1222] dark:data-[state=open]:bg-[#0b1222] focus-visible:ring-0 focus-visible:ring-offset-0"
+                className="!h-11 min-w-[130px] rounded-md bg-filter-bg dark:bg-muted/40 px-3 text-sm text-foreground shadow-none hover:bg-filter-bg-hover dark:hover:bg-muted/50 data-[state=open]:bg-filter-bg-active dark:data-[state=open]:bg-muted/50 focus-visible:ring-0 focus-visible:ring-offset-0"
               >
                 <SelectValue placeholder="All modules" />
               </SelectTrigger>
@@ -275,7 +314,7 @@ export default function RequestsPage() {
             </Select>
             <Select value={projectFilter} onValueChange={(val) => setProjectFilter(val)}>
               <SelectTrigger
-                className="h-9 min-w/[130px] rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-none hover:bg-background data-[state=open]:bg-background dark:bg-[#0b1222] dark:hover:bg-[#0b1222] dark:data-[state=open]:bg-[#0b1222] focus-visible:ring-0 focus-visible:ring-offset-0"
+                className="!h-11 min-w-[130px] rounded-md bg-filter-bg dark:bg-muted/40 px-3 text-sm text-foreground shadow-none hover:bg-filter-bg-hover dark:hover:bg-muted/50 data-[state=open]:bg-filter-bg-active dark:data-[state=open]:bg-muted/50 focus-visible:ring-0 focus-visible:ring-offset-0"
               >
                 <SelectValue placeholder="All projects" />
               </SelectTrigger>
@@ -289,37 +328,44 @@ export default function RequestsPage() {
               </SelectContent>
             </Select>
             <Button
-              variant={driftFilter ? "default" : "outline"}
-              className="h-9 px-4 cursor-pointer"
-              onClick={() => setDriftFilter(!driftFilter)}
-            >
-              Show drifted only
-            </Button>
-            <Button
-              variant="secondary"
-              className="h-9 px-4 cursor-pointer"
+              variant="ghost"
+              className="h-11 px-4 cursor-pointer text-muted-foreground hover:text-foreground"
               onClick={() => {
                 setSearchTerm("")
-                setStatusFilter("active")
+                setDatasetMode("active")
                 setEnvFilter("all")
                 setModuleFilter("all")
                 setProjectFilter("all")
-                setDriftFilter(false)
               }}
             >
               Clear filters
             </Button>
           </div>
+          <TooltipProvider delayDuration={200}>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Request ID</TableHead>
-                <TableHead>Project</TableHead>
-                <TableHead>Module</TableHead>
-                <TableHead>Resource Name</TableHead>
-                <TableHead>Environment</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Created</TableHead>
+                <TableHeadSortable sortDirection={sortDir("id")} onSort={() => handleSort("id")}>
+                  Request ID
+                </TableHeadSortable>
+                <TableHeadSortable sortDirection={sortDir("project")} onSort={() => handleSort("project")}>
+                  Project
+                </TableHeadSortable>
+                <TableHeadSortable sortDirection={sortDir("module")} onSort={() => handleSort("module")}>
+                  Module
+                </TableHeadSortable>
+                <TableHeadSortable sortDirection={sortDir("service")} onSort={() => handleSort("service")}>
+                  Resource Name
+                </TableHeadSortable>
+                <TableHeadSortable sortDirection={sortDir("environment")} onSort={() => handleSort("environment")}>
+                  Environment
+                </TableHeadSortable>
+                <TableHeadSortable sortDirection={sortDir("status")} onSort={() => handleSort("status")}>
+                  Status
+                </TableHeadSortable>
+                <TableHeadSortable sortDirection={sortDir("createdAt")} onSort={() => handleSort("createdAt")} iconVariant="dual">
+                  Created
+                </TableHeadSortable>
                 <TableHead className="text-right" />
               </TableRow>
             </TableHeader>
@@ -362,7 +408,7 @@ export default function RequestsPage() {
                     </TableCell>
                     <TableCell className="text-sm text-foreground whitespace-normal break-words leading-tight">
                       <div className="flex items-center gap-2">
-                        <span>{computeStatus(item).subtitle}</span>
+                        <StatusIndicator label={computeStatus(item).subtitle} />
                         {item.drift?.status === "detected" && (
                           <Badge variant="destructive" className="text-xs">
                             Drift
@@ -370,21 +416,29 @@ export default function RequestsPage() {
                         )}
                       </div>
                     </TableCell>
-                    <TableCell className="text-muted-foreground whitespace-normal break-words leading-tight">
+                    <TableCell className="text-muted-foreground whitespace-normal break-words leading-tight text-xs tabular-nums">
                       {formatTimestamp(item.createdAt)}
                     </TableCell>
-                    <TableCell className="text-right">
-                      <Button size="icon" variant="ghost" asChild className="cursor-pointer" aria-label="View request">
-                        <Link href={`/requests/${item.id}`}>
-                          <Eye className="h-4 w-4 text-primary" />
-                        </Link>
-                      </Button>
+                    <TableCell className="text-right align-middle">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button size="icon" variant="ghost" asChild className="cursor-pointer size-10 min-w-10 min-h-10" aria-label="View request">
+                            <Link href={`/requests/${item.id}`}>
+                              <Eye className="h-4 w-4 text-primary" />
+                            </Link>
+                          </Button>
+                        </TooltipTrigger>
+<TooltipContent side="top" align="center" sideOffset={2}>
+                            View request
+                          </TooltipContent>
+                      </Tooltip>
                     </TableCell>
                   </TableRow>
                 ))}
             </TableBody>
           </Table>
-        </CardContent>
+          </TooltipProvider>
+        </div>
       </Card>
     </div>
   )

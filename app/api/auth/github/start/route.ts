@@ -4,20 +4,17 @@ import { randomBytes } from "node:crypto"
 import { clearStateCookie, setStateCookie } from "@/lib/auth/session"
 
 function buildRedirectUri(req: NextRequest) {
-  // ALWAYS use the hardcoded public domain to avoid any hostname issues
-  // The environment variable should be set, but we'll use a hardcoded fallback
+  // Use env so local dev can set http://localhost:3000/... and prod can set https://tfpilot.com/...
   const envRedirect = process.env.GITHUB_OAUTH_REDIRECT
-  if (envRedirect && envRedirect.includes('tfpilot.com')) {
+  if (envRedirect) {
     console.log('[auth/github/start] Using GITHUB_OAUTH_REDIRECT:', envRedirect)
     return envRedirect
   }
-  
-  // Always use the public domain - never trust the Host header in production
+  // Fallback: public domain (never trust Host header in production)
   const publicDomain = 'tfpilot.com'
   const uri = `https://${publicDomain}/api/auth/github/callback`
   console.log('[auth/github/start] Using hardcoded public domain:', uri)
-  console.log('[auth/github/start] Host header was:', req.headers.get('host'))
-  console.log('[auth/github/start] GITHUB_OAUTH_REDIRECT env var:', envRedirect || 'NOT_SET')
+  console.log('[auth/github/start] GITHUB_OAUTH_REDIRECT env var: NOT_SET')
   return uri
 }
 

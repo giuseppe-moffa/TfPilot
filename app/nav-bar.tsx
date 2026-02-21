@@ -58,7 +58,7 @@ export default function NavBar() {
               />
             )}
             <span className="text-sm font-medium text-foreground/80">{user.login}</span>
-            <Button variant="outline" size="sm" onClick={() => logout()}>
+            <Button variant="outline" size="sm" onClick={() => logout()} className="bg-muted hover:bg-muted/90 dark:bg-muted/60 dark:hover:bg-muted/70">
               Sign out
             </Button>
           </>

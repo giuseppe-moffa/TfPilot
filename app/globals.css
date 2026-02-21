@@ -33,7 +33,13 @@
   --color-secondary-foreground: var(--secondary-foreground);
   --color-secondary: var(--secondary);
   --color-primary-foreground: var(--primary-foreground);
+  --color-primary-hover: var(--primary-hover);
   --color-primary: var(--primary);
+  --color-table-header: var(--table-header-bg);
+  --color-row-hover: var(--row-hover);
+  --color-filter-bg: var(--filter-bg);
+  --color-filter-bg-hover: var(--filter-bg-hover);
+  --color-filter-bg-active: var(--filter-bg-active);
   --color-popover-foreground: var(--popover-foreground);
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
@@ -49,42 +55,52 @@
 
 :root {
   --radius: 0.625rem;
-  --background: #f8fafc;
-  --foreground: #0f172a;
-  --card: #f8fafc;
-  --card-foreground: #0f172a;
-  --popover: #f8fafc;
-  --popover-foreground: #0f172a;
-  --primary: #334155;
-  --primary-hover: #1f2937;
-  --primary-foreground: #f8fafc;
-  --secondary: #e2e8f0;
-  --secondary-foreground: #0f172a;
-  --muted: #e2e8f0;
+  /* Page & surfaces */
+  --background: #F8FAFC;
+  --foreground: #0F172A;
+  --card: #FFFFFF;
+  --card-foreground: #0F172A;
+  --popover: #FFFFFF;
+  --popover-foreground: #0F172A;
+  /* Borders */
+  --border: #E2E8F0;
+  --input: #E2E8F0;
+  /* Primary CTA button (slate, premium infra tooling) */
+  --primary: #1E293B;
+  --primary-hover: #0F172A;
+  --primary-foreground: #FFFFFF;
+  /* Secondary text */
+  --secondary: #E2E8F0;
+  --secondary-foreground: #0F172A;
+  --muted: #F1F5F9;
   --muted-foreground: #475569;
   --accent: #475569;
   --accent-hover: #334155;
-  --accent-foreground: #0f172a;
+  --accent-foreground: #0F172A;
+  /* Requests page: table header, row hover, filter controls (light only) */
+  --table-header-bg: #F8FAFC;
+  --row-hover: #F5F7FF;
+  --filter-bg: #F1F5F9;
+  --filter-bg-hover: #E2E8F0;
+  --filter-bg-active: #E0E7FF;
   --success: #22c55e;
   --success-hover: #16a34a;
   --success-foreground: #ecfdf3;
   --destructive: #dc2626;
   --destructive-foreground: #fef2f2;
-  --border: #cbd5e1;
-  --input: #cbd5e1;
   --ring: #1d4ed8;
   --chart-1: #1d4ed8;
   --chart-2: #0ea5e9;
   --chart-3: #16a34a;
   --chart-4: #f59e0b;
   --chart-5: #ef4444;
-  --sidebar: #f8fafc;
-  --sidebar-foreground: #0f172a;
+  --sidebar: #F8FAFC;
+  --sidebar-foreground: #0F172A;
   --sidebar-primary: #1d4ed8;
   --sidebar-primary-foreground: #e2e8f0;
   --sidebar-accent: #0ea5e9;
   --sidebar-accent-foreground: #e0f2fe;
-  --sidebar-border: #cbd5e1;
+  --sidebar-border: #E2E8F0;
   --sidebar-ring: #1d4ed8;
 }
 
