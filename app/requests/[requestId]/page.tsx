@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { CheckCircle2, Github, Loader2, Link as LinkIcon, Wand2, Sparkles, Download } from "lucide-react"
+import { CheckCircle2, ChevronDown, ChevronUp, Copy, Github, Loader2, Link as LinkIcon, Download, Wand2 } from "lucide-react"
 import useSWR from "swr"
 import { useParams } from "next/navigation"
 
@@ -26,7 +26,6 @@ import {
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Code } from "@/components/ui/code"
-import { Separator } from "@/components/ui/separator"
 import { cn } from "@/lib/utils"
 import {
   Tooltip,
@@ -34,6 +33,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { StatusIndicator } from "@/components/status-indicator"
 import { AssistantHelper } from "@/components/assistant-helper"
 import { AssistantDrawer } from "@/components/assistant-drawer"
 import { SuggestionPanel } from "@/components/suggestion-panel"
@@ -82,7 +82,7 @@ function lineClass(line: string) {
   const trimmed = line.trimStart()
   if (trimmed.startsWith("@@")) return "bg-muted text-foreground"
   if (trimmed.startsWith("+"))
-    return "bg-emerald-50 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-100"
+    return "bg-emerald-50 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-100"
   if (trimmed.startsWith("-"))
     return "bg-red-50 text-red-900 dark:bg-red-950 dark:text-red-100"
   return "text-foreground"
@@ -192,6 +192,18 @@ function normalizePlanHeadings(text: string) {
   return text.replace(headingRe, "$1")
 }
 
+function parsePlanSummary(planText: string): { add: number; change: number; destroy: number } {
+  if (!planText || !planText.trim()) return { add: 0, change: 0, destroy: 0 }
+  const addMatch = planText.match(/(\d+)\s+to\s+add/i)
+  const changeMatch = planText.match(/(\d+)\s+to\s+change/i)
+  const destroyMatch = planText.match(/(\d+)\s+to\s+destroy/i)
+  return {
+    add: addMatch ? parseInt(addMatch[1], 10) : 0,
+    change: changeMatch ? parseInt(changeMatch[1], 10) : 0,
+    destroy: destroyMatch ? parseInt(destroyMatch[1], 10) : 0,
+  }
+}
+
 function humanize(text?: string) {
   if (!text) return ""
   return text
@@ -280,6 +292,7 @@ function RequestDetailPage() {
   const [destroyConfirmation, setDestroyConfirmation] = React.useState("")
   const [applyNote, setApplyNote] = React.useState("")
   const [showApplyOutput, setShowApplyOutput] = React.useState(false)
+  const [planLogExpanded, setPlanLogExpanded] = React.useState(false)
   const [initialRequest, setInitialRequest] = React.useState<any>(null)
   const [initialLoading, setInitialLoading] = React.useState<boolean>(true)
   const [statusSlice, setStatusSlice] = React.useState<any>(null)
@@ -774,17 +787,20 @@ function RequestDetailPage() {
 
   const hasDrift = request.drift?.status === "detected"
 
+  const statusLabel =
+    isDestroyed ? "Destroyed" : isDestroying ? "Destroying" : stepInfo.subtitle
+
   return (
     <div
-      className="space-y-6 transition-[margin-right]"
+      className="mx-auto max-w-7xl space-y-8 transition-[margin-right]"
       style={{ marginRight: assistantOpen ? drawerWidth : 0 }}
     >
       {hasDrift && (
-        <Card className="border-destructive bg-destructive/10">
-          <CardContent className="pt-6">
+        <Card className="border-0 bg-destructive/5 shadow-sm">
+          <CardContent className="px-5 py-4">
             <div className="flex items-start justify-between gap-4">
               <div className="flex-1">
-                <div className="flex items-center gap-2 mb-2">
+                <div className="flex items-center gap-2 mb-1.5">
                   <Badge variant="destructive">Drift Detected</Badge>
                   {request.drift?.lastCheckedAt && (
                     <span className="text-xs text-muted-foreground">
@@ -792,11 +808,11 @@ function RequestDetailPage() {
                     </span>
                   )}
                 </div>
-                <p className="text-sm text-foreground mb-2">
+                <p className="text-sm text-foreground mb-1.5">
                   Infrastructure drift has been detected. Review the plan to see what has changed.
                 </p>
                 {request.drift?.summary && (
-                  <p className="text-xs text-muted-foreground mb-2">{request.drift.summary}</p>
+                  <p className="text-xs text-muted-foreground mb-1.5">{request.drift.summary}</p>
                 )}
                 {request.drift?.runUrl && (
                   <a
@@ -814,203 +830,170 @@ function RequestDetailPage() {
           </CardContent>
         </Card>
       )}
-      <div className="grid gap-6 md:grid-cols-2">
-        <Card>
-          <CardHeader className="border-b">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <CardTitle className="text-xl font-semibold flex items-center gap-2">
-                  <span>Request {request.id}</span>
-                  {isDestroyed && <Badge variant="secondary">Destroyed</Badge>}
-                  {isDestroying && !isDestroyed && <Badge variant="secondary">Destroying</Badge>}
-                  {request.revision ? <Badge variant="secondary">Rev {request.revision}</Badge> : null}
-                </CardTitle>
-                <CardDescription>
-                  Overview of request metadata and execution timeline
-                </CardDescription>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button size="sm" variant="outline" onClick={() => setUpdateModalOpen(true)}>
-                  Update Configuration
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => setAssistantOpen(true)}>
-                  <Sparkles className="mr-2 h-4 w-4" /> Assistant
-                </Button>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="grid gap-4 pt-6 md:grid-cols-2">
-            <div className="space-y-2">
-              <p className="text-sm text-muted-foreground">Project</p>
-              <p className="text-base font-medium capitalize">{request.project}</p>
-            </div>
-            <div className="space-y-2">
-              <p className="text-sm text-muted-foreground">Environment</p>
-              <p className="text-base font-medium capitalize">
-                {request.environment}
-              </p>
-            </div>
-            <div className="space-y-2">
-              <p className="text-sm text-muted-foreground">Resource Name</p>
-              <p className="text-base font-medium">{getServiceName(request.config as any) ?? "—"}</p>
-            </div>
-            <div className="space-y-2">
-              <p className="text-sm text-muted-foreground">Module</p>
-              <p className="text-base font-medium">{request.module ?? "—"}</p>
-            </div>
-            <div className="space-y-2">
-              <p className="text-sm text-muted-foreground">Target repo</p>
-              <p className="text-base font-medium">
-                {request.targetOwner && request.targetRepo
-                  ? `${request.targetOwner}/${request.targetRepo}`
-                  : "—"}
-              </p>
-            </div>
-            <div className="space-y-2">
-              <p className="text-sm text-muted-foreground">Environment path</p>
-              <p className="text-base font-medium">{request.targetEnvPath ?? "—"}</p>
-            </div>
-            <div className="space-y-2 md:col-span-2">
-              <p className="text-sm text-muted-foreground">Files</p>
-              <p className="text-base font-medium">
-                {request.targetFiles?.length
-                  ? request.targetFiles.join(", ")
-                  : "—"}
-              </p>
-            </div>
-            <div className="space-y-2">
-              <p className="text-sm text-muted-foreground">Submitted</p>
-              <p className="text-base font-medium">
-                {formatDate(request.createdAt ?? request.updatedAt ?? "")}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
 
-        <Card>
-          <CardHeader className="border-b">
-            <CardTitle className="text-lg font-semibold">Status Timeline</CardTitle>
-            <CardDescription>
-              Track the lifecycle of this infrastructure request
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="pt-6">
-            <div className="flex flex-col gap-6">
-              {steps.map((step, idx) => {
-                const state = stepState(step.key)
-                const isDone = state === "done"
-                const badgeVariant = isDone ? "success" : "warning"
-                return (
-                  <div key={step.key} className="flex gap-4">
-                    <div className="flex flex-col items-center">
-                      <div
-                        className={`flex size-9 items-center justify-center rounded-full border ${
-                          isDone
-                            ? "border-success/30 bg-success/15 text-success"
-                            : "border-border bg-muted text-muted-foreground"
-                        }`}
-                      >
-                        {isDone ? (
-                          <CheckCircle2 className="size-5 text-success" />
-                        ) : (
-                          <Loader2 className="size-5 animate-spin text-muted-foreground" />
+      <section className="rounded-xl bg-card p-6 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-xl font-semibold leading-tight">Request {request.id}</h1>
+              {request.revision ? (
+                <Badge variant="secondary" className="font-normal">Rev {request.revision}</Badge>
+              ) : null}
+              <StatusIndicator label={statusLabel} />
+            </div>
+            <p className="text-sm text-muted-foreground mt-1">
+              {request.project} · {request.environment} · {request.module ?? "—"}
+            </p>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button size="sm" variant="outline" onClick={() => setUpdateModalOpen(true)}>
+              Update Configuration
+            </Button>
+          </div>
+        </div>
+
+        <div className="mt-4 mb-6 border-t border-border dark:border-slate-800/60" />
+
+        <div className="grid grid-cols-1 md:grid-cols-2 md:gap-0">
+          <div className="min-w-0">
+            <div className="px-5 pt-4 pb-4">
+              <h3 className="text-base font-medium leading-none">Overview</h3>
+              <p className="text-xs text-muted-foreground mt-2">
+                Request metadata
+              </p>
+            </div>
+            <div className="px-5 pt-1 pb-4">
+              <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+                <div>
+                  <p className="text-muted-foreground text-xs">Project</p>
+                  <p className="font-normal capitalize mt-0.5">{request.project}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground text-xs">Environment</p>
+                  <p className="font-normal capitalize mt-0.5">{request.environment}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground text-xs">Resource Name</p>
+                  <p className="font-normal mt-0.5">{getServiceName(request.config as any) ?? "—"}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground text-xs">Module</p>
+                  <p className="font-normal mt-0.5">{request.module ?? "—"}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground text-xs">Target repo</p>
+                  <p className="font-normal mt-0.5">
+                    {request.targetOwner && request.targetRepo
+                      ? `${request.targetOwner}/${request.targetRepo}`
+                      : "—"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground text-xs">Environment path</p>
+                  <p className="font-normal mt-0.5">{request.targetEnvPath ?? "—"}</p>
+                </div>
+                <div className="col-span-2">
+                  <p className="text-muted-foreground text-xs">Files</p>
+                  <p className="font-normal mt-0.5">
+                    {request.targetFiles?.length ? request.targetFiles.join(", ") : "—"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground text-xs">Submitted</p>
+                  <p className="font-normal mt-0.5">
+                    {formatDate(request.createdAt ?? request.updatedAt ?? "")}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="min-w-0 border-t border-border pt-4 md:border-t-0 md:border-l md:border-border md:ml-6 md:pl-6 md:pt-0 dark:border-slate-800/60">
+            <div className="px-5 pt-4 pb-4 md:pt-0">
+              <h3 className="text-base font-medium leading-none">Status Timeline</h3>
+              <p className="text-xs text-muted-foreground mt-2">
+                Lifecycle of this request
+              </p>
+            </div>
+            <div className="px-5 pt-1 pb-4">
+              <div className="flex flex-col gap-3">
+                {steps.map((step, idx) => {
+                  const state = stepState(step.key)
+                  const isDone = state === "done"
+                  const subtitle = stepSubtitle(step.key, state)
+                  return (
+                    <div key={step.key} className="flex gap-3">
+                      <div className="flex flex-col items-center">
+                        <div
+                          className={cn(
+                            "flex size-6 items-center justify-center rounded-full border shrink-0",
+                            isDone
+                              ? "border-success/30 bg-success/10 text-success"
+                              : "border-border bg-muted/50 text-muted-foreground"
+                          )}
+                        >
+                          {isDone ? (
+                            <CheckCircle2 className="size-3.5 text-success" />
+                          ) : (
+                            <Loader2 className="size-3.5 animate-spin text-muted-foreground" />
+                          )}
+                        </div>
+                        {idx < steps.length - 1 && (
+                          <div className="w-px flex-1 min-h-[8px] bg-border my-0.5" />
                         )}
                       </div>
-                      {idx < steps.length - 1 && (
-                        <Separator
-                          className="my-2 h-full w-px flex-1 bg-border"
-                          orientation="vertical"
-                        />
-                      )}
-                    </div>
-                    <div className="flex-1 space-y-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="text-base font-medium">{step.label}</p>
+                      <div className="flex-1 min-w-0 pt-0.5">
+                        <p className="text-sm font-medium text-foreground">{step.label}</p>
+                        <StatusIndicator label={subtitle} />
                       </div>
-                      <p className="text-sm text-muted-foreground">
-                        {stepSubtitle(step.key, state)}
-                      </p>
                     </div>
-                  </div>
-                )
-              })}
+                  )
+                })}
+              </div>
             </div>
-          </CardContent>
-        </Card>
-      </div>
+          </div>
+        </div>
+      </section>
 
       {Array.isArray(request.previousPrs) && request.previousPrs.length > 0 && (
-        <div className="rounded-md border border-border bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:bg-amber-900/30 dark:text-amber-100">
+        <div className="rounded-lg bg-amber-50/80 dark:bg-amber-900/20 px-4 py-2.5 text-sm text-amber-900 dark:text-amber-100">
           This request has a newer revision. Older PR was superseded.
         </div>
       )}
 
       {(request.pullRequest || request.pr) && (
-        <Card>
-          <CardHeader className="border-b">
-            <CardTitle className="flex items-center gap-2 text-lg font-semibold">
-              <Github className="size-5" />
-              GitHub Pull Request
-            </CardTitle>
-            <CardDescription>
-              Review the proposed changes linked to this request
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4 pt-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">PR Title</p>
-                <p className="font-medium">
-                  {request.pullRequest?.title ?? "N/A"}
-                </p>
-                <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-                  <span>
+        <Card className="border-0 py-0 shadow-sm">
+          <CardHeader className="px-5 pt-4 pb-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <CardTitle className="flex items-center gap-2 text-base font-medium">
+                  <Github className="size-4" />
+                  {request.pullRequest?.title ?? "Pull Request"}
+                </CardTitle>
+                <div className="flex flex-wrap items-center gap-2 mt-1">
+                  <Badge variant="info" className="font-normal text-xs">
+                    {request.pr?.status ?? "open"}
+                  </Badge>
+                  <span className="text-xs text-muted-foreground">
                     PR #{request.pullRequest?.number ?? request.pr?.branch ?? ""}
+                    {request.pr?.branch ? ` · ${request.pr?.branch ?? request.branchName ?? request.id}` : ""}
                   </span>
                   {(request.pullRequest?.url || request.pr?.url) && (
                     <a
                       href={request.pullRequest?.url ?? request.pr?.url ?? "#"}
                       target="_blank"
                       rel="noreferrer"
-                      className="inline-flex items-center gap-1 text-primary hover:underline"
+                      className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
                     >
-                      <LinkIcon className="size-4" />
+                      <LinkIcon className="size-3.5" />
                       View on GitHub
                     </a>
                   )}
                 </div>
               </div>
             </div>
-
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">PR Branch</p>
-                <p className="font-medium">
-                  {request.pr?.branch ?? request.branchName ?? request.id}
-                </p>
-              </div>
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">Status</p>
-                <Badge variant="info" className="w-fit">
-                  {request.pr?.status ?? "open"}
-                </Badge>
-              </div>
-              {(request.pullRequest?.url || request.pr?.url) && (
-                <div className="space-y-1">
-                  <p className="text-sm text-muted-foreground">Link</p>
-                  <a
-                    href={request.pullRequest?.url ?? request.pr?.url ?? "#"}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1 text-primary hover:underline"
-                  >
-                    <LinkIcon className="size-4" />
-                    {request.pullRequest?.url ?? request.pr?.url}
-                  </a>
-                </div>
-              )}
-            </div>
-
+          </CardHeader>
+          <CardContent className="px-5 pt-2 pb-4 space-y-5">
             <TooltipProvider>
               <div className="flex flex-wrap items-center gap-2">
                 <Tooltip>
@@ -1161,7 +1144,7 @@ function RequestDetailPage() {
             </TooltipProvider>
 
             {(isDestroying || isDestroyed || request.destroyRun) && (
-              <div className="mt-3 space-y-1 rounded-md border border-border bg-muted/40 p-3 text-sm text-foreground">
+              <div className="rounded-md bg-muted/30 px-3 py-2 text-sm text-foreground">
                 <div className="flex items-center gap-2">
                   <Badge variant={isDestroyed ? "success" : "destructive"}>
                     {isDestroyed ? "Destroyed" : isDestroying ? "Destroying" : "Destroy triggered"}
@@ -1185,9 +1168,9 @@ function RequestDetailPage() {
             )}
 
             <div className="space-y-2">
-              <p className="text-sm font-medium text-foreground">Files Changed</p>
+              <p className="text-sm text-muted-foreground font-medium">Files Changed</p>
               {prFiles?.files?.length ? (
-                <div className="space-y-2 rounded-lg border border-border bg-card p-3 text-sm text-foreground">
+                <div className="space-y-2 rounded-lg bg-muted/30 p-3 text-sm text-foreground shadow-sm">
                   {prFiles.files.map((f: any, idx: number) => {
                     const parsed = f.patch ? parsePatch(f.patch) : []
                     return (
@@ -1198,17 +1181,12 @@ function RequestDetailPage() {
                           </p>
                         </div>
                         {parsed.length > 0 ? (
-                          <div className="overflow-hidden rounded border border-border bg-card text-xs font-mono text-foreground">
+                          <div className="overflow-hidden rounded-lg bg-muted/50 text-xs font-mono text-foreground">
                             {parsed.map((line, i) => (
                               <div
                                 key={`${f.filename}-${idx}-${i}`}
-                                className="grid grid-cols-[52px_52px_1fr]"
+                                className="grid grid-cols-[52px_1fr]"
                               >
-                                <div
-                                  className={`px-2 text-right text-[11px] ${lineNumberClass(line)}`}
-                                >
-                                  {line.old ?? ""}
-                                </div>
                                 <div
                                   className={`px-2 text-right text-[11px] ${lineNumberClass(line)}`}
                                 >
@@ -1234,44 +1212,123 @@ function RequestDetailPage() {
               )}
             </div>
 
-            <div className="space-y-2">
-              <p className="text-sm font-medium">Terraform Plan Output</p>
-              {initialLoading && !request ? (
-                <p className="text-sm text-muted-foreground">Loading plan...</p>
-              ) : planOutput?.planText || request?.plan?.output || request.pullRequest?.planOutput ? (
-                <div className="rounded-lg border border-border bg-card text-foreground">
-                  <Code className="bg-transparent p-4 text-sm leading-6 whitespace-pre-wrap text-foreground">
-                    {normalizePlanHeadings(
-                      stripLogTimestamps(
-                        planOutput?.planText ??
-                          request?.plan?.output ??
-                          request.pullRequest?.planOutput ??
-                          "",
-                      ),
-                    )}
-                  </Code>
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">Plan not generated yet.</p>
-              )}
-              {planOutput?.status && (
-                <p className="text-xs text-muted-foreground">
-                  Status: {planOutput.status}
-                  {planOutput.conclusion ? ` · Conclusion: ${planOutput.conclusion}` : ""}
-                </p>
-              )}
-              {planOutput?.conclusion === "failure" && (
-                <p className="text-xs text-destructive">Plan failed. See excerpt above or open full logs.</p>
-              )}
-              {planOutput?.rawLogUrl && (
-                <a className="text-sm text-primary hover:underline" href={planOutput.rawLogUrl} target="_blank" rel="noreferrer">
-                  Open plan logs
-                </a>
-              )}
+            <div className="mt-8 rounded-lg bg-muted/30 pl-4 pr-4 pb-4 shadow-sm">
+              <div className="py-4 pr-0">
+                <h3 className="text-lg font-semibold text-foreground">Terraform Plan Output</h3>
+                <p className="mt-0.5 text-sm text-muted-foreground">Review plan output before approve or apply</p>
+              </div>
+              <div>
+                {initialLoading && !request ? (
+                  <p className="text-sm text-muted-foreground">Loading plan...</p>
+                ) : planOutput?.planText || request?.plan?.output || request.pullRequest?.planOutput ? (
+                  (() => {
+                    const planTextRaw =
+                      planOutput?.planText ??
+                      request?.plan?.output ??
+                      request.pullRequest?.planOutput ??
+                      ""
+                    const planTextDisplay = normalizePlanHeadings(stripLogTimestamps(planTextRaw))
+                    const summary = parsePlanSummary(planTextRaw)
+                    const hasSummary = summary.add > 0 || summary.change > 0 || summary.destroy > 0
+                    return (
+                      <>
+                        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg px-4 py-3">
+                          <div className="flex flex-wrap items-center gap-2">
+                            {hasSummary && (
+                              <>
+                                {summary.add > 0 && (
+                                  <span className="rounded-md bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-300">
+                                    +{summary.add} to add
+                                  </span>
+                                )}
+                                {summary.change > 0 && (
+                                  <span className="rounded-md bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-300">
+                                    ~{summary.change} to change
+                                  </span>
+                                )}
+                                {summary.destroy > 0 && (
+                                  <span className="rounded-md bg-red-500/15 px-2 py-0.5 text-xs font-medium text-red-700 dark:text-red-300">
+                                    -{summary.destroy} to destroy
+                                  </span>
+                                )}
+                              </>
+                            )}
+                            {(planOutput?.status || planOutput?.conclusion) && (
+                              <span className="text-xs text-muted-foreground">
+                                {planOutput.conclusion ?? planOutput.status}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            {planOutput?.rawLogUrl && (
+                              <a
+                                className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline"
+                                href={planOutput.rawLogUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                <LinkIcon className="size-3.5" />
+                                Open plan logs
+                              </a>
+                            )}
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 gap-1.5 px-2 text-xs"
+                              onClick={() => {
+                                void navigator.clipboard.writeText(planTextRaw).catch(() => {})
+                              }}
+                            >
+                              <Copy className="size-3.5" />
+                              Copy
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 gap-1.5 px-2 text-xs"
+                              onClick={(e) => {
+                                e.preventDefault()
+                                setPlanLogExpanded((v) => !v)
+                              }}
+                            >
+                              {planLogExpanded ? (
+                                <>
+                                  <ChevronUp className="size-3.5" />
+                                  Collapse
+                                </>
+                              ) : (
+                                <>
+                                  <ChevronDown className="size-3.5" />
+                                  Expand
+                                </>
+                              )}
+                            </Button>
+                          </div>
+                        </div>
+                        <div
+                          className={cn(
+                            "mt-3 overflow-y-auto rounded-lg border border-border bg-white p-4 dark:bg-slate-950/80",
+                            !planLogExpanded && "max-h-[480px]",
+                          )}
+                        >
+                          <Code className="block bg-transparent p-0 text-sm leading-6 whitespace-pre-wrap font-mono text-foreground">
+                            {planTextDisplay}
+                          </Code>
+                        </div>
+                      </>
+                    )
+                  })()
+                ) : (
+                  <p className="text-sm text-muted-foreground">Plan not generated yet.</p>
+                )}
+                {planOutput?.conclusion === "failure" && (
+                  <p className="mt-2 text-xs text-destructive">Plan failed. See excerpt above or open full logs.</p>
+                )}
+              </div>
             </div>
             <div className="space-y-2">
               <div className="flex items-center gap-2">
-                <p className="text-sm font-medium">Apply Output</p>
+                <p className="text-sm font-medium text-muted-foreground">Apply Output</p>
                 <Button size="sm" variant="outline" onClick={() => setShowApplyOutput((v) => !v)} disabled={!applyRunId}>
                   {showApplyOutput ? "Hide" : "Load"}
                 </Button>
@@ -1287,7 +1344,7 @@ function RequestDetailPage() {
               </div>
             {showApplyOutput ? (
               applyOutput?.applyText || request?.apply?.output ? (
-                <pre className="max-h-64 overflow-auto rounded bg-slate-900 p-3 text-xs text-slate-100 whitespace-pre-wrap">
+                <pre className="max-h-64 overflow-auto rounded-lg border border-border bg-muted/50 p-4 text-xs text-foreground whitespace-pre-wrap">
                   {applyOutput?.applyText ?? request?.apply?.output ?? ""}
                 </pre>
               ) : (
@@ -1307,17 +1364,17 @@ function RequestDetailPage() {
       )}
 
       {request.cleanupPr && (
-        <Card>
-          <CardHeader className="border-b">
-            <CardTitle className="flex items-center gap-2 text-lg font-semibold">
-              <Github className="size-5" />
+        <Card className="border-0 py-0 shadow-sm">
+          <CardHeader className="px-5 pt-4 pb-4">
+            <CardTitle className="flex items-center gap-2 text-base font-medium">
+              <Github className="size-4" />
               Cleanup PR
             </CardTitle>
-            <CardDescription>
+            <CardDescription className="text-xs">
               Removes the requested resources from code to avoid re-creation.
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4 pt-4">
+          <CardContent className="px-5 pt-1 pb-4">
             <div className="flex flex-wrap items-center gap-3">
               <div className="space-y-1">
                 <p className="text-sm text-muted-foreground">Status</p>
@@ -1365,18 +1422,17 @@ function RequestDetailPage() {
         </Card>
       )}
 
-      <Card>
-        <CardHeader className="border-b">
-          <div className="flex items-center justify-between">
+      <Card className="border-0 py-0 shadow-sm">
+        <CardHeader className="px-5 pt-4 pb-4">
+          <div className="flex items-center justify-between gap-4">
             <div>
-              <CardTitle className="flex items-center gap-2 text-lg font-semibold">
-                Lifecycle History
-              </CardTitle>
-              <CardDescription>Recent lifecycle events for this request</CardDescription>
+              <CardTitle className="text-base font-medium">Lifecycle History</CardTitle>
+              <CardDescription className="text-xs">Recent lifecycle events for this request</CardDescription>
             </div>
             <Button
               size="sm"
               variant="outline"
+              className="shrink-0"
               onClick={async () => {
                 try {
                   const res = await fetch(`/api/requests/${requestId}/audit-export`)
@@ -1399,41 +1455,39 @@ function RequestDetailPage() {
                 }
               }}
             >
-              <Download className="mr-2 h-4 w-4" />
+              <Download className="mr-2 h-3.5 w-3.5" />
               Download audit log
             </Button>
           </div>
         </CardHeader>
-        <CardContent className="space-y-3 pt-4">
+        <CardContent className="px-5 pt-1 pb-4">
           {logsLoading && sortedEvents.length === 0 ? (
             <p className="text-sm text-muted-foreground">Loading logs...</p>
           ) : sortedEvents.length === 0 ? (
             <p className="text-sm text-muted-foreground">No lifecycle events recorded yet.</p>
           ) : (
-            <div className="space-y-2">
+            <ul className="space-y-4">
               {sortedEvents.map((evt: any, idx: number) => (
-                <div
+                <li
                   key={`${evt.timestamp ?? idx}-${idx}`}
-                  className="rounded-md border border-border bg-card px-3 py-2 text-sm text-foreground"
+                  className="border-b border-muted last:border-b-0 pt-4 pb-4 first:pt-0 last:pb-0 text-sm"
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex flex-col">
-                      <span className="font-medium">{formatEventName(evt.event)}</span>
+                    <div className="flex flex-col gap-0.5">
+                      <span className="font-semibold text-foreground">{formatEventName(evt.event)}</span>
                       <span className="text-xs text-muted-foreground">
                         {evt.actor ? `by ${evt.actor}` : "System"}
+                        {evt.timestamp ? ` · ${formatDate(evt.timestamp)}` : ""}
                       </span>
                     </div>
-                    <span className="text-xs text-muted-foreground">
-                      {evt.timestamp ? formatDate(evt.timestamp) : ""}
-                    </span>
                   </div>
                   {evt.data ? (
-                    <div className="mt-2 space-y-1 text-xs text-foreground">
+                    <div className="mt-2 space-y-1 text-xs text-muted-foreground">
                       {Object.entries(evt.data).map(([k, v]) => {
                         const entry = formatDataEntry(k, v, evt.data)
                         return (
-                          <div key={k} className="rounded bg-muted px-2 py-1">
-                            <span className="font-medium">{entry.label}: </span>
+                          <div key={k} className="rounded bg-muted/40 px-2 py-1">
+                            <span className="font-medium text-foreground">{entry.label}: </span>
                             {entry.href ? (
                               <a
                                 className="text-primary hover:underline"
@@ -1444,16 +1498,16 @@ function RequestDetailPage() {
                                 {entry.value}
                               </a>
                             ) : (
-                              <span className="text-muted-foreground">{entry.value}</span>
+                              <span>{entry.value}</span>
                             )}
                           </div>
                         )
                       })}
                     </div>
                   ) : null}
-                </div>
+                </li>
               ))}
-            </div>
+            </ul>
           )}
         </CardContent>
       </Card>
@@ -1472,7 +1526,7 @@ function RequestDetailPage() {
             <DialogDescription>Submit a patch for this request. We will open a new PR and supersede any open PR.</DialogDescription>
           </DialogHeader>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-[1.2fr_0.8fr]">
-            <details className="space-y-3 rounded-md border border-border bg-card p-3" open={false}>
+            <details className="space-y-3 rounded-md bg-muted/30 p-3" open={false}>
               <summary className="cursor-pointer text-sm font-medium text-foreground">Advanced (dangerous)</summary>
               <div className="text-xs text-muted-foreground">
                 Raw JSON patch bypasses typed safety. Prefer using the assistant or form controls.
