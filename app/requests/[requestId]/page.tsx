@@ -92,13 +92,16 @@ function TimelineStep({
     <div className="flex items-center gap-3">
       <div className="flex w-4 shrink-0 items-center justify-center">
         <div
-          className="relative z-10 shrink-0 rounded-full border-2 box-border"
+          className={cn(
+            "relative z-10 shrink-0 rounded-full border-2 box-border",
+            !isActive && "border-muted-foreground/25 dark:border-border"
+          )}
           style={{
             width: 12,
             height: 12,
             boxSizing: "border-box",
             backgroundColor: isActive ? color : "var(--card)",
-            borderColor: isActive ? borderTint : "var(--border)",
+            ...(isActive ? { borderColor: borderTint } : {}),
             boxShadow: glowTint ? `0 0 0 2px ${glowTint}` : undefined,
           }}
           aria-hidden
@@ -972,7 +975,7 @@ function RequestDetailPage() {
           </div>
         </div>
 
-        <div className="mt-4 mb-6 border-t border-border dark:border-slate-800/60" />
+        <div className="mt-4 mb-6 border-t border-border/50 dark:border-slate-800/50" />
 
         <div className="grid grid-cols-1 md:grid-cols-2 md:gap-0 items-stretch">
           <div className="min-w-0 h-full">
@@ -1028,7 +1031,7 @@ function RequestDetailPage() {
             </div>
           </div>
 
-          <div className="min-w-0 h-full border-t border-border pt-4 md:border-t-0 md:border-l md:border-border md:ml-6 md:pl-6 md:pt-0 dark:border-slate-800/60 flex flex-col">
+          <div className="min-w-0 h-full border-t border-border/50 pt-4 md:border-t-0 md:border-l md:border-border/50 md:ml-6 md:pl-6 md:pt-0 dark:border-slate-800/50 flex flex-col">
             <div className="px-5 pt-4 pb-4">
               <h3 className="text-base font-medium leading-none">Status Timeline</h3>
               <p className="text-xs text-muted-foreground mt-2">
@@ -1038,7 +1041,7 @@ function RequestDetailPage() {
             <div className="px-5 pt-1 pb-4 flex flex-col flex-1 min-h-0">
               <div className="relative flex h-full flex-col gap-6">
                 <div
-                  className="absolute left-[7px] top-0 bottom-0 w-0.5 bg-muted-foreground/40"
+                  className="absolute left-[7px] top-0 bottom-0 w-0.5 bg-muted-foreground/25 dark:bg-muted-foreground/40"
                   aria-hidden
                 />
                 {steps.map((step) => {
@@ -1420,7 +1423,7 @@ function RequestDetailPage() {
                         </div>
                         <div
                           className={cn(
-                            "mt-3 overflow-y-auto rounded-lg bg-white p-4 dark:bg-slate-950/80",
+                            "mt-3 overflow-y-auto rounded-lg bg-white p-4 border border-border/50 dark:bg-slate-950/80",
                             !planLogExpanded && "max-h-[480px]",
                           )}
                         >

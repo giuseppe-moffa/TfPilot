@@ -24,7 +24,7 @@ function TableHeader({ className, ...props }: React.ComponentProps<"thead">) {
   return (
     <thead
       data-slot="table-header"
-      className={cn("sticky top-0 z-10 [&_tr_th]:bg-table-header [&_tr_th]:dark:bg-muted/50 [&_tr_th:first-child]:rounded-tl-xl [&_tr_th:last-child]:rounded-tr-xl", className)}
+      className={cn("sticky top-0 z-10 [&_tr_th]:bg-muted/50 [&_tr_th]:dark:bg-muted/50 [&_tr_th:first-child]:rounded-tl-lg [&_tr_th:last-child]:rounded-tr-lg", className)}
       {...props}
     />
   )
@@ -71,7 +71,7 @@ function TableHead({ className, ...props }: React.ComponentProps<"th">) {
     <th
       data-slot="table-head"
       className={cn(
-        "bg-table-header dark:bg-muted/50 text-foreground h-11 px-2 text-left align-middle font-bold tracking-tight whitespace-nowrap [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]",
+        "bg-muted/50 dark:bg-muted/40 text-foreground h-11 px-2 text-left align-middle font-bold tracking-tight whitespace-nowrap [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]",
         className
       )}
       {...props}
@@ -107,7 +107,7 @@ function TableHeadSortable({
             : undefined
       }
       className={cn(
-        "bg-table-header dark:bg-muted/50 text-foreground h-11 px-2 text-left align-middle font-bold tracking-tight whitespace-nowrap cursor-pointer select-none [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]",
+        "bg-muted/50 dark:bg-muted/40 text-foreground h-11 px-2 text-left align-middle font-bold tracking-tight whitespace-nowrap cursor-pointer select-none [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]",
         className
       )}
       onClick={onSort}

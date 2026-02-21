@@ -254,20 +254,20 @@ export default function RequestsPage() {
           </Button>
         </div>
         <div className="px-6 pt-2 pb-6">
-          <div className="mb-4 flex flex-wrap items-center gap-3 mt-4 min-h-11 rounded-lg bg-muted/25 px-4 py-3 border-b border-muted/40">
+          <div className="mb-4 flex flex-wrap items-center gap-3 mt-4 min-h-11 rounded-lg py-3">
             <div className="relative h-11 flex items-center">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 placeholder=""
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="h-11 w-72 pl-9 pr-3 focus-visible:ring-0 focus-visible:ring-offset-0"
+                className="h-11 w-72 shrink-0 pl-9 pr-3 py-0 text-sm focus-visible:ring-0 focus-visible:ring-offset-0"
               />
             </div>
             <div
               role="tablist"
               aria-label="Dataset mode"
-              className="inline-flex h-11 items-stretch rounded-lg bg-filter-bg dark:bg-muted/40 p-1 gap-0"
+              className="inline-flex h-11 items-stretch rounded-lg bg-muted/50 dark:bg-muted/40 p-1 gap-0"
             >
               {(["active", "drifted", "destroyed", "all"] as const).map((mode) => (
                 <button
@@ -289,7 +289,7 @@ export default function RequestsPage() {
             </div>
             <Select value={envFilter} onValueChange={(val) => setEnvFilter(val as typeof envFilter)}>
               <SelectTrigger
-                className="!h-11 min-w-[130px] rounded-md bg-filter-bg dark:bg-muted/40 px-3 text-sm text-foreground shadow-none hover:bg-filter-bg-hover dark:hover:bg-muted/50 data-[state=open]:bg-filter-bg-active dark:data-[state=open]:bg-muted/50 focus-visible:ring-0 focus-visible:ring-offset-0"
+                className="!h-11 min-w-[130px] rounded-md bg-muted/50 dark:bg-muted/40 px-3 text-sm text-foreground shadow-none hover:bg-muted/60 dark:hover:bg-muted/50 data-[state=open]:bg-muted/60 dark:data-[state=open]:bg-muted/50 focus-visible:ring-0 focus-visible:ring-offset-0"
               >
                 <SelectValue placeholder="All envs" />
               </SelectTrigger>
@@ -301,7 +301,7 @@ export default function RequestsPage() {
             </Select>
             <Select value={moduleFilter} onValueChange={(val) => setModuleFilter(val)}>
               <SelectTrigger
-                className="!h-11 min-w-[130px] rounded-md bg-filter-bg dark:bg-muted/40 px-3 text-sm text-foreground shadow-none hover:bg-filter-bg-hover dark:hover:bg-muted/50 data-[state=open]:bg-filter-bg-active dark:data-[state=open]:bg-muted/50 focus-visible:ring-0 focus-visible:ring-offset-0"
+                className="!h-11 min-w-[130px] rounded-md bg-muted/50 dark:bg-muted/40 px-3 text-sm text-foreground shadow-none hover:bg-muted/60 dark:hover:bg-muted/50 data-[state=open]:bg-muted/60 dark:data-[state=open]:bg-muted/50 focus-visible:ring-0 focus-visible:ring-offset-0"
               >
                 <SelectValue placeholder="All modules" />
               </SelectTrigger>
@@ -316,7 +316,7 @@ export default function RequestsPage() {
             </Select>
             <Select value={projectFilter} onValueChange={(val) => setProjectFilter(val)}>
               <SelectTrigger
-                className="!h-11 min-w-[130px] rounded-md bg-filter-bg dark:bg-muted/40 px-3 text-sm text-foreground shadow-none hover:bg-filter-bg-hover dark:hover:bg-muted/50 data-[state=open]:bg-filter-bg-active dark:data-[state=open]:bg-muted/50 focus-visible:ring-0 focus-visible:ring-offset-0"
+                className="!h-11 min-w-[130px] rounded-md bg-muted/50 dark:bg-muted/40 px-3 text-sm text-foreground shadow-none hover:bg-muted/60 dark:hover:bg-muted/50 data-[state=open]:bg-muted/60 dark:data-[state=open]:bg-muted/50 focus-visible:ring-0 focus-visible:ring-offset-0"
               >
                 <SelectValue placeholder="All projects" />
               </SelectTrigger>
