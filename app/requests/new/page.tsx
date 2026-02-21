@@ -4,6 +4,8 @@ import * as React from "react"
 import Link from "next/link"
 import { ArrowLeft, Info, Loader2, Sparkles } from "lucide-react"
 
+import { ActionProgressDialog } from "@/components/action-progress-dialog"
+
 import { AssistantHelper } from "@/components/assistant-helper"
 import { AssistantDrawer } from "@/components/assistant-drawer"
 import { SuggestionPanel } from "@/components/suggestion-panel"
@@ -94,6 +96,8 @@ export default function NewRequestPage() {
   const [modules, setModules] = React.useState<ModuleSchema[]>([])
   const [loadingModules, setLoadingModules] = React.useState(false)
   const [loadingSubmit, setLoadingSubmit] = React.useState(false)
+  const [showCreateDialog, setShowCreateDialog] = React.useState(false)
+  const createDialogTimerRef = React.useRef<number | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const [formValues, setFormValues] = React.useState<Record<string, any>>({})
   const [assistantState, setAssistantState] = React.useState<any>(null)
@@ -102,6 +106,12 @@ export default function NewRequestPage() {
   const [assistantOpen, setAssistantOpen] = React.useState(false)
   const drawerWidth = 520
   const [activeField, setActiveField] = React.useState<string | null>(null)
+
+  React.useEffect(() => {
+    return () => {
+      if (createDialogTimerRef.current) clearTimeout(createDialogTimerRef.current)
+    }
+  }, [])
 
   React.useEffect(() => {
     const loadModules = async () => {
@@ -312,6 +322,8 @@ export default function NewRequestPage() {
     }
     
     setLoadingSubmit(true)
+    setShowCreateDialog(false)
+    createDialogTimerRef.current = window.setTimeout(() => setShowCreateDialog(true), 400)
     try {
       const res = await fetch("/api/requests", {
         method: "POST",
@@ -333,6 +345,11 @@ export default function NewRequestPage() {
     } catch (err: any) {
       setError(err?.message || "Failed to create request")
     } finally {
+      if (createDialogTimerRef.current) {
+        clearTimeout(createDialogTimerRef.current)
+        createDialogTimerRef.current = null
+      }
+      setShowCreateDialog(false)
       setLoadingSubmit(false)
     }
   }
@@ -615,6 +632,17 @@ export default function NewRequestPage() {
             </div>
           </Card>
         </div>
+
+        <ActionProgressDialog
+          open={showCreateDialog}
+          title="Creating request…"
+          body="Generating Terraform configuration and opening pull request."
+          steps={[
+            { label: "Saving configuration", status: "done" },
+            { label: "Generating Terraform", status: "in_progress" },
+            { label: "Opening pull request", status: "pending" },
+          ]}
+        />
 
         <AssistantDrawer
           isOpen={assistantOpen}

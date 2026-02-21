@@ -7,7 +7,7 @@ import useSWR from "swr"
 import { useParams } from "next/navigation"
 
 import { useRequestStatus } from "@/hooks/use-request-status"
-import { normalizeRequestStatus } from "@/lib/status/status-config"
+import { normalizeRequestStatus, isActiveStatus } from "@/lib/status/status-config"
 import { getStatusColor, getStatusLabel } from "@/lib/status/status-config"
 import type { CanonicalStatus } from "@/lib/status/status-config"
 import { Badge } from "@/components/ui/badge"
@@ -36,6 +36,10 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import {
+  ActionProgressDialog,
+  type ActionProgressStep,
+} from "@/components/action-progress-dialog"
 import { StatusIndicator } from "@/components/status/StatusIndicator"
 import { AssistantHelper } from "@/components/assistant-helper"
 import { AssistantDrawer } from "@/components/assistant-drawer"
@@ -85,6 +89,7 @@ function TimelineStep({
   const isDone = state === "done"
   const isCurrent = state === "current"
   const isActive = isDone || isCurrent
+  const showPulse = isCurrent && isActiveStatus(status)
   const color = isActive ? getStatusColor(status) : undefined
   const borderTint = color ? `${color}40` : undefined
   const glowTint = isCurrent && color ? `${color}26` : undefined
@@ -108,15 +113,24 @@ function TimelineStep({
         />
       </div>
       <div className="flex-1 min-w-0">
-        <p
-          className={cn(
-            "text-sm font-medium",
-            isActive ? "text-foreground" : "text-muted-foreground opacity-95"
-          )}
-          style={color ? { color } : undefined}
-        >
-          {displayLabel}
-        </p>
+        <div className="flex items-center gap-2">
+          <p
+            className={cn(
+              "text-sm font-medium",
+              isActive ? "text-foreground" : "text-muted-foreground opacity-95"
+            )}
+            style={color ? { color } : undefined}
+          >
+            {displayLabel}
+          </p>
+        {showPulse && color && (
+          <Loader2
+            className="size-3.5 shrink-0 animate-spin opacity-80"
+            style={{ color }}
+            aria-hidden
+          />
+        )}
+        </div>
         {timestamp && (
           <p className="text-xs text-muted-foreground mt-0.5">{timestamp}</p>
         )}
@@ -336,12 +350,18 @@ function RequestDetailPage() {
   const [applyStatus, setApplyStatus] = React.useState<
     "idle" | "pending" | "success" | "error"
   >("idle")
+  const [mergeError, setMergeError] = React.useState<string | null>(null)
+  const [updatingBranch, setUpdatingBranch] = React.useState(false)
   const [mergeStatus, setMergeStatus] = React.useState<
     "idle" | "pending" | "success" | "error"
   >("idle")
   const [mergeModalOpen, setMergeModalOpen] = React.useState(false)
   const [actionError, setActionError] = React.useState<string | null>(null)
   const [destroyModalOpen, setDestroyModalOpen] = React.useState(false)
+  const [actionProgress, setActionProgress] = React.useState<
+    null | "approve" | "merge" | "apply" | "destroy"
+  >(null)
+  const actionProgressTimerRef = React.useRef<number | null>(null)
   const [destroyStatus, setDestroyStatus] = React.useState<
     "idle" | "pending" | "success" | "error"
   >("idle")
@@ -448,11 +468,15 @@ function RequestDetailPage() {
   const prNumber = memoStatusSlice?.pr?.number ?? request?.pullRequest?.number ?? request?.pr?.number
 
   const planKey = planRunId && !(memoStatusSlice?.plan?.output) ? [`plan-output`, requestId, planRunId] : null
-  const { data: planOutput } = useSWR(planKey, () => fetcher(`/api/github/plan-output?requestId=${requestId}`), {
-    keepPreviousData: true,
-    dedupingInterval: 5000,
-    revalidateOnFocus: false,
-  })
+  const { data: planOutput, isLoading: planOutputLoading } = useSWR(
+    planKey,
+    () => fetcher(`/api/github/plan-output?requestId=${requestId}`),
+    {
+      keepPreviousData: true,
+      dedupingInterval: 5000,
+      revalidateOnFocus: false,
+    }
+  )
 
   const prFilesKey = prNumber ? [`pr-files`, requestId, prNumber] : null
   const { data: prFiles, error: prFilesError } = useSWR(
@@ -548,20 +572,39 @@ function RequestDetailPage() {
     return out
   }, [sortedEvents])
 
+  function startActionProgress(action: "approve" | "merge" | "apply" | "destroy") {
+    setActionProgress(null)
+    actionProgressTimerRef.current = window.setTimeout(() => setActionProgress(action), 400)
+  }
+  function clearActionProgress() {
+    if (actionProgressTimerRef.current) {
+      clearTimeout(actionProgressTimerRef.current)
+      actionProgressTimerRef.current = null
+    }
+    setActionProgress(null)
+  }
+
+  React.useEffect(() => {
+    return () => {
+      if (actionProgressTimerRef.current) clearTimeout(actionProgressTimerRef.current)
+    }
+  }, [])
+
   async function handleApplyOnly() {
     if (!requestId || !memoStatusSlice || memoStatusSlice.status !== "approved") return
+    setApplyModalOpen(false)
     setIsApplying(true)
     setApplyStatus("pending")
-    setApplyModalOpen(true)
+    startActionProgress("apply")
     try {
       await fetch(`/api/requests/${requestId}/apply`, { method: "POST" })
       await mutateStatus(undefined, true)
       setApplyStatus("success")
-      setTimeout(() => setApplyModalOpen(false), 2000)
     } catch (err) {
       console.error("[request apply] error", err)
       setApplyStatus("error")
     } finally {
+      clearActionProgress()
       setIsApplying(false)
     }
   }
@@ -573,6 +616,7 @@ function RequestDetailPage() {
     setIsApplying(true)
     setActionError(null)
     optimisticUpdate({ status: "applying", statusDerivedAt: new Date().toISOString() })
+    startActionProgress("apply")
     try {
       const res = await fetch("/api/github/apply", {
         method: "POST",
@@ -589,15 +633,18 @@ function RequestDetailPage() {
       setActionError(err instanceof Error ? err.message : "Failed to dispatch apply")
       return false
     } finally {
+      clearActionProgress()
       setTimeout(() => setIsApplying(false), 2000)
     }
   }
 
   async function handleDestroy() {
     if (!requestId || isDestroying || isDestroyed) return
+    setDestroyModalOpen(false)
     setDestroyStatus("pending")
     setDestroyError(null)
     optimisticUpdate({ status: "destroying", statusDerivedAt: new Date().toISOString() })
+    startActionProgress("destroy")
     try {
       const res = await fetch(`/api/requests/${requestId}/destroy`, {
         method: "POST",
@@ -608,10 +655,11 @@ function RequestDetailPage() {
       }
       await mutateStatus(undefined, true)
       setDestroyStatus("success")
-      setTimeout(() => setDestroyModalOpen(false), 2000)
     } catch (err: any) {
       setDestroyStatus("error")
       setDestroyError(err?.message || "Failed to dispatch destroy")
+    } finally {
+      clearActionProgress()
     }
   }
 
@@ -652,33 +700,75 @@ function RequestDetailPage() {
 
   async function handleMerge() {
     if (!requestId || !statusSlice || statusSlice.status !== "approved") return
+    setMergeModalOpen(false)
+    setMergeStatus("pending")
+    optimisticUpdate({ status: "merged", statusDerivedAt: new Date().toISOString() })
+    startActionProgress("merge")
     try {
-      setMergeStatus("pending")
-      optimisticUpdate({ status: "merged", statusDerivedAt: new Date().toISOString() })
       const res = await fetch("/api/github/merge", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ requestId }),
       })
+      const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        throw new Error(err?.error || "Failed to merge PR")
+        throw new Error(data?.error || "Failed to merge PR")
       }
-      await mutateStatus(undefined, true)
-      setMergeStatus("success")
-      setTimeout(() => setMergeModalOpen(false), 2000)
+      if (data.branchUpdated) {
+        await mutateStatus(undefined, true)
+        setMergeStatus("idle")
+        setMergeError(null)
+      } else {
+        await mutateStatus(undefined, true)
+        setMergeStatus("success")
+      }
     } catch (err) {
       console.error("[request merge] error", err)
       setMergeStatus("error")
+      setMergeError(err instanceof Error ? err.message : "Merge failed")
+      setMergeModalOpen(true)
+    } finally {
+      clearActionProgress()
     }
   }
 
+  async function handleUpdateBranch() {
+    if (!requestId) return
+    setUpdatingBranch(true)
+    setMergeError(null)
+    try {
+      const res = await fetch("/api/github/update-branch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ requestId }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(data?.error || "Failed to update branch")
+      }
+      await mutateStatus(undefined, true)
+      setMergeStatus("idle")
+      setMergeModalOpen(false)
+    } catch (err) {
+      setMergeError(err instanceof Error ? err.message : "Failed to update branch")
+    } finally {
+      setUpdatingBranch(false)
+    }
+  }
+
+  const mergeNeedsUpdate = !!(
+    mergeStatus === "error" &&
+    mergeError &&
+    (mergeError.includes("dirty") || mergeError.includes("not mergeable"))
+  )
+
   async function handleApprove() {
     if (!requestId || !memoStatusSlice || memoStatusSlice.status === "approved" || memoStatusSlice.status === "applied") return
+    setApproveModalOpen(false)
     setIsApproving(true)
     setApproveStatus("pending")
-    setApproveModalOpen(true)
     optimisticUpdate({ status: "approved", statusDerivedAt: new Date().toISOString() })
+    startActionProgress("approve")
     try {
       const res = await fetch(`/api/requests/${requestId}/approve`, {
         method: "POST",
@@ -686,11 +776,11 @@ function RequestDetailPage() {
       if (!res.ok) throw new Error("Approve failed")
       await mutateStatus(undefined, true)
       setApproveStatus("success")
-      setTimeout(() => setApproveModalOpen(false), 2000)
     } catch (err) {
       console.error("[request approve] error", err)
       setApproveStatus("error")
     } finally {
+      clearActionProgress()
       setIsApproving(false)
     }
   }
@@ -702,6 +792,26 @@ function RequestDetailPage() {
     request?.planRun?.status === "completed"
   const planFailed =
     memoStatusSlice?.planRun?.conclusion === "failure" || request?.planRun?.conclusion === "failure"
+  const planRunStatus = memoStatusSlice?.planRun?.status ?? request?.planRun?.status
+  const planRunConclusion = memoStatusSlice?.planRun?.conclusion ?? request?.planRun?.conclusion
+  const planRunUrl = memoStatusSlice?.planRun?.url ?? request?.planRun?.url
+  const planRunning =
+    planRunStatus === "in_progress" ||
+    planRunStatus === "queued" ||
+    (!!planRunId &&
+      (requestStatus === "planning" ||
+        requestStatus === "pr_open" ||
+        requestStatus === "created" ||
+        requestStatus === "pending") &&
+      !planRunConclusion)
+  const hasPlanText = !!(
+    planOutput?.planText ?? request?.plan?.output ?? request?.pullRequest?.planOutput
+  )
+  const planFetchingOutput =
+    !!planRunId &&
+    !planRunning &&
+    !hasPlanText &&
+    (planOutputLoading || (!!planKey && !planOutput?.planText))
   const prMerged =
     memoStatusSlice?.pr?.merged ??
     request?.pr?.merged ??
@@ -772,6 +882,13 @@ function RequestDetailPage() {
         key: "applied" as const,
         state: "completed" as const,
         subtitle: "Deployment Completed",
+      }
+    }
+    if (requestStatus === "applying" || requestStatus === "applying_changes") {
+      return {
+        key: "applied" as const,
+        state: "pending" as const,
+        subtitle: "Applying…",
       }
     }
     if (isMerged) {
@@ -866,6 +983,7 @@ function RequestDetailPage() {
           if (applyFailed) return "failed"
           return "applied"
         }
+        if (requestStatus === "applying" || requestStatus === "applying_changes") return "applying"
         return "planning"
       default:
         return "request_created"
@@ -882,10 +1000,14 @@ function RequestDetailPage() {
 
   function getStepDisplayLabel(
     stepKey: (typeof steps)[number]["key"],
-    state: "pending" | "done" | "current"
+    state: "pending" | "done" | "current",
+    status?: CanonicalStatus
   ): string {
     if (state === "done" || stepKey === "submitted") {
       return getStatusLabel(getStepCanonicalStatus(stepKey, "done"))
+    }
+    if (state === "current" && status && isActiveStatus(status)) {
+      return getStatusLabel(status)
     }
     return PENDING_STEP_LABELS[stepKey]
   }
@@ -913,11 +1035,61 @@ function RequestDetailPage() {
     { isDestroyed, isDestroying }
   )
 
+  const ACTION_PROGRESS_CONFIG: Record<
+    "approve" | "merge" | "apply" | "destroy",
+    { title: string; body: string; steps: ActionProgressStep[] }
+  > = {
+    approve: {
+      title: "Approving…",
+      body: "Recording approval and updating request status.",
+      steps: [
+        { label: "Saving approval", status: "done" },
+        { label: "Updating request status", status: "in_progress" },
+        { label: "Complete", status: "pending" },
+      ],
+    },
+    merge: {
+      title: "Merging…",
+      body: "Merging pull request and updating branch.",
+      steps: [
+        { label: "Merging PR", status: "done" },
+        { label: "Updating branch", status: "in_progress" },
+        { label: "Complete", status: "pending" },
+      ],
+    },
+    apply: {
+      title: "Applying…",
+      body: "Running Terraform apply workflow.",
+      steps: [
+        { label: "Dispatching workflow", status: "done" },
+        { label: "Running Terraform apply", status: "in_progress" },
+        { label: "Complete", status: "pending" },
+      ],
+    },
+    destroy: {
+      title: "Destroying…",
+      body: "Tearing down resources and updating request.",
+      steps: [
+        { label: "Dispatching destroy", status: "done" },
+        { label: "Tearing down resources", status: "in_progress" },
+        { label: "Complete", status: "pending" },
+      ],
+    },
+  }
+
   return (
     <div
       className="mx-auto max-w-7xl space-y-8 transition-[margin-right]"
       style={{ marginRight: assistantOpen ? drawerWidth : 0 }}
     >
+      {actionProgress && (
+        <ActionProgressDialog
+          open
+          title={ACTION_PROGRESS_CONFIG[actionProgress].title}
+          body={ACTION_PROGRESS_CONFIG[actionProgress].body}
+          steps={ACTION_PROGRESS_CONFIG[actionProgress].steps}
+        />
+      )}
       {hasDrift && (
         <Card className="border-0 bg-destructive/5 shadow-sm">
           <CardContent className="px-5 py-4">
@@ -1054,7 +1226,7 @@ function RequestDetailPage() {
                       ? "done"
                       : "pending"
                   const status = getStepCanonicalStatus(step.key, stepStateVal)
-                  const displayLabel = getStepDisplayLabel(step.key, state)
+                  const displayLabel = getStepDisplayLabel(step.key, state, status)
                   return (
                     <TimelineStep
                       key={step.key}
@@ -1174,6 +1346,7 @@ function RequestDetailPage() {
                       disabled={!statusSlice || statusSlice.status !== "approved" || isMerged || isDestroying || isDestroyed || isFailed}
                       onClick={() => {
                         setMergeStatus("idle")
+                        setMergeError(null)
                         setMergeModalOpen(true)
                       }}
                     >
@@ -1329,14 +1502,77 @@ function RequestDetailPage() {
             </div>
 
             <div className="mt-8 rounded-lg bg-muted/30 pl-4 pr-4 pb-4 shadow-sm">
-              <div className="py-4 pr-0">
+              <div className="py-4 pr-0 flex flex-wrap items-center gap-2">
                 <h3 className="text-lg font-semibold text-foreground">Terraform Plan Output</h3>
-                <p className="mt-0.5 text-sm text-muted-foreground">Review plan output before approve or apply</p>
+                {planRunning && (
+                  <Badge variant="info" className="font-normal text-xs">
+                    Planning…
+                  </Badge>
+                )}
+                <p className="mt-0.5 w-full text-sm text-muted-foreground">
+                  {planRunning
+                    ? "Review plan output once the workflow completes"
+                    : "Review plan output before approve or apply"}
+                </p>
               </div>
               <div>
                 {initialLoading && !request ? (
                   <p className="text-sm text-muted-foreground">Loading plan...</p>
-                ) : planOutput?.planText || request?.plan?.output || request.pullRequest?.planOutput ? (
+                ) : planRunning ? (
+                  <>
+                    <div className="mt-3 min-h-[200px] overflow-hidden rounded-lg bg-muted/50 dark:bg-muted/30 border border-border/50 p-4 space-y-2">
+                      {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+                        <div
+                          key={i}
+                          className="h-3 rounded bg-muted-foreground/15 dark:bg-muted-foreground/20 animate-pulse"
+                          style={{ width: i === 4 ? "60%" : i === 7 ? "40%" : "90%" }}
+                        />
+                      ))}
+                    </div>
+                    <p className="mt-3 text-sm text-muted-foreground">
+                      Terraform plan is running…
+                    </p>
+                  </>
+                ) : planFetchingOutput ? (
+                  <>
+                    <div className="mt-3 min-h-[200px] overflow-hidden rounded-lg bg-muted/50 dark:bg-muted/30 border border-border/50 p-4 space-y-2">
+                      {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+                        <div
+                          key={i}
+                          className="h-3 rounded bg-muted-foreground/15 dark:bg-muted-foreground/20 animate-pulse"
+                          style={{ width: i === 4 ? "60%" : i === 7 ? "40%" : "90%" }}
+                        />
+                      ))}
+                    </div>
+                    <p className="mt-3 text-sm text-muted-foreground">
+                      Fetching plan output…
+                    </p>
+                  </>
+                ) : planFailed && !hasPlanText ? (
+                  <div className="mt-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+                    <p className="text-sm text-destructive font-medium">Plan failed</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      The plan workflow did not complete successfully.
+                    </p>
+                    {planRunUrl && (
+                      <a
+                        className="inline-flex items-center gap-1.5 mt-2 text-xs text-primary hover:underline"
+                        href={planRunUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        <LinkIcon className="size-3.5" />
+                        View run on GitHub Actions
+                      </a>
+                    )}
+                  </div>
+                ) : !planRunId && !hasPlanText ? (
+                  <div className="mt-3 rounded-lg border border-border/50 bg-muted/20 dark:bg-muted/10 p-6 text-center">
+                    <p className="text-sm text-muted-foreground">
+                      Plan will appear once the workflow starts.
+                    </p>
+                  </div>
+                ) : hasPlanText ? (
                   (() => {
                     const planTextRaw =
                       planOutput?.planText ??
@@ -1431,14 +1667,16 @@ function RequestDetailPage() {
                             {planTextDisplay}
                           </Code>
                         </div>
+                        {planFailed && (
+                          <p className="mt-2 text-xs text-destructive">
+                            Plan failed. See excerpt above or open full logs.
+                          </p>
+                        )}
                       </>
                     )
                   })()
                 ) : (
                   <p className="text-sm text-muted-foreground">Plan not generated yet.</p>
-                )}
-                {planOutput?.conclusion === "failure" && (
-                  <p className="mt-2 text-xs text-destructive">Plan failed. See excerpt above or open full logs.</p>
                 )}
               </div>
             </div>
@@ -1728,9 +1966,10 @@ function RequestDetailPage() {
       <Dialog
         open={mergeModalOpen}
         onOpenChange={(val: boolean) => {
-          if (!isApplying && !isApproving && !val) {
+          if (!isApplying && !isApproving && !updatingBranch && !val) {
             setMergeModalOpen(false)
             setMergeStatus("idle")
+            setMergeError(null)
           }
         }}
       >
@@ -1754,8 +1993,27 @@ function RequestDetailPage() {
                   <div className="text-sm text-emerald-700">✅ Pull request merged</div>
                 )}
                 {mergeStatus === "error" && (
-                  <div className="text-sm text-red-700">
-                    ❌ Something went wrong. Please try again.
+                  <div className="space-y-2 text-sm">
+                    <p className="text-destructive">
+                      {mergeError ?? "Something went wrong. Please try again."}
+                    </p>
+                    {mergeNeedsUpdate && !mergeError?.includes("Merge conflict") && (
+                      <p className="text-muted-foreground">
+                        The branch is out of date with the base. Update it with the latest changes, then try merging again.
+                      </p>
+                    )}
+                    {mergeError?.includes("Merge conflict") &&
+                      (request.pullRequest?.url ?? request.pr?.url) && (
+                        <a
+                          href={request.pullRequest?.url ?? request.pr?.url ?? "#"}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1.5 text-primary hover:underline"
+                        >
+                          <LinkIcon className="size-3.5" />
+                          Open PR on GitHub to resolve conflicts
+                        </a>
+                      )}
                   </div>
                 )}
               </div>
@@ -1768,6 +2026,7 @@ function RequestDetailPage() {
                   onClick={() => {
                     setMergeModalOpen(false)
                     setMergeStatus("idle")
+                    setMergeError(null)
                   }}
                 >
                   No
@@ -1779,6 +2038,38 @@ function RequestDetailPage() {
                   }}
                 >
                   Yes, merge
+                </Button>
+              </div>
+            )}
+            {mergeStatus === "error" && (
+              <div className="mt-4 flex flex-wrap justify-end gap-2">
+                {mergeNeedsUpdate && (
+                  <Button
+                    size="sm"
+                    disabled={updatingBranch}
+                    onClick={() => void handleUpdateBranch()}
+                  >
+                    {updatingBranch ? (
+                      <>
+                        <Loader2 className="mr-2 size-4 animate-spin" />
+                        Updating branch…
+                      </>
+                    ) : (
+                      "Update branch"
+                    )}
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={updatingBranch}
+                  onClick={() => {
+                    setMergeModalOpen(false)
+                    setMergeStatus("idle")
+                    setMergeError(null)
+                  }}
+                >
+                  Dismiss
                 </Button>
               </div>
             )}

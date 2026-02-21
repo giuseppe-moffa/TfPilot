@@ -81,7 +81,15 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
 
     if (request.pr?.number) {
       const prRes = await ghWithRetry(token, `/repos/${request.targetOwner}/${request.targetRepo}/pulls/${request.pr.number}`)
-      const prJson = (await prRes.json()) as { merged?: boolean; head?: { sha?: string }; state?: string; html_url?: string; number?: number; title?: string }
+      const prJson = (await prRes.json()) as {
+        merged?: boolean
+        head?: { sha?: string }
+        state?: string
+        html_url?: string
+        number?: number
+        title?: string
+        merge_commit_sha?: string | null
+      }
       request.pr = {
         number: prJson.number ?? request.pr.number,
         url: prJson.html_url ?? request.pr.url,
@@ -89,6 +97,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
         merged: prJson.merged,
         headSha: prJson.head?.sha,
         open: prJson.state === "open",
+      }
+      if (prJson.merged && prJson.merge_commit_sha && !request.mergedSha) {
+        request.mergedSha = prJson.merge_commit_sha
       }
       // keep legacy top-level fields in sync for UI links
       request.prNumber = request.pr.number
@@ -189,6 +200,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
       }
     }
 
+    // Remember whether we had an apply run before discovery (so we don't keep a freshly-discovered run that doesn't belong to this request)
+    const hadApplyRunBeforeSync = !!request.applyRun?.runId
+
     // Discover apply run if missing (try request branch first, then base branch)
     if (!request.applyRun?.runId && env.GITHUB_APPLY_WORKFLOW_FILE) {
       try {
@@ -228,13 +242,16 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
       }
     }
 
-    // Validate applyRun head_sha matches this request; if not, discard to avoid cross-request contamination
+    // Validate applyRun head_sha matches this request; if not, discard to avoid cross-request contamination.
+    // Only keep a non-matching applyRun when we already had it before this sync (so we don't attach another request's successful run to a new request).
     const applyHeadSha = request.applyRun?.headSha
     const candidateShas = new Set(
       [request.mergedSha, request.commitSha, request.planRun?.headSha, request.pr?.headSha].filter(Boolean) as string[]
     )
     const applyMatches = applyHeadSha ? candidateShas.has(applyHeadSha) : false
-    if (request.applyRun && !applyMatches) {
+    const keepApplyRunAnyway =
+      hadApplyRunBeforeSync && request.applyRun?.conclusion === "success"
+    if (request.applyRun && !applyMatches && !keepApplyRunAnyway) {
       request.applyRun = undefined
       request.applyRunId = undefined
       request.applyRunUrl = undefined
@@ -302,8 +319,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
       approval: request.approval,
     })
     if (request.status !== "destroyed") {
-      request.status = derived.status
-      request.reason = derived.reason
+      const keepMerged =
+        previousStatus === "merged" && derived.status !== "merged" && !request.pr?.merged
+      if (!keepMerged) {
+        request.status = derived.status
+        request.reason = derived.reason
+      }
     }
     const nowIso = new Date().toISOString()
     request.statusDerivedAt = nowIso

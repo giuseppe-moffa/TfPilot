@@ -111,12 +111,12 @@ export default function RequestsPage() {
   }, [])
 
   const swr = useSWR("/api/requests", fetcher, {
-    revalidateOnFocus: false,
-    refreshInterval: 8000,
+    revalidateOnFocus: true,
+    refreshInterval: 4000,
     revalidateOnReconnect: true,
     keepPreviousData: true,
   })
-  const { data, error } = swr
+  const { data, error, mutate: mutateList } = swr
   const isValidating = (swr as any).isValidating ?? false
 
   const [requests, setRequests] = React.useState<RequestRow[]>([])
@@ -154,6 +154,27 @@ export default function RequestsPage() {
       })) ?? []
     setRequests(rows)
   }, [data])
+
+  // Sync in-progress requests periodically so table status updates live (without opening each request)
+  const requestsRef = React.useRef<RequestRow[]>([])
+  requestsRef.current = requests
+  React.useEffect(() => {
+    const TERMINAL = new Set(["complete", "applied", "failed", "destroyed"])
+    const interval = setInterval(async () => {
+      const list = requestsRef.current
+      const toSync = list
+        .filter((r) => r.id && !TERMINAL.has(String(r.status ?? "")))
+        .slice(0, 10)
+      if (toSync.length === 0) return
+      await Promise.allSettled(
+        toSync.map((r) =>
+          fetch(`/api/requests/${r.id}/sync`, { cache: "no-store" })
+        )
+      )
+      mutateList()
+    }, 6000)
+    return () => clearInterval(interval)
+  }, [mutateList])
 
   const moduleOptions = React.useMemo(() => {
     const set = new Set<string>()

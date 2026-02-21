@@ -9,6 +9,7 @@ export const CANONICAL_STATUSES = [
   "plan_ready",
   "approved",
   "merged",
+  "applying",
   "applied",
   "destroying",
   "destroyed",
@@ -25,6 +26,7 @@ export type StatusMeta = {
   tone: StatusTone
   color: string
   isTerminal: boolean
+  isActive: boolean
 }
 
 const STATUS_CONFIG: Record<CanonicalStatus, Omit<StatusMeta, "key">> = {
@@ -33,54 +35,70 @@ const STATUS_CONFIG: Record<CanonicalStatus, Omit<StatusMeta, "key">> = {
     tone: "info",
     color: "#3B82F6",
     isTerminal: false,
+    isActive: false,
   },
   planning: {
     label: "Planning in progress",
     tone: "info",
     color: "#2563EB",
     isTerminal: false,
+    isActive: true,
   },
   plan_ready: {
     label: "Plan ready",
     tone: "warning",
     color: "#F59E0B",
     isTerminal: false,
+    isActive: false,
   },
   approved: {
     label: "Approved",
     tone: "info",
     color: "#8B5CF6",
     isTerminal: false,
+    isActive: false,
   },
   merged: {
     label: "Pull request merged",
     tone: "info",
     color: "#6366F1",
     isTerminal: false,
+    isActive: false,
+  },
+  applying: {
+    label: "Applying…",
+    tone: "info",
+    color: "#6366F1",
+    isTerminal: false,
+    isActive: true,
   },
   applied: {
     label: "Deployment Completed",
     tone: "success",
     color: "#10B981",
-    isTerminal: false,
+    isTerminal: true,
+    isActive: false,
   },
   destroying: {
     label: "Destroying",
     tone: "warning",
     color: "#F97316",
     isTerminal: false,
+    isActive: true,
   },
   destroyed: {
     label: "Destroyed",
     tone: "muted",
     color: "#6B7280",
     isTerminal: true,
+    isActive: false,
   },
   failed: {
     label: "Failed",
     tone: "destructive",
     color: "#EF4444",
     isTerminal: true,
+    isActive: false,
   },
 }
 
@@ -98,7 +116,12 @@ export function getStatusMeta(status: CanonicalStatus | string): StatusMeta {
     tone: "info",
     color: FALLBACK_COLOR,
     isTerminal: false,
+    isActive: false,
   }
+}
+
+export function isActiveStatus(status: CanonicalStatus | string): boolean {
+  return getStatusMeta(status).isActive
 }
 
 export function getStatusColor(status: CanonicalStatus | string): string {
@@ -135,8 +158,10 @@ export function normalizeRequestStatus(
     case "applied":
       return "applied"
     case "merged":
-    case "applying":
       return "merged"
+    case "applying":
+    case "applying_changes":
+      return "applying"
     case "approved":
     case "awaiting_approval":
       return "approved"
