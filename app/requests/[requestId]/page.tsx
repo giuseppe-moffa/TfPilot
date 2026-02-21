@@ -2,12 +2,14 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { CheckCircle2, ChevronDown, ChevronUp, Copy, Github, Loader2, Link as LinkIcon, Download, Wand2 } from "lucide-react"
+import { ChevronDown, ChevronUp, Copy, Github, Loader2, Link as LinkIcon, Download, Wand2 } from "lucide-react"
 import useSWR from "swr"
 import { useParams } from "next/navigation"
 
 import { useRequestStatus } from "@/hooks/use-request-status"
-import { getDisplayStatusLabel } from "@/lib/requests/status"
+import { normalizeRequestStatus } from "@/lib/status/status-config"
+import { getStatusColor, getStatusLabel } from "@/lib/status/status-config"
+import type { CanonicalStatus } from "@/lib/status/status-config"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -34,7 +36,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { StatusIndicator } from "@/components/status-indicator"
+import { StatusIndicator } from "@/components/status/StatusIndicator"
 import { AssistantHelper } from "@/components/assistant-helper"
 import { AssistantDrawer } from "@/components/assistant-drawer"
 import { SuggestionPanel } from "@/components/suggestion-panel"
@@ -68,6 +70,57 @@ const steps = [
   { key: "merged", label: "Merged" },
   { key: "applied", label: "Applied" },
 ] as const
+
+function TimelineStep({
+  displayLabel,
+  status,
+  state,
+  timestamp,
+}: {
+  displayLabel: string
+  status: CanonicalStatus
+  state: "pending" | "done" | "current"
+  timestamp?: string
+}) {
+  const isDone = state === "done"
+  const isCurrent = state === "current"
+  const isActive = isDone || isCurrent
+  const color = isActive ? getStatusColor(status) : undefined
+  const borderTint = color ? `${color}40` : undefined
+  const glowTint = isCurrent && color ? `${color}26` : undefined
+  return (
+    <div className="flex items-center gap-3">
+      <div className="flex w-4 shrink-0 items-center justify-center">
+        <div
+          className="relative z-10 shrink-0 rounded-full border-2 box-border"
+          style={{
+            width: 12,
+            height: 12,
+            boxSizing: "border-box",
+            backgroundColor: isActive ? color : "var(--card)",
+            borderColor: isActive ? borderTint : "var(--border)",
+            boxShadow: glowTint ? `0 0 0 2px ${glowTint}` : undefined,
+          }}
+          aria-hidden
+        />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p
+          className={cn(
+            "text-sm font-medium",
+            isActive ? "text-foreground" : "text-muted-foreground opacity-95"
+          )}
+          style={color ? { color } : undefined}
+        >
+          {displayLabel}
+        </p>
+        {timestamp && (
+          <p className="text-xs text-muted-foreground mt-0.5">{timestamp}</p>
+        )}
+      </div>
+    </div>
+  )
+}
 
 const statusBadgeVariant: Record<
   "submitted" | "planned" | "merged" | "applied",
@@ -472,6 +525,26 @@ function RequestDetailPage() {
     })
   }, [logsData?.events])
 
+  const eventToStep: Record<string, (typeof steps)[number]["key"]> = {
+    request_created: "submitted",
+    plan_dispatched: "planned",
+    request_approved: "approved",
+    pr_merged: "merged",
+    apply_dispatched: "applied",
+  }
+  const stepTimestamps = React.useMemo(() => {
+    const out: Partial<Record<(typeof steps)[number]["key"], string>> = {}
+    for (const evt of sortedEvents) {
+      const stepKey = eventToStep[evt?.event ?? ""]
+      const ts = evt?.timestamp
+      if (stepKey && ts && !out[stepKey]) {
+        const parsed = Date.parse(ts)
+        if (!Number.isNaN(parsed)) out[stepKey] = formatDate(ts)
+      }
+    }
+    return out
+  }, [sortedEvents])
+
   async function handleApplyOnly() {
     if (!requestId || !memoStatusSlice || memoStatusSlice.status !== "approved") return
     setIsApplying(true)
@@ -745,7 +818,7 @@ function RequestDetailPage() {
       case "merged":
         return isMerged ? "done" : "pending"
       case "applied":
-        return isApplied ? "done" : "pending"
+        return isApplied || isDestroying || isDestroyed ? "done" : "pending"
       default:
         return "pending"
     }
@@ -770,6 +843,50 @@ function RequestDetailPage() {
     }
   }
 
+  function getStepCanonicalStatus(
+    stepKey: (typeof steps)[number]["key"],
+    state: "pending" | "done"
+  ): CanonicalStatus {
+    switch (stepKey) {
+      case "submitted":
+        return "request_created"
+      case "planned":
+        return state === "done" ? (planFailed ? "failed" : "plan_ready") : "planning"
+      case "approved":
+        return state === "done" ? "approved" : "planning"
+      case "merged":
+        return state === "done" ? "merged" : "planning"
+      case "applied":
+        if (state === "done") {
+          if (isDestroyed) return "destroyed"
+          if (isDestroying) return "destroying"
+          if (applyFailed) return "failed"
+          return "applied"
+        }
+        return "planning"
+      default:
+        return "request_created"
+    }
+  }
+
+  const PENDING_STEP_LABELS: Record<(typeof steps)[number]["key"], string> = {
+    submitted: "Request created",
+    planned: "Waiting for plan",
+    approved: "Waiting for approval",
+    merged: "Waiting for PR merge",
+    applied: "Waiting for apply",
+  }
+
+  function getStepDisplayLabel(
+    stepKey: (typeof steps)[number]["key"],
+    state: "pending" | "done" | "current"
+  ): string {
+    if (state === "done" || stepKey === "submitted") {
+      return getStatusLabel(getStepCanonicalStatus(stepKey, "done"))
+    }
+    return PENDING_STEP_LABELS[stepKey]
+  }
+
   if (initialLoading && !request) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center text-muted-foreground">
@@ -788,8 +905,9 @@ function RequestDetailPage() {
 
   const hasDrift = request.drift?.status === "detected"
 
-  const statusLabel = getDisplayStatusLabel(
-    isDestroyed ? "destroyed" : isDestroying ? "destroying" : requestStatus
+  const canonicalStatus = normalizeRequestStatus(
+    isDestroyed ? "destroyed" : isDestroying ? "destroying" : requestStatus,
+    { isDestroyed, isDestroying }
   )
 
   return (
@@ -841,7 +959,7 @@ function RequestDetailPage() {
               {request.revision ? (
                 <Badge variant="secondary" className="font-normal">Rev {request.revision}</Badge>
               ) : null}
-              <StatusIndicator label={statusLabel} />
+              <StatusIndicator status={canonicalStatus} />
             </div>
             <p className="text-sm text-muted-foreground mt-1">
               {request.project} · {request.environment} · {request.module ?? "—"}
@@ -856,8 +974,8 @@ function RequestDetailPage() {
 
         <div className="mt-4 mb-6 border-t border-border dark:border-slate-800/60" />
 
-        <div className="grid grid-cols-1 md:grid-cols-2 md:gap-0">
-          <div className="min-w-0">
+        <div className="grid grid-cols-1 md:grid-cols-2 md:gap-0 items-stretch">
+          <div className="min-w-0 h-full">
             <div className="px-5 pt-4 pb-4">
               <h3 className="text-base font-medium leading-none">Overview</h3>
               <p className="text-xs text-muted-foreground mt-2">
@@ -910,45 +1028,38 @@ function RequestDetailPage() {
             </div>
           </div>
 
-          <div className="min-w-0 border-t border-border pt-4 md:border-t-0 md:border-l md:border-border md:ml-6 md:pl-6 md:pt-0 dark:border-slate-800/60">
-            <div className="px-5 pt-4 pb-4 md:pt-0">
+          <div className="min-w-0 h-full border-t border-border pt-4 md:border-t-0 md:border-l md:border-border md:ml-6 md:pl-6 md:pt-0 dark:border-slate-800/60 flex flex-col">
+            <div className="px-5 pt-4 pb-4">
               <h3 className="text-base font-medium leading-none">Status Timeline</h3>
               <p className="text-xs text-muted-foreground mt-2">
                 Lifecycle of this request
               </p>
             </div>
-            <div className="px-5 pt-1 pb-4">
-              <div className="flex flex-col gap-3">
-                {steps.map((step, idx) => {
-                  const state = stepState(step.key)
-                  const isDone = state === "done"
-                  const subtitle = stepSubtitle(step.key, state)
+            <div className="px-5 pt-1 pb-4 flex flex-col flex-1 min-h-0">
+              <div className="relative flex h-full flex-col gap-6">
+                <div
+                  className="absolute left-[7px] top-0 bottom-0 w-0.5 bg-muted-foreground/40"
+                  aria-hidden
+                />
+                {steps.map((step) => {
+                  const stepStateVal = stepState(step.key)
+                  const isCurrent =
+                    step.key === stepInfo.key && stepInfo.state === "pending"
+                  const state: "pending" | "done" | "current" = isCurrent
+                    ? "current"
+                    : stepStateVal === "done"
+                      ? "done"
+                      : "pending"
+                  const status = getStepCanonicalStatus(step.key, stepStateVal)
+                  const displayLabel = getStepDisplayLabel(step.key, state)
                   return (
-                    <div key={step.key} className="flex gap-3">
-                      <div className="flex flex-col items-center">
-                        <div
-                          className={cn(
-                            "flex size-6 items-center justify-center rounded-full border shrink-0",
-                            isDone
-                              ? "border-success/30 bg-success/10 text-success"
-                              : "border-border bg-muted/50 text-muted-foreground"
-                          )}
-                        >
-                          {isDone ? (
-                            <CheckCircle2 className="size-3.5 text-success" />
-                          ) : (
-                            <Loader2 className="size-3.5 animate-spin text-muted-foreground" />
-                          )}
-                        </div>
-                        {idx < steps.length - 1 && (
-                          <div className="w-px flex-1 min-h-[8px] bg-border my-0.5" />
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0 pt-0.5">
-                        <p className="text-sm font-medium text-foreground">{step.label}</p>
-                        <StatusIndicator label={subtitle} />
-                      </div>
-                    </div>
+                    <TimelineStep
+                      key={step.key}
+                      displayLabel={displayLabel}
+                      status={status}
+                      state={state}
+                      timestamp={stepTimestamps[step.key]}
+                    />
                   )
                 })}
               </div>
@@ -1309,7 +1420,7 @@ function RequestDetailPage() {
                         </div>
                         <div
                           className={cn(
-                            "mt-3 overflow-y-auto rounded-lg border border-border bg-white p-4 dark:bg-slate-950/80",
+                            "mt-3 overflow-y-auto rounded-lg bg-white p-4 dark:bg-slate-950/80",
                             !planLogExpanded && "max-h-[480px]",
                           )}
                         >

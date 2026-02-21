@@ -24,7 +24,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
-import { StatusIndicator } from "@/components/status-indicator"
+import { StatusIndicator } from "@/components/status/StatusIndicator"
 import {
   Tooltip,
   TooltipContent,
@@ -35,7 +35,8 @@ import { Eye, Search } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useAwsConnection } from "../providers"
 import type { RequestStatus } from "@/lib/requests/status"
-import { getDisplayStatusLabel } from "@/lib/requests/status"
+import { normalizeRequestStatus } from "@/lib/status/status-config"
+import { getStatusLabel } from "@/lib/status/status-config"
 
 type RequestRow = {
   id: string
@@ -60,16 +61,14 @@ type DisplayStatus = "submitted" | "planned" | "approved" | "merged" | "applied"
 
 function computeStatus(row: RequestRow): {
   step: DisplayStatus
-  subtitle: string
   state: "completed" | "pending"
 } {
   const status = row.status ?? "pending"
-  const subtitle = getDisplayStatusLabel(status)
   if (status === "destroyed") {
-    return { step: "destroyed", subtitle, state: "completed" }
+    return { step: "destroyed", state: "completed" }
   }
   if (status === "destroying") {
-    return { step: "destroyed", subtitle, state: "pending" }
+    return { step: "destroyed", state: "pending" }
   }
   const isApplied = status === "applied" || status === "complete"
   const isMerged =
@@ -77,11 +76,11 @@ function computeStatus(row: RequestRow): {
   const isApproved = status === "approved" || status === "awaiting_approval" || isMerged
   const isPlanReady = status === "planned" || status === "plan_ready" || isApproved || isMerged || isApplied
 
-  if (isApplied) return { step: "applied", subtitle, state: "completed" }
-  if (isMerged) return { step: "merged", subtitle, state: "completed" }
-  if (isApproved) return { step: "approved", subtitle, state: "completed" }
-  if (isPlanReady) return { step: "planned", subtitle, state: "completed" }
-  return { step: "submitted", subtitle, state: "pending" }
+  if (isApplied) return { step: "applied", state: "completed" }
+  if (isMerged) return { step: "merged", state: "completed" }
+  if (isApproved) return { step: "approved", state: "completed" }
+  if (isPlanReady) return { step: "planned", state: "completed" }
+  return { step: "submitted", state: "pending" }
 }
 
 function formatTimestamp(iso?: string) {
@@ -216,8 +215,17 @@ export default function RequestsPage() {
           return dir * (a.service ?? "N/A").localeCompare(b.service ?? "N/A")
         case "environment":
           return dir * (a.environment ?? "").localeCompare(b.environment ?? "")
-        case "status":
-          return dir * computeStatus(a).subtitle.localeCompare(computeStatus(b).subtitle)
+        case "status": {
+          const canonicalA = normalizeRequestStatus(a.status, {
+            isDestroyed: a.status === "destroyed",
+            isDestroying: a.status === "destroying",
+          })
+          const canonicalB = normalizeRequestStatus(b.status, {
+            isDestroyed: b.status === "destroyed",
+            isDestroying: b.status === "destroying",
+          })
+          return dir * getStatusLabel(canonicalA).localeCompare(getStatusLabel(canonicalB))
+        }
         case "createdAt": {
           const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0
           const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0
@@ -246,7 +254,7 @@ export default function RequestsPage() {
           </Button>
         </div>
         <div className="px-6 pt-2 pb-6">
-          <div className="mb-4 flex flex-wrap items-center gap-3 mt-4 min-h-11 pb-4 border-b border-muted/30">
+          <div className="mb-4 flex flex-wrap items-center gap-3 mt-4 min-h-11 rounded-lg bg-muted/25 px-4 py-3 border-b border-muted/40">
             <div className="relative h-11 flex items-center">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
@@ -400,9 +408,15 @@ export default function RequestsPage() {
                     <TableCell className="capitalize">
                       {item.environment}
                     </TableCell>
-                    <TableCell className="text-sm text-foreground whitespace-normal break-words leading-tight">
-                      <div className="flex items-center gap-2">
-                        <StatusIndicator label={computeStatus(item).subtitle} />
+                    <TableCell className="text-sm text-foreground whitespace-normal break-words leading-tight align-middle">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <StatusIndicator
+                          variant="pill"
+                          status={normalizeRequestStatus(item.status, {
+                            isDestroyed: item.status === "destroyed",
+                            isDestroying: item.status === "destroying",
+                          })}
+                        />
                         {item.drift?.status === "detected" && (
                           <Badge variant="destructive" className="text-xs">
                             Drift
