@@ -74,3 +74,34 @@ export function deriveStatus(input: {
 
   return { status: "created", reason: "Pending PR creation" }
 }
+
+/** Display label for UI (table + detail). Single source of truth so list and detail match. */
+export function getDisplayStatusLabel(status: string | undefined): string {
+  const s = status ?? "pending"
+  switch (s) {
+    case "destroyed":
+      return "Destroyed"
+    case "destroying":
+      return "Destroying"
+    case "complete":
+    case "applied":
+      return "Deployment Completed"
+    case "merged":
+    case "applying":
+      return "Pull request merged"
+    case "approved":
+    case "awaiting_approval":
+      return "Approved"
+    case "plan_ready":
+    case "planned":
+      return "Plan ready"
+    case "planning":
+    case "pr_open":
+    case "created":
+      return "Planning in progress"
+    case "failed":
+      return "Failed"
+    default:
+      return "Request created"
+  }
+}

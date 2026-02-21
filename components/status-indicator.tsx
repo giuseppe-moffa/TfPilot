@@ -1,13 +1,22 @@
 "use client"
 
 const STATUS_COLORS: Record<string, string> = {
-  "Request created": "#4C8DFF",
-  "Plan ready": "#EAB03D", // amber ~5% softer than #F5B942
-  "Approved, awaiting merge": "#9B7CFF",
-  "Pull request merged": "#6A8DFF",
-  "Deployment Completed": "#3ECF8E",
-  Destroying: "#F59E0B",
-  Destroyed: "#8A94A6",
+  "Request created": "#3B82F6",        // blue-500 (info)
+  "Planning in progress": "#2563EB",   // blue-600 (active info)
+
+  "Plan ready": "#F59E0B",             // amber-500 (attention / ready)
+
+  Approved: "#8B5CF6",                 // violet-500 (decision state)
+
+  "Pull request merged": "#6366F1",    // indigo-500 (code workflow)
+
+  "Deployment Completed": "#10B981",   // emerald-500 (success)
+
+  Destroying: "#F97316",               // orange-500 (active destructive)
+
+  Destroyed: "#6B7280",                // gray-500 (inactive / terminal)
+
+  Failed: "#EF4444",                   // red-500 (error)
 }
 
 const FALLBACK_COLOR = "#8A94A6"

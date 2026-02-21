@@ -9,6 +9,7 @@ import { env, logEnvDebug } from "@/lib/config/env"
 import { saveRequest, listRequests } from "@/lib/storage/requestsStore"
 import { moduleRegistry, type ModuleRegistryEntry, type ModuleField } from "@/config/module-registry"
 import { generateRequestId } from "@/lib/requests/id"
+import { deriveStatus } from "@/lib/requests/status"
 import { buildResourceName, validateResourceName } from "@/lib/requests/naming"
 import { getSessionFromCookies } from "@/lib/auth/session"
 import { logLifecycleEvent } from "@/lib/logs/lifecycle"
@@ -735,7 +736,23 @@ export async function POST(request: NextRequest) {
 
 export async function GET(_req: NextRequest) {
   try {
-    const requests: StoredRequest[] = (await listRequests()) as StoredRequest[]
+    const raw: StoredRequest[] = (await listRequests()) as StoredRequest[]
+    const requests = raw.map((req) => {
+      if (req.status === "destroyed" || req.status === "destroying") {
+        return req
+      }
+      const derived = deriveStatus({
+        pr: req.pr,
+        planRun: req.planRun,
+        applyRun: req.applyRun,
+        approval: req.approval,
+      })
+      let status = derived.status
+      if (req.applyRun?.conclusion === "failure") {
+        status = "failed"
+      }
+      return { ...req, status }
+    })
     return NextResponse.json({
       success: true,
       requests,

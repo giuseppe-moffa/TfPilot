@@ -35,6 +35,7 @@ import { Eye, Search } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useAwsConnection } from "../providers"
 import type { RequestStatus } from "@/lib/requests/status"
+import { getDisplayStatusLabel } from "@/lib/requests/status"
 
 type RequestRow = {
   id: string
@@ -63,11 +64,12 @@ function computeStatus(row: RequestRow): {
   state: "completed" | "pending"
 } {
   const status = row.status ?? "pending"
+  const subtitle = getDisplayStatusLabel(status)
   if (status === "destroyed") {
-    return { step: "destroyed", subtitle: "Destroyed", state: "completed" }
+    return { step: "destroyed", subtitle, state: "completed" }
   }
   if (status === "destroying") {
-    return { step: "destroyed", subtitle: "Destroying", state: "pending" }
+    return { step: "destroyed", subtitle, state: "pending" }
   }
   const isApplied = status === "applied" || status === "complete"
   const isMerged =
@@ -75,19 +77,11 @@ function computeStatus(row: RequestRow): {
   const isApproved = status === "approved" || status === "awaiting_approval" || isMerged
   const isPlanReady = status === "planned" || status === "plan_ready" || isApproved || isMerged || isApplied
 
-  if (isApplied) {
-    return { step: "applied", subtitle: "Deployment Completed", state: "completed" }
-  }
-  if (isMerged) {
-    return { step: "merged", subtitle: "Pull request merged", state: "completed" }
-  }
-  if (isApproved) {
-    return { step: "approved", subtitle: "Approved, awaiting merge", state: "completed" }
-  }
-  if (isPlanReady) {
-    return { step: "planned", subtitle: "Plan ready", state: "completed" }
-  }
-  return { step: "submitted", subtitle: "Request created", state: "pending" }
+  if (isApplied) return { step: "applied", subtitle, state: "completed" }
+  if (isMerged) return { step: "merged", subtitle, state: "completed" }
+  if (isApproved) return { step: "approved", subtitle, state: "completed" }
+  if (isPlanReady) return { step: "planned", subtitle, state: "completed" }
+  return { step: "submitted", subtitle, state: "pending" }
 }
 
 function formatTimestamp(iso?: string) {

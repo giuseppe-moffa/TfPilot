@@ -7,6 +7,7 @@ import useSWR from "swr"
 import { useParams } from "next/navigation"
 
 import { useRequestStatus } from "@/hooks/use-request-status"
+import { getDisplayStatusLabel } from "@/lib/requests/status"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -82,7 +83,7 @@ function lineClass(line: string) {
   const trimmed = line.trimStart()
   if (trimmed.startsWith("@@")) return "bg-muted text-foreground"
   if (trimmed.startsWith("+"))
-    return "bg-emerald-50 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-100"
+    return "bg-emerald-50 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200"
   if (trimmed.startsWith("-"))
     return "bg-red-50 text-red-900 dark:bg-red-950 dark:text-red-100"
   return "text-foreground"
@@ -91,7 +92,7 @@ function lineClass(line: string) {
 function lineNumberClass(line: ParsedPatchLine) {
   if (line.kind === "meta") return "bg-muted text-muted-foreground"
   if (line.kind === "add")
-    return "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-100"
+    return "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"
   if (line.kind === "del")
     return "bg-red-100 text-red-900 dark:bg-red-950 dark:text-red-100"
   return "text-muted-foreground"
@@ -787,8 +788,9 @@ function RequestDetailPage() {
 
   const hasDrift = request.drift?.status === "detected"
 
-  const statusLabel =
-    isDestroyed ? "Destroyed" : isDestroying ? "Destroying" : stepInfo.subtitle
+  const statusLabel = getDisplayStatusLabel(
+    isDestroyed ? "destroyed" : isDestroying ? "destroying" : requestStatus
+  )
 
   return (
     <div
