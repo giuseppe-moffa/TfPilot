@@ -68,7 +68,7 @@ export default function RootLayout({
           <AuthProvider>
             <AwsConnectionProvider>
               <div className="flex min-h-screen flex-col">
-                <header className="bg-card backdrop-blur">
+                <header className="bg-card backdrop-blur shadow-[0_4px_6px_-1px_rgba(0,0,0,0.05),0_2px_4px_-2px_rgba(0,0,0,0.04)] dark:shadow-[0_4px_6px_-1px_rgba(0,0,0,0.12),0_2px_4px_-2px_rgba(0,0,0,0.08)]">
                   <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
                     <Link href="/requests" className="text-lg font-semibold text-foreground hover:text-foreground/80">
                       TfPilot
