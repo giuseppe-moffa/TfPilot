@@ -17,7 +17,7 @@ export async function POST(_req: Request, context: RouteContext) {
     if (code === "NoSuchKey") {
       return NextResponse.json({ error: "Not found" }, { status: 404 })
     }
-    console.error("[admin/templates/[id]/delete] error:", err)
+    console.error("[templates/admin/[id]/delete] error:", err)
     return NextResponse.json(
       { error: "Failed to delete template" },
       { status: 500 }

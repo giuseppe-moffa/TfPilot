@@ -5,7 +5,7 @@ import { getTemplate, createTemplateWithId } from "@/lib/templates-store"
 import { DEFAULT_SEED_TEMPLATES } from "@/lib/templates-store-seed-defaults"
 
 /**
- * POST /api/admin/templates/seed
+ * POST /api/templates/admin/seed
  * One-time migration: creates the legacy default templates in S3 if they don't exist.
  * Admin-only. Idempotent: skips any template that already exists (same id).
  */
@@ -27,7 +27,7 @@ export async function POST() {
         created.push(id)
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
-        console.error("[admin/templates/seed] Failed to create:", id, err)
+        console.error("[templates/admin/seed] Failed to create:", id, err)
         return NextResponse.json(
           {
             error: `Failed to create template ${id}`,

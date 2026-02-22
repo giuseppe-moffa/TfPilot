@@ -150,6 +150,7 @@ export default function TemplateEditorPage() {
   const [, setTemplate] = React.useState<StoredTemplate | null>(null)
   const [loading, setLoading] = React.useState(!isNew)
   const [notFound, setNotFound] = React.useState(false)
+  const [readOnly, setReadOnly] = React.useState(false)
   const [saving, setSaving] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
 
@@ -178,28 +179,43 @@ export default function TemplateEditorPage() {
     }
     let cancelled = false
     async function load() {
-      const res = await fetch(`/api/admin/templates/${id}`)
+      let res = await fetch(`/api/templates/admin/${id}`)
       if (cancelled) return
-      if (res.status === 404) {
-        setNotFound(true)
+      if (res.ok) {
+        const data = await res.json()
+        setTemplate(data)
+        setLabel(data.label ?? "")
+        setDescription(data.description ?? "")
+        setProject((data.project && String(data.project).trim()) ? data.project : ANY_PROJECT_VALUE)
+        setEnvironment(data.environment ?? "")
+        setModuleType(data.module ?? "")
+        setDefaultConfig(data.defaultConfig ?? {})
+        setRawJsonText(JSON.stringify(data.defaultConfig ?? {}, null, 2))
+        setEnabled(data.enabled ?? true)
+        setConfigFormValues(data.defaultConfig ?? {})
+        setReadOnly(false)
         setLoading(false)
         return
       }
-      if (!res.ok) {
+      res = await fetch(`/api/templates/${id}`)
+      if (cancelled) return
+      if (res.ok) {
+        const data = await res.json()
+        setTemplate(data)
+        setLabel(data.label ?? "")
+        setDescription(data.description ?? "")
+        setProject((data.project && String(data.project).trim()) ? data.project : ANY_PROJECT_VALUE)
+        setEnvironment(data.environment ?? "")
+        setModuleType(data.module ?? "")
+        setDefaultConfig(data.defaultConfig ?? {})
+        setRawJsonText(JSON.stringify(data.defaultConfig ?? {}, null, 2))
+        setEnabled(data.enabled ?? true)
+        setConfigFormValues(data.defaultConfig ?? {})
+        setReadOnly(true)
         setLoading(false)
         return
       }
-      const data = await res.json()
-      setTemplate(data)
-      setLabel(data.label ?? "")
-      setDescription(data.description ?? "")
-      setProject((data.project && String(data.project).trim()) ? data.project : ANY_PROJECT_VALUE)
-      setEnvironment(data.environment ?? "")
-      setModuleType(data.module ?? "")
-      setDefaultConfig(data.defaultConfig ?? {})
-      setRawJsonText(JSON.stringify(data.defaultConfig ?? {}, null, 2))
-      setEnabled(data.enabled ?? true)
-      setConfigFormValues(data.defaultConfig ?? {})
+      setNotFound(true)
       setLoading(false)
     }
     void load()
@@ -282,7 +298,7 @@ export default function TemplateEditorPage() {
         enabled,
       }
       if (isNew) {
-        const res = await fetch("/api/admin/templates", {
+        const res = await fetch("/api/templates/admin", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
@@ -294,7 +310,7 @@ export default function TemplateEditorPage() {
         const created = await res.json()
         router.replace(`/catalogue/${created.id}`)
       } else {
-        const res = await fetch(`/api/admin/templates/${id}`, {
+        const res = await fetch(`/api/templates/admin/${id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
@@ -344,12 +360,21 @@ export default function TemplateEditorPage() {
             Back
           </Button>
         </Link>
-        <h1 className="text-lg font-semibold">{isNew ? "New template" : "Edit template"}</h1>
-        <Button onClick={handleSave} disabled={!!validationError || saving}>
-          Save
-        </Button>
+        <h1 className="text-lg font-semibold">
+          {isNew ? "New template" : readOnly ? "View template" : "Edit template"}
+        </h1>
+        {readOnly ? (
+          <Link href={`/requests/new?templateId=${id}`}>
+            <Button size="sm">Create request</Button>
+          </Link>
+        ) : (
+          <Button onClick={handleSave} disabled={!!validationError || saving}>
+            Save
+          </Button>
+        )}
       </header>
 
+      {!readOnly && (
       <Dialog open={saving} onOpenChange={() => {}}>
         <DialogContent className="sm:max-w-xs" onPointerDownOutside={(e) => e.preventDefault()} onEscapeKeyDown={(e) => e.preventDefault()}>
           <DialogHeader>
@@ -361,6 +386,7 @@ export default function TemplateEditorPage() {
           </div>
         </DialogContent>
       </Dialog>
+      )}
 
       {error && (
         <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -372,11 +398,11 @@ export default function TemplateEditorPage() {
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
             <Label>Label *</Label>
-            <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. Dev Compute" />
+            <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. Dev Compute" readOnly={readOnly} disabled={readOnly} className={readOnly ? "bg-muted" : ""} />
           </div>
           <div className="space-y-2">
             <Label>Description</Label>
-            <Input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Optional" />
+            <Input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Optional" readOnly={readOnly} disabled={readOnly} className={readOnly ? "bg-muted" : ""} />
           </div>
           <div className="space-y-2">
             <Label>Project (optional – leave empty for any project)</Label>
@@ -387,6 +413,7 @@ export default function TemplateEditorPage() {
                 const forEnvs = v === ANY_PROJECT_VALUE ? (projects[0] ?? "") : v
                 setEnvironment(listEnvironments(forEnvs)[0] ?? "")
               }}
+              disabled={readOnly}
             >
               <SelectTrigger>
                 <SelectValue placeholder="Any project" />
@@ -401,7 +428,7 @@ export default function TemplateEditorPage() {
           </div>
           <div className="space-y-2">
             <Label>Environment *</Label>
-            <Select value={environment} onValueChange={setEnvironment}>
+            <Select value={environment} onValueChange={setEnvironment} disabled={readOnly}>
               <SelectTrigger>
                 <SelectValue placeholder="Select environment" />
               </SelectTrigger>
@@ -414,7 +441,7 @@ export default function TemplateEditorPage() {
           </div>
           <div className="space-y-2 sm:col-span-2">
             <Label>Module *</Label>
-            <Select value={moduleType} onValueChange={(v) => { setModuleType(v); setConfigFormValues({}); setDefaultConfig({}); }}>
+            <Select value={moduleType} onValueChange={(v) => { setModuleType(v); setConfigFormValues({}); setDefaultConfig({}); }} disabled={readOnly}>
               <SelectTrigger>
                 <SelectValue placeholder="Select module" />
               </SelectTrigger>
@@ -427,7 +454,7 @@ export default function TemplateEditorPage() {
           </div>
           <div className="flex items-center gap-2 sm:col-span-2">
             <Label>Enabled</Label>
-            <Switch checked={enabled} onCheckedChange={setEnabled} />
+            <Switch checked={enabled} onCheckedChange={setEnabled} disabled={readOnly} />
           </div>
         </div>
       </Card>
@@ -435,31 +462,35 @@ export default function TemplateEditorPage() {
       <Card className="space-y-4 p-4">
         <div className="flex items-center justify-between">
           <h2 className="font-medium">Default config</h2>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              if (rawJson) {
-                try {
-                  const parsed = JSON.parse(rawJsonText) as Record<string, unknown>
-                  setConfigFormValues(parsed)
-                } catch {
-                  /* keep current form values */
+          {!readOnly && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                if (rawJson) {
+                  try {
+                    const parsed = JSON.parse(rawJsonText) as Record<string, unknown>
+                    setConfigFormValues(parsed)
+                  } catch {
+                    /* keep current form values */
+                  }
+                } else {
+                  setRawJsonText(JSON.stringify(currentConfig, null, 2))
                 }
-              } else {
-                setRawJsonText(JSON.stringify(currentConfig, null, 2))
-              }
-              setRawJson(!rawJson)
-            }}
-          >
-            {rawJson ? "Form view" : "Raw JSON"}
-          </Button>
+                setRawJson(!rawJson)
+              }}
+            >
+              {rawJson ? "Form view" : "Raw JSON"}
+            </Button>
+          )}
         </div>
         {rawJson ? (
           <Textarea
-            className="min-h-[200px] font-mono text-sm"
+            className={`min-h-[200px] font-mono text-sm ${readOnly ? "bg-muted" : ""}`}
             value={rawJsonText}
             onChange={(e) => setRawJsonText(e.target.value)}
+            readOnly={readOnly}
+            disabled={readOnly}
           />
         ) : selectedModule ? (
           <div className="grid gap-3 sm:grid-cols-2">
@@ -473,11 +504,13 @@ export default function TemplateEditorPage() {
                   <Switch
                     checked={Boolean(configFormValues[field.name] ?? field.default)}
                     onCheckedChange={(v) => setConfigFormValues((prev) => ({ ...prev, [field.name]: v }))}
+                    disabled={readOnly}
                   />
                 ) : field.type === "enum" ? (
                   <Select
                     value={String(configFormValues[field.name] ?? field.default ?? "")}
                     onValueChange={(v) => setConfigFormValues((prev) => ({ ...prev, [field.name]: v }))}
+                    disabled={readOnly}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Select" />
@@ -493,11 +526,17 @@ export default function TemplateEditorPage() {
                     type="number"
                     value={String(configFormValues[field.name] ?? field.default ?? "")}
                     onChange={(e) => setConfigFormValues((prev) => ({ ...prev, [field.name]: e.target.value }))}
+                    readOnly={readOnly}
+                    disabled={readOnly}
+                    className={readOnly ? "bg-muted" : ""}
                   />
                 ) : (
                   <Input
                     value={String(configFormValues[field.name] ?? field.default ?? "")}
                     onChange={(e) => setConfigFormValues((prev) => ({ ...prev, [field.name]: e.target.value }))}
+                    readOnly={readOnly}
+                    disabled={readOnly}
+                    className={readOnly ? "bg-muted" : ""}
                   />
                 )}
               </div>

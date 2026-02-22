@@ -24,7 +24,7 @@ export async function GET(_req: Request, context: RouteContext) {
     if (code === "NoSuchKey") {
       return NextResponse.json({ error: "Not found" }, { status: 404 })
     }
-    console.error("[admin/templates/[id]] GET error:", err)
+    console.error("[templates/admin/[id]] GET error:", err)
     return NextResponse.json(
       { error: "Failed to load template" },
       { status: 500 }
@@ -47,7 +47,7 @@ export async function PUT(req: Request, context: RouteContext) {
     if (code === "NoSuchKey") {
       return NextResponse.json({ error: "Not found" }, { status: 404 })
     }
-    console.error("[admin/templates/[id]] PUT error:", err)
+    console.error("[templates/admin/[id]] PUT error:", err)
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Failed to update template" },
       { status: 400 }
@@ -69,7 +69,7 @@ export async function DELETE(_req: Request, context: RouteContext) {
     if (code === "NoSuchKey") {
       return NextResponse.json({ error: "Not found" }, { status: 404 })
     }
-    console.error("[admin/templates/[id]] DELETE error:", err)
+    console.error("[templates/admin/[id]] DELETE error:", err)
     return NextResponse.json(
       { error: "Failed to disable template" },
       { status: 500 }
@@ -95,7 +95,7 @@ export async function PATCH(req: Request, context: RouteContext) {
     if (code === "NoSuchKey") {
       return NextResponse.json({ error: "Not found" }, { status: 404 })
     }
-    console.error("[admin/templates/[id]] PATCH error:", err)
+    console.error("[templates/admin/[id]] PATCH error:", err)
     return NextResponse.json(
       { error: "Failed to update template" },
       { status: 400 }

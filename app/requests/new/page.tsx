@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
+import { useRouter, useSearchParams } from "next/navigation"
 import { ArrowLeft, Info, Loader2, Search, Sparkles } from "lucide-react"
 
 import { ActionProgressDialog } from "@/components/action-progress-dialog"
@@ -116,6 +117,8 @@ const FieldCard = ({
 )
 
 export default function NewRequestPage() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
   const [project, setProject] = React.useState("")
   const [environment, setEnvironment] = React.useState("")
   const [moduleName, setModuleName] = React.useState("")
@@ -133,6 +136,7 @@ export default function NewRequestPage() {
   const drawerWidth = 520
   const [activeField, setActiveField] = React.useState<string | null>(null)
   const [selectedTemplateId, setSelectedTemplateId] = React.useState<string | null>(null)
+  const hasAppliedTemplateFromQuery = React.useRef(false)
 
   const [templateSearchQuery, setTemplateSearchQuery] = React.useState("")
   const [envStep, setEnvStep] = React.useState<1 | 2 | 3>(1)
@@ -193,6 +197,30 @@ export default function NewRequestPage() {
     setEnvSelectedProject(project)
     if (typeof window !== "undefined") localStorage.setItem("tfpilot-last-env-project", project)
   }, [])
+
+  // When opening from catalogue "Create request" with ?templateId=, jump to step 2 with template selected
+  React.useEffect(() => {
+    const templateId = searchParams.get("templateId")
+    if (!templateId || loadingTemplates || hasAppliedTemplateFromQuery.current) return
+    const t = getRequestTemplate(requestTemplates, templateId)
+    if (!t) return
+    hasAppliedTemplateFromQuery.current = true
+    setSelectedTemplateId(t.id)
+    const templateProject = "project" in t ? String((t as { project?: string }).project ?? "").trim() : ""
+    const projectOverride = templateProject ? templateProject : envSelectedProject
+    if (templateProject) setEnvSelectedProjectAndPersist(templateProject)
+    setProject(projectOverride)
+    setModuleName(t.moduleKey ?? "")
+    const showProjectSelector = t.allowCustomProjectEnv === true || !templateProject
+    if (showProjectSelector) {
+      setEnvironment(listEnvironments(projectOverride)[0] ?? "")
+      setFormValues({})
+    } else {
+      setEnvironment(t.environment)
+    }
+    setEnvStep(2)
+    router.replace("/requests/new", { scroll: false })
+  }, [searchParams, loadingTemplates, requestTemplates, envSelectedProject, setEnvSelectedProjectAndPersist, router])
 
   const filteredEnvTemplates = React.useMemo(() => {
     const q = templateSearchQuery.trim().toLowerCase()
