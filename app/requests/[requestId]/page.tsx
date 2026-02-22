@@ -30,6 +30,7 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Code } from "@/components/ui/code"
 import { cn } from "@/lib/utils"
+import { stripPlanOutputToContent } from "@/lib/plan/strip-plan-output"
 import {
   Tooltip,
   TooltipContent,
@@ -1593,8 +1594,9 @@ function RequestDetailPage() {
                       request?.plan?.output ??
                       request.pullRequest?.planOutput ??
                       ""
-                    const planTextDisplay = normalizePlanHeadings(stripLogTimestamps(planTextRaw))
-                    const summary = parsePlanSummary(planTextRaw)
+                    const planTextStripped = stripPlanOutputToContent(planTextRaw)
+                    const planTextDisplay = normalizePlanHeadings(stripLogTimestamps(planTextStripped))
+                    const summary = parsePlanSummary(planTextStripped)
                     const hasSummary = summary.add > 0 || summary.change > 0 || summary.destroy > 0
                     return (
                       <>
@@ -1642,7 +1644,7 @@ function RequestDetailPage() {
                               variant="ghost"
                               className="h-7 gap-1.5 px-2 text-xs"
                               onClick={() => {
-                                void navigator.clipboard.writeText(planTextRaw).catch(() => {})
+                                void navigator.clipboard.writeText(planTextStripped).catch(() => {})
                               }}
                             >
                               <Copy className="size-3.5" />

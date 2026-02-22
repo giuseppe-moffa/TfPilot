@@ -3,6 +3,7 @@ import { getGitHubAccessToken } from "@/lib/github/auth"
 import { gh } from "@/lib/github/client"
 import { getRequest } from "@/lib/storage/requestsStore"
 import { getSessionFromCookies } from "@/lib/auth/session"
+import { stripPlanOutputToContent } from "@/lib/plan/strip-plan-output"
 
 function extractPlan(log: string) {
   const lower = log.toLowerCase()
@@ -57,7 +58,7 @@ export async function GET(req: NextRequest) {
     const runJson = (await runRes.json()) as { status?: string; conclusion?: string }
 
     const logText = await fetchJobLogs(token, match.targetOwner, match.targetRepo, runId)
-    const planText = extractPlan(logText)
+    const planText = stripPlanOutputToContent(extractPlan(logText))
 
     const rawLogUrl = `https://github.com/${match.targetOwner}/${match.targetRepo}/actions/runs/${runId}`
 

@@ -35,7 +35,9 @@ export function LoginClient() {
         <CardContent className="space-y-6">
           {error && (
             <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              Sign-in failed. Please try again.
+              {error === "not_allowed"
+                ? "You're not in the allowed users list. Contact an admin to get access."
+                : "Sign-in failed. Please try again."}
             </div>
           )}
           <Button 

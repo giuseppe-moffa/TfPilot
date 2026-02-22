@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server"
 
 import { clearSession, clearStateCookie, readStateCookie, setSession } from "@/lib/auth/session"
+import { env } from "@/lib/config/env"
 
 async function exchangeCodeForToken(code: string, redirectUri: string) {
   console.log('[auth/github/callback] exchangeCodeForToken called')
@@ -117,6 +118,12 @@ export async function GET(req: NextRequest) {
     console.log('[auth/github/callback] Token received, fetching user...')
     const user = await fetchGithubUser(token)
     console.log('[auth/github/callback] User fetched:', user.login)
+
+    if (env.TFPILOT_ALLOWED_LOGINS.length > 0 && !env.TFPILOT_ALLOWED_LOGINS.includes(user.login)) {
+      console.warn('[auth/github/callback] Login rejected: user not in TFPILOT_ALLOWED_LOGINS:', user.login)
+      return NextResponse.redirect(new URL("/login?error=not_allowed", req.url))
+    }
+
     console.log('[auth/github/callback] Creating session and redirecting to /requests')
 
     // Redirect back to same origin (localhost for dev, tfpilot.com for prod)

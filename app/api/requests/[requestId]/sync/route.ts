@@ -27,6 +27,7 @@ import { getRequestCost } from "@/lib/services/cost-service"
 import { env } from "@/lib/config/env"
 import { ensureAssistantState } from "@/lib/assistant/state"
 import { sendAdminNotification, formatRequestNotification } from "@/lib/notifications/email"
+import { stripPlanOutputToContent } from "@/lib/plan/strip-plan-output"
 
 function extractPlan(log: string) {
   const lower = log.toLowerCase()
@@ -272,7 +273,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
 
         const logs = await fetchJobLogs(token, request.targetOwner, request.targetRepo, request.planRun.runId)
         if (logs) {
-          const planText = extractPlan(logs)
+          const raw = extractPlan(logs)
+          const planText = raw != null ? stripPlanOutputToContent(raw) : request.plan?.output
           request.plan = {
             ...(request.plan ?? {}),
             output: planText ?? request.plan?.output,
