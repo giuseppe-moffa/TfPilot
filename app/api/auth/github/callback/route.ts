@@ -69,6 +69,23 @@ async function fetchGithubUser(token: string) {
   return (await resp.json()) as { login: string; name: string | null; avatar_url: string | null }
 }
 
+type GithubEmail = { email: string; primary: boolean; verified: boolean; visibility: string | null }
+async function fetchGithubUserEmail(token: string): Promise<string | null> {
+  const resp = await fetch("https://api.github.com/user/emails", {
+    headers: {
+      Accept: "application/vnd.github+json",
+      Authorization: `Bearer ${token}`,
+      "User-Agent": "TfPilot",
+    },
+  })
+  if (!resp.ok) return null
+  const data = (await resp.json()) as GithubEmail[]
+  const primary = data.find((e) => e.primary && e.verified)
+  if (primary) return primary.email
+  const verified = data.find((e) => e.verified)
+  return verified?.email ?? data[0]?.email ?? null
+}
+
 function buildRedirectUri(req: NextRequest) {
   // Use env so local dev and prod can each set their callback (must match start route).
   const envRedirect = process.env.GITHUB_OAUTH_REDIRECT
@@ -119,6 +136,8 @@ export async function GET(req: NextRequest) {
     const user = await fetchGithubUser(token)
     console.log('[auth/github/callback] User fetched:', user.login)
 
+    const email = await fetchGithubUserEmail(token)
+
     if (env.TFPILOT_ALLOWED_LOGINS.length > 0 && !env.TFPILOT_ALLOWED_LOGINS.includes(user.login)) {
       console.warn('[auth/github/callback] Login rejected: user not in TFPILOT_ALLOWED_LOGINS:', user.login)
       return NextResponse.redirect(new URL("/login?error=not_allowed", req.url))
@@ -140,6 +159,7 @@ export async function GET(req: NextRequest) {
       login: user.login,
       name: user.name,
       avatarUrl: user.avatar_url,
+      email: email ?? undefined,
       accessToken: token,
     })
     console.log('[auth/github/callback] ===== OAuth Success =====')

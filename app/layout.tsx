@@ -3,7 +3,6 @@ import Link from "next/link"
 import { Geist, Geist_Mono } from "next/font/google"
 
 import "./globals.css"
-import { Button } from "@/components/ui/button"
 import { AuthProvider } from "./providers"
 import { AwsConnectionProvider } from "./providers"
 import { ThemeProvider } from "./theme-provider"
@@ -23,13 +22,6 @@ export const metadata: Metadata = {
   title: "TfPilot",
   description: "TfPilot infrastructure management console",
 }
-
-const navItems = [
-  { label: "Environments", href: "/environments" },
-  { label: "Requests", href: "/requests" },
-  { label: "Modules", href: "/modules" },
-  { label: "AWS Connect", href: "/aws/connect" },
-]
 
 export default function RootLayout({
   children,

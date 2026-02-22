@@ -17,7 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { listEnvironments, listProjects } from "@/config/infra-repos"
-import { getRequestTemplate, requestTemplates } from "@/config/request-templates"
+import { getRequestTemplate, type RequestTemplate } from "@/config/request-templates"
 
 /** Client-safe 6-char suffix for generatedName (name + shortId). Lowercase for AWS-friendly names. */
 function randomShortId(): string {
@@ -140,6 +140,44 @@ export default function NewRequestPage() {
   const [generatedName, setGeneratedName] = React.useState("")
   const [envSelectedProject, setEnvSelectedProject] = React.useState("")
 
+  const [requestTemplates, setRequestTemplates] = React.useState<(RequestTemplate & { project?: string })[]>(() => [
+    {
+      id: "blank",
+      label: "Blank template",
+      description: "Start from scratch",
+      moduleKey: "",
+      environment: "",
+      allowCustomProjectEnv: true,
+      defaultConfig: {},
+    },
+  ])
+  const [loadingTemplates, setLoadingTemplates] = React.useState(true)
+
+  React.useEffect(() => {
+    let cancelled = false
+    setLoadingTemplates(true)
+    fetch("/api/templates")
+      .then((res) => (res.ok ? res.json() : []))
+      .then((apiList: Array<{ id: string; label: string; description?: string; project?: string; environment: string; module: string; defaultConfig: Record<string, unknown>; lockEnvironment?: boolean; allowCustomProjectEnv?: boolean }>) => {
+        if (cancelled) return
+        const mapped = (apiList ?? []).map((t) => ({
+          id: t.id,
+          label: t.label,
+          description: t.description,
+          moduleKey: t.module,
+          environment: t.environment,
+          lockEnvironment: t.lockEnvironment ?? false,
+          allowCustomProjectEnv: t.allowCustomProjectEnv ?? false,
+          defaultConfig: t.defaultConfig ?? {},
+          project: t.project,
+        }))
+        setRequestTemplates((prev) => [prev[0], ...mapped])
+      })
+      .catch(() => { if (!cancelled) setRequestTemplates((prev) => prev) })
+      .finally(() => { if (!cancelled) setLoadingTemplates(false) })
+    return () => { cancelled = true }
+  }, [])
+
   const envProjectOptions = React.useMemo(() => listProjects(), [])
   React.useEffect(() => {
     if (envProjectOptions.length === 0) return
@@ -166,7 +204,7 @@ export default function NewRequestPage() {
         t.moduleKey.toLowerCase().includes(q) ||
         t.environment.toLowerCase().includes(q)
     )
-  }, [templateSearchQuery])
+  }, [requestTemplates, templateSearchQuery])
 
   React.useEffect(() => {
     return () => {
@@ -228,7 +266,7 @@ export default function NewRequestPage() {
   )
 
   const applyTemplate = React.useCallback(
-    (t: (typeof requestTemplates)[number], projectOverride: string) => {
+    (t: RequestTemplate & { project?: string }, projectOverride: string) => {
       const mod = modules.find((m) => m.type === t.moduleKey)
       const base: Record<string, any> = {}
       if (mod) {
@@ -629,7 +667,12 @@ export default function NewRequestPage() {
                     className="pl-9"
                   />
                 </div>
-                {filteredEnvTemplates.length === 0 ? (
+                {loadingTemplates ? (
+                  <div className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Loading templates…
+                  </div>
+                ) : filteredEnvTemplates.length === 0 ? (
                   <div className="py-12 text-center text-sm text-muted-foreground">
                     No templates match your search
                   </div>
@@ -639,7 +682,25 @@ export default function NewRequestPage() {
                       <button
                         key={t.id}
                         type="button"
-                        onClick={() => setSelectedTemplateId(t.id)}
+                        disabled={loadingTemplates}
+                        onClick={() => {
+                          setSelectedTemplateId(t.id)
+                          const templateProject = "project" in t ? String((t as { project?: string }).project ?? "").trim() : ""
+                          const projectOverride = templateProject ? templateProject : envSelectedProject
+                          if (templateProject) {
+                            setEnvSelectedProjectAndPersist(templateProject)
+                          }
+                          setProject(projectOverride)
+                          setModuleName(t.moduleKey ?? "")
+                          const showProjectSelector = t.allowCustomProjectEnv === true || !templateProject
+                          if (showProjectSelector) {
+                            setEnvironment(listEnvironments(projectOverride)[0] ?? "")
+                            setFormValues({})
+                          } else {
+                            setEnvironment(t.environment)
+                          }
+                          setEnvStep(2)
+                        }}
                         className={`rounded-lg border px-4 py-3 text-left transition hover:shadow-md hover:outline hover:outline-1 hover:outline-primary/30 ${
                           selectedTemplateId === t.id
                             ? "border-primary bg-primary/10 ring-1 ring-primary/20 shadow-sm"
@@ -665,31 +726,12 @@ export default function NewRequestPage() {
                     ))}
                   </div>
                 )}
-                <div className="flex justify-end pt-2">
-                  <Button
-                    disabled={!selectedTemplateId}
-                    onClick={() => {
-                      const t = selectedTemplateId ? getRequestTemplate(selectedTemplateId) : null
-                      setProject(envSelectedProject)
-                      if (t?.allowCustomProjectEnv) {
-                        setEnvironment(listEnvironments(envSelectedProject)[0] ?? "")
-                        setModuleName("")
-                        setFormValues({})
-                      } else if (t) {
-                        setEnvironment(t.environment)
-                      }
-                      setEnvStep(2)
-                    }}
-                  >
-                    Continue
-                  </Button>
-                </div>
               </Card>
             ) : envStep === 2 ? (
               <Card className="rounded-xl border-0 bg-card p-6 shadow-sm space-y-4">
                 <div className="text-base font-semibold">Environment details</div>
                 {(() => {
-                  const t = selectedTemplateId ? getRequestTemplate(selectedTemplateId) : null
+                  const t = selectedTemplateId ? getRequestTemplate(requestTemplates, selectedTemplateId) : null
                   if (!t) {
                     return (
                       <div className="flex flex-col gap-2 py-4">
@@ -700,6 +742,8 @@ export default function NewRequestPage() {
                       </div>
                     )
                   }
+                  const templateProject = "project" in t ? String((t as { project?: string }).project ?? "").trim() : ""
+                  const showProjectSelector = t.allowCustomProjectEnv === true || !templateProject
                   const nameValid = environmentName.trim().length > 0
                   return (
                     <>
@@ -722,7 +766,7 @@ export default function NewRequestPage() {
                         )}
                       </div>
                       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                        {t.allowCustomProjectEnv ? (
+                        {showProjectSelector ? (
                           <>
                             <div className="space-y-2">
                               <Label className="text-sm font-medium">Project</Label>
@@ -760,36 +804,43 @@ export default function NewRequestPage() {
                                 </SelectContent>
                               </Select>
                             </div>
-                            <div className="space-y-2">
-                              <Label className="text-sm font-medium">Module</Label>
-                              <Select
-                                value={moduleName}
-                                onValueChange={(v) => {
-                                  setModuleName(v)
-                                  const mod = modules.find((m) => m.type === v)
-                                  const base: Record<string, unknown> = {}
-                                  if (mod) {
-                                    for (const f of mod.fields) {
-                                      if (f.name === "tags" || f.readOnly || f.immutable) continue
-                                      if (f.default !== undefined) base[f.name] = f.default
+                            {t.moduleKey ? (
+                              <div className="space-y-2">
+                                <Label className="text-sm font-medium">Module</Label>
+                                <Input value={t.moduleKey} readOnly disabled className="bg-muted" />
+                              </div>
+                            ) : (
+                              <div className="space-y-2">
+                                <Label className="text-sm font-medium">Module</Label>
+                                <Select
+                                  value={moduleName}
+                                  onValueChange={(v) => {
+                                    setModuleName(v)
+                                    const mod = modules.find((m) => m.type === v)
+                                    const base: Record<string, unknown> = {}
+                                    if (mod) {
+                                      for (const f of mod.fields) {
+                                        if (f.name === "tags" || f.readOnly || f.immutable) continue
+                                        if (f.default !== undefined) base[f.name] = f.default
+                                      }
                                     }
-                                  }
-                                  setFormValues(base)
-                                }}
-                                disabled={loadingModules}
-                              >
-                                <SelectTrigger className="w-full">
-                                  <SelectValue placeholder={loadingModules ? "Loading..." : "Select module"} />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {modules.map((m) => (
-                                    <SelectItem key={m.type} value={m.type}>
-                                      {m.type}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            </div>
+                                    setFormValues(base)
+                                  }}
+                                  disabled={loadingModules}
+                                >
+                                  <SelectTrigger className="w-full">
+                                    <SelectValue placeholder={loadingModules ? "Loading..." : "Select module"} />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {modules.map((m) => (
+                                      <SelectItem key={m.type} value={m.type}>
+                                        {m.type}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            )}
                           </>
                         ) : (
                           <>
@@ -833,45 +884,37 @@ export default function NewRequestPage() {
                           Back
                         </Button>
                         <Button
-                          type="button"
-                          disabled={
+                        type="button"
+                        disabled={
                             environmentName.trim().length === 0 ||
                             !project ||
-                            (t.allowCustomProjectEnv ? !environment || !moduleName : false)
+                            (showProjectSelector ? !environment || (!t.moduleKey && !moduleName) : false)
                           }
                           onClick={() => {
                             setEnvStep(3)
                             if (t) {
-                              if (t.allowCustomProjectEnv) {
-                                const trimmedName = environmentName.trim()
-                                const shortId = randomShortId()
-                                const genName = `${trimmedName}-${shortId}`
-                                setGeneratedName(genName)
-                                const primaryKey = primaryIdKeyForModule(moduleName)
-                                setFormValues((prev) => ({ ...prev, name: genName, [primaryKey]: genName } as Record<string, unknown>))
-                              } else {
-                                setModuleName(t.moduleKey)
-                                const trimmedName = environmentName.trim()
-                                const shortId = randomShortId()
-                                const genName = `${trimmedName}-${shortId}`
-                                setGeneratedName(genName)
-                                const mod = modules.find((m) => m.type === t.moduleKey)
-                                const base: Record<string, unknown> = {}
-                                if (mod) {
-                                  for (const f of mod.fields) {
-                                    if (f.name === "tags" || f.readOnly || f.immutable) continue
-                                    if (f.default !== undefined) base[f.name] = f.default
-                                  }
+                              const trimmedName = environmentName.trim()
+                              const shortId = randomShortId()
+                              const genName = `${trimmedName}-${shortId}`
+                              setGeneratedName(genName)
+                              const effectiveModule = showProjectSelector ? moduleName : t.moduleKey
+                              if (!showProjectSelector) setModuleName(t.moduleKey)
+                              const mod = modules.find((m) => m.type === effectiveModule)
+                              const base: Record<string, unknown> = {}
+                              if (mod) {
+                                for (const f of mod.fields) {
+                                  if (f.name === "tags" || f.readOnly || f.immutable) continue
+                                  if (f.default !== undefined) base[f.name] = f.default
                                 }
-                                const { tags: _t, ...safeDefaultConfig } = (t.defaultConfig || {}) as Record<string, unknown>
-                                const primaryKey = primaryIdKeyForModule(t.moduleKey)
-                                setFormValues({
-                                  ...base,
-                                  ...safeDefaultConfig,
-                                  name: genName,
-                                  [primaryKey]: genName,
-                                } as Record<string, unknown>)
                               }
+                              const templateConfig = (t.defaultConfig || {}) as Record<string, unknown>
+                              const primaryKey = primaryIdKeyForModule(effectiveModule)
+                              setFormValues({
+                                ...base,
+                                ...templateConfig,
+                                name: genName,
+                                [primaryKey]: genName,
+                              } as Record<string, unknown>)
                             }
                           }}
                         >
@@ -885,7 +928,7 @@ export default function NewRequestPage() {
             ) : (
             <>
               {selectedTemplateId && (() => {
-                const t = getRequestTemplate(selectedTemplateId)
+                const t = getRequestTemplate(requestTemplates, selectedTemplateId)
                 if (!t) return null
                 return (
                   <Card className="rounded-xl border-0 bg-card p-4 shadow-sm">

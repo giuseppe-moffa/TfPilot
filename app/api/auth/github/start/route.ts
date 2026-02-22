@@ -36,7 +36,7 @@ export async function GET(req: NextRequest) {
   const state = randomBytes(16).toString("base64url")
   const redirectUri = buildRedirectUri(req)
   console.log('[auth/github/start] Final redirect URI being sent to GitHub:', redirectUri)
-  const scope = ["read:user", "repo"].join(" ")
+  const scope = ["read:user", "user:email", "repo"].join(" ")
 
   const params = new URLSearchParams({
     client_id: clientId,
