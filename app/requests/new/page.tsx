@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { ArrowLeft, Info, Loader2, Sparkles } from "lucide-react"
+import { ArrowLeft, Info, Loader2, Search, Sparkles } from "lucide-react"
 
 import { ActionProgressDialog } from "@/components/action-progress-dialog"
 
@@ -17,6 +17,32 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { listEnvironments, listProjects } from "@/config/infra-repos"
+import { getRequestTemplate, requestTemplates } from "@/config/request-templates"
+
+/** Client-safe 6-char suffix for generatedName (name + shortId). Lowercase for AWS-friendly names. */
+function randomShortId(): string {
+  const alphabet = "abcdefghjklmnpqrstuvwxyz23456789"
+  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+    const bytes = new Uint8Array(6)
+    crypto.getRandomValues(bytes)
+    return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join("")
+  }
+  return Math.random().toString(36).slice(2, 8).toLowerCase().replace(/[^a-z0-9]/g, "a").slice(0, 6)
+}
+
+/** Primary identifier form key by module (used for generatedName prefill). */
+function primaryIdKeyForModule(moduleKey: string): string {
+  switch (moduleKey) {
+    case "ec2-instance":
+      return "name"
+    case "s3-bucket":
+      return "bucket_name"
+    case "ecr-repo":
+      return "repo_name"
+    default:
+      return "name"
+  }
+}
 
 type FieldMeta = {
   name: string
@@ -106,6 +132,41 @@ export default function NewRequestPage() {
   const [assistantOpen, setAssistantOpen] = React.useState(false)
   const drawerWidth = 520
   const [activeField, setActiveField] = React.useState<string | null>(null)
+  const [selectedTemplateId, setSelectedTemplateId] = React.useState<string | null>(null)
+
+  const [templateSearchQuery, setTemplateSearchQuery] = React.useState("")
+  const [envStep, setEnvStep] = React.useState<1 | 2 | 3>(1)
+  const [environmentName, setEnvironmentName] = React.useState("")
+  const [generatedName, setGeneratedName] = React.useState("")
+  const [envSelectedProject, setEnvSelectedProject] = React.useState("")
+
+  const envProjectOptions = React.useMemo(() => listProjects(), [])
+  React.useEffect(() => {
+    if (envProjectOptions.length === 0) return
+    const last = typeof window !== "undefined" ? localStorage.getItem("tfpilot-last-env-project") : null
+    setEnvSelectedProject((prev) => {
+      if (prev && envProjectOptions.includes(prev)) return prev
+      if (last && envProjectOptions.includes(last)) return last
+      return envProjectOptions[0] ?? ""
+    })
+  }, [envProjectOptions])
+
+  const setEnvSelectedProjectAndPersist = React.useCallback((project: string) => {
+    setEnvSelectedProject(project)
+    if (typeof window !== "undefined") localStorage.setItem("tfpilot-last-env-project", project)
+  }, [])
+
+  const filteredEnvTemplates = React.useMemo(() => {
+    const q = templateSearchQuery.trim().toLowerCase()
+    if (!q) return requestTemplates
+    return requestTemplates.filter(
+      (t) =>
+        t.label.toLowerCase().includes(q) ||
+        (t.description ?? "").toLowerCase().includes(q) ||
+        t.moduleKey.toLowerCase().includes(q) ||
+        t.environment.toLowerCase().includes(q)
+    )
+  }, [templateSearchQuery])
 
   React.useEffect(() => {
     return () => {
@@ -135,12 +196,19 @@ export default function NewRequestPage() {
 
   const selectedModule = React.useMemo(() => modules.find((m) => m.type === moduleName), [modules, moduleName])
 
+  // Tags are server-authoritative: hide from config UI so they are never user-configurable.
   const fieldsCore = React.useMemo(
-    () => (selectedModule?.fields ?? []).filter((f) => (f.category ?? "core") === "core" && !f.readOnly),
+    () =>
+      (selectedModule?.fields ?? []).filter(
+        (f) => f.name !== "tags" && (f.category ?? "core") === "core" && !f.readOnly
+      ),
     [selectedModule?.fields]
   )
   const fieldsAdvanced = React.useMemo(
-    () => (selectedModule?.fields ?? []).filter((f) => (f.category ?? "core") !== "core" && !f.readOnly),
+    () =>
+      (selectedModule?.fields ?? []).filter(
+        (f) => f.name !== "tags" && (f.category ?? "core") !== "core" && !f.readOnly
+      ),
     [selectedModule?.fields]
   )
 
@@ -149,7 +217,7 @@ export default function NewRequestPage() {
       if (!mod) return
       const next: Record<string, any> = {}
       for (const f of mod.fields) {
-        if (f.readOnly || f.immutable) continue
+        if (f.name === "tags" || f.readOnly || f.immutable) continue
         if (f.default !== undefined) {
           next[f.name] = f.default
         }
@@ -159,12 +227,24 @@ export default function NewRequestPage() {
     [setFormValues]
   )
 
-  const handleModuleChange = (value: string) => {
-    setModuleName(value)
-    setFormValues({})
-    const mod = modules.find((m) => m.type === value)
-    setDefaults(mod)
-  }
+  const applyTemplate = React.useCallback(
+    (t: (typeof requestTemplates)[number], projectOverride: string) => {
+      const mod = modules.find((m) => m.type === t.moduleKey)
+      const base: Record<string, any> = {}
+      if (mod) {
+        for (const f of mod.fields) {
+          if (f.readOnly || f.immutable) continue
+          if (f.default !== undefined) base[f.name] = f.default
+        }
+      }
+      setFormValues({ ...base, ...t.defaultConfig } as Record<string, any>)
+      setProject(projectOverride)
+      setEnvironment(t.environment)
+      setModuleName(t.moduleKey)
+      setSelectedTemplateId(t.id)
+    },
+    [modules]
+  )
 
   const handleFieldChange = (key: string, value: any) => {
     setFormValues((prev) => ({ ...prev, [key]: value }))
@@ -325,15 +405,18 @@ export default function NewRequestPage() {
     setShowCreateDialog(false)
     createDialogTimerRef.current = window.setTimeout(() => setShowCreateDialog(true), 400)
     try {
+      const payload: Record<string, unknown> = {
+        project,
+        environment,
+        module: moduleName,
+        config: cfg,
+      }
+      payload.templateId = selectedTemplateId ?? undefined
+      payload.environmentName = environmentName.trim() || undefined
       const res = await fetch("/api/requests", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          project,
-          environment,
-          module: moduleName,
-          config: cfg,
-        }),
+        body: JSON.stringify(payload),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
@@ -361,6 +444,10 @@ export default function NewRequestPage() {
     const description = field.description ?? ""
 
     const fieldId = `field-${field.name}`
+
+    // Name from Step 2 (generatedName = logical name + shortId) is read-only in Step 3
+    const primaryKey = selectedModule ? primaryIdKeyForModule(selectedModule.type) : ""
+    const isNameFromStep2 = Boolean(generatedName && field.name === primaryKey)
 
     switch (field.type) {
       case "boolean":
@@ -477,8 +564,10 @@ export default function NewRequestPage() {
           >
             <Input
               key={`input-${field.name}`}
-              className="mt-1"
+              className={isNameFromStep2 ? "mt-1 bg-muted" : "mt-1"}
               value={String(value ?? "")}
+              readOnly={isNameFromStep2}
+              disabled={isNameFromStep2}
               onFocus={() => setActiveField(field.name)}
               onChange={(e) => handleFieldChange(field.name, e.target.value)}
               placeholder="Enter value"
@@ -515,122 +604,386 @@ export default function NewRequestPage() {
           </Link>
           <h1 className="text-lg font-semibold">New Request</h1>
         </div>
-        <Button size="sm" variant="outline" onClick={() => setAssistantOpen(true)}>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={envStep !== 3}
+          onClick={() => setAssistantOpen(true)}
+        >
           <Sparkles className="mr-2 h-4 w-4" /> Assistant
         </Button>
       </header>
 
       <div className="flex-1 p-4 overflow-auto">
         <div className="mx-auto max-w-4xl space-y-6">
-          <Card className="rounded-xl border-0 bg-card p-6 shadow-sm space-y-4">
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-              <div className="space-y-2">
-                <Label className="text-sm font-medium">Project</Label>
-                <Select value={project} onValueChange={(v) => { setProject(v); setFormValues({}); setModuleName(""); }}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Select project" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {projects.map((p) => (
-                      <SelectItem key={p} value={p}>
-                        {p}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label className="text-sm font-medium">Environment</Label>
-                <Select value={environment} onValueChange={(v) => { setEnvironment(v); setFormValues({}); setModuleName(""); }}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Select environment" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {environments.map((env) => (
-                      <SelectItem key={env} value={env}>
-                        {env}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label className="text-sm font-medium">Module</Label>
-                <Select
-                  value={moduleName}
-                  onValueChange={handleModuleChange}
-                  disabled={!project || !environment || loadingModules}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder={loadingModules ? "Loading..." : "Select module"} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {modules.map((m) => (
-                      <SelectItem key={m.type} value={m.type}>
-                        {m.type}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            {loadingModules && (
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <Loader2 className="h-3 w-3 animate-spin" />
-                Loading modules...
-              </div>
-            )}
-          </Card>
-
-          <Card className="rounded-xl border-0 bg-card p-6 shadow-sm space-y-4">
-            <div className="text-base font-semibold">Configuration</div>
-            {!selectedModule && <div className="text-sm text-muted-foreground">Select a module to view its inputs.</div>}
-            {selectedModule && (
-              <div className="space-y-6">
-                <div className="flex items-center gap-2 rounded-lg bg-muted/30 dark:bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-                  <Info className="h-4 w-4" />
-                  Fill required fields; optional fields may be left empty. Values are sent to the server for validation.
+          {envStep === 1 ? (
+              <Card className="rounded-xl border-0 bg-card p-6 shadow-sm space-y-4">
+                <div className="text-base font-semibold">Choose a template</div>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    type="search"
+                    placeholder="Search templates…"
+                    value={templateSearchQuery}
+                    onChange={(e) => setTemplateSearchQuery(e.target.value)}
+                    className="pl-9"
+                  />
                 </div>
-                <div className="space-y-3">
-                  <div className="text-sm font-semibold">Core settings</div>
-                  <div className="space-y-3">
-                    {fieldsCore.map((f) => renderField(f, false))}
+                {filteredEnvTemplates.length === 0 ? (
+                  <div className="py-12 text-center text-sm text-muted-foreground">
+                    No templates match your search
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {filteredEnvTemplates.map((t) => (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => setSelectedTemplateId(t.id)}
+                        className={`rounded-lg border px-4 py-3 text-left transition hover:shadow-md hover:outline hover:outline-1 hover:outline-primary/30 ${
+                          selectedTemplateId === t.id
+                            ? "border-primary bg-primary/10 ring-1 ring-primary/20 shadow-sm"
+                            : "border-border bg-background hover:bg-muted/30"
+                        }`}
+                      >
+                        <div className="font-semibold text-foreground">{t.label}</div>
+                        {t.description && (
+                          <p className="mt-1 text-xs text-muted-foreground line-clamp-2">{t.description}</p>
+                        )}
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {t.id === "blank" || !t.environment ? (
+                            <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                              Custom
+                            </span>
+                          ) : (
+                            <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                              {t.environment === "prod" ? "Prod" : "Dev"}
+                            </span>
+                          )}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <div className="flex justify-end pt-2">
+                  <Button
+                    disabled={!selectedTemplateId}
+                    onClick={() => {
+                      const t = selectedTemplateId ? getRequestTemplate(selectedTemplateId) : null
+                      setProject(envSelectedProject)
+                      if (t?.allowCustomProjectEnv) {
+                        setEnvironment(listEnvironments(envSelectedProject)[0] ?? "")
+                        setModuleName("")
+                        setFormValues({})
+                      } else if (t) {
+                        setEnvironment(t.environment)
+                      }
+                      setEnvStep(2)
+                    }}
+                  >
+                    Continue
+                  </Button>
+                </div>
+              </Card>
+            ) : envStep === 2 ? (
+              <Card className="rounded-xl border-0 bg-card p-6 shadow-sm space-y-4">
+                <div className="text-base font-semibold">Environment details</div>
+                {(() => {
+                  const t = selectedTemplateId ? getRequestTemplate(selectedTemplateId) : null
+                  if (!t) {
+                    return (
+                      <div className="flex flex-col gap-2 py-4">
+                        <p className="text-sm text-muted-foreground">No template selected.</p>
+                        <Button variant="secondary" onClick={() => setEnvStep(1)}>
+                          Back
+                        </Button>
+                      </div>
+                    )
+                  }
+                  const nameValid = environmentName.trim().length > 0
+                  return (
+                    <>
+                      <div className="space-y-2">
+                        <Label className="text-sm font-medium">Name *</Label>
+                        <Input
+                          value={environmentName}
+                          onChange={(e) => setEnvironmentName(e.target.value)}
+                          placeholder="e.g. my-app"
+                          className="mt-1"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Logical name for this resource. A unique suffix is automatically appended.
+                        </p>
+                        {!nameValid && environmentName.length > 0 && (
+                          <p className="text-xs text-destructive">Name is required.</p>
+                        )}
+                        {environmentName.length === 0 && (
+                          <p className="text-xs text-muted-foreground">Enter a name to continue.</p>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                        {t.allowCustomProjectEnv ? (
+                          <>
+                            <div className="space-y-2">
+                              <Label className="text-sm font-medium">Project</Label>
+                              <Select
+                                value={project}
+                                onValueChange={(v) => {
+                                  setProject(v)
+                                  setEnvironment(listEnvironments(v)[0] ?? "")
+                                }}
+                              >
+                                <SelectTrigger className="w-full">
+                                  <SelectValue placeholder="Select project" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {envProjectOptions.map((p) => (
+                                    <SelectItem key={p} value={p}>
+                                      {p}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="space-y-2">
+                              <Label className="text-sm font-medium">Environment</Label>
+                              <Select value={environment} onValueChange={setEnvironment}>
+                                <SelectTrigger className="w-full">
+                                  <SelectValue placeholder="Select environment" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {listEnvironments(project).map((env) => (
+                                    <SelectItem key={env} value={env}>
+                                      {env}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="space-y-2">
+                              <Label className="text-sm font-medium">Module</Label>
+                              <Select
+                                value={moduleName}
+                                onValueChange={(v) => {
+                                  setModuleName(v)
+                                  const mod = modules.find((m) => m.type === v)
+                                  const base: Record<string, unknown> = {}
+                                  if (mod) {
+                                    for (const f of mod.fields) {
+                                      if (f.name === "tags" || f.readOnly || f.immutable) continue
+                                      if (f.default !== undefined) base[f.name] = f.default
+                                    }
+                                  }
+                                  setFormValues(base)
+                                }}
+                                disabled={loadingModules}
+                              >
+                                <SelectTrigger className="w-full">
+                                  <SelectValue placeholder={loadingModules ? "Loading..." : "Select module"} />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {modules.map((m) => (
+                                    <SelectItem key={m.type} value={m.type}>
+                                      {m.type}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div className="space-y-2">
+                              <Label className="text-sm font-medium">Project</Label>
+                              <Select
+                                value={project}
+                                onValueChange={(v) => {
+                                  setProject(v)
+                                  setEnvSelectedProjectAndPersist(v)
+                                }}
+                              >
+                                <SelectTrigger className="w-full">
+                                  <SelectValue placeholder="Select project" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {envProjectOptions.map((p) => (
+                                    <SelectItem key={p} value={p}>
+                                      {p}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="space-y-2">
+                              <Label className="text-sm font-medium">Environment</Label>
+                              <Input value={t.environment} readOnly disabled className="bg-muted" />
+                            </div>
+                          </>
+                        )}
+                      </div>
+                      <div className="flex justify-end gap-2 pt-2">
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          onClick={() => {
+                            setEnvStep(1)
+                            setGeneratedName("")
+                          }}
+                        >
+                          Back
+                        </Button>
+                        <Button
+                          type="button"
+                          disabled={
+                            environmentName.trim().length === 0 ||
+                            !project ||
+                            (t.allowCustomProjectEnv ? !environment || !moduleName : false)
+                          }
+                          onClick={() => {
+                            setEnvStep(3)
+                            if (t) {
+                              if (t.allowCustomProjectEnv) {
+                                const trimmedName = environmentName.trim()
+                                const shortId = randomShortId()
+                                const genName = `${trimmedName}-${shortId}`
+                                setGeneratedName(genName)
+                                const primaryKey = primaryIdKeyForModule(moduleName)
+                                setFormValues((prev) => ({ ...prev, name: genName, [primaryKey]: genName } as Record<string, unknown>))
+                              } else {
+                                setModuleName(t.moduleKey)
+                                const trimmedName = environmentName.trim()
+                                const shortId = randomShortId()
+                                const genName = `${trimmedName}-${shortId}`
+                                setGeneratedName(genName)
+                                const mod = modules.find((m) => m.type === t.moduleKey)
+                                const base: Record<string, unknown> = {}
+                                if (mod) {
+                                  for (const f of mod.fields) {
+                                    if (f.name === "tags" || f.readOnly || f.immutable) continue
+                                    if (f.default !== undefined) base[f.name] = f.default
+                                  }
+                                }
+                                const { tags: _t, ...safeDefaultConfig } = (t.defaultConfig || {}) as Record<string, unknown>
+                                const primaryKey = primaryIdKeyForModule(t.moduleKey)
+                                setFormValues({
+                                  ...base,
+                                  ...safeDefaultConfig,
+                                  name: genName,
+                                  [primaryKey]: genName,
+                                } as Record<string, unknown>)
+                              }
+                            }
+                          }}
+                        >
+                          Continue
+                        </Button>
+                      </div>
+                    </>
+                  )
+                })()}
+              </Card>
+            ) : (
+            <>
+              {selectedTemplateId && (() => {
+                const t = getRequestTemplate(selectedTemplateId)
+                if (!t) return null
+                return (
+                  <Card className="rounded-xl border-0 bg-card p-4 shadow-sm">
+                    <div className="flex flex-wrap items-center gap-2 text-sm">
+                      <span className="font-semibold">{t.label}</span>
+                      <span className="text-muted-foreground">·</span>
+                      <span className="text-muted-foreground">{generatedName || environmentName.trim() || "—"}</span>
+                      <span className="rounded bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
+                        {project}
+                      </span>
+                      <span className="rounded bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
+                        {t.environment || "—"}
+                      </span>
+                    </div>
+                  </Card>
+                )
+              })()}
+              <Card className="rounded-xl border-0 bg-card p-6 shadow-sm space-y-4">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium">Project</Label>
+                    <Input value={project} readOnly disabled className="bg-muted" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium">Environment</Label>
+                    <Input value={environment} readOnly disabled className="bg-muted" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium">Module</Label>
+                    <Input value={moduleName || "—"} readOnly disabled className="bg-muted" />
                   </div>
                 </div>
-                {fieldsAdvanced.length > 0 && (
-                  <details className="rounded-lg bg-muted/30 dark:bg-muted/40 p-3" open={false}>
-                    <summary className="cursor-pointer text-sm font-semibold">Advanced settings</summary>
-                    <div className="mt-3 space-y-3">
-                      {fieldsAdvanced.map((f) => renderField(f))}
-                    </div>
-                  </details>
+                {loadingModules && (
+                  <div className="flex gap-2 text-xs text-muted-foreground">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Loading modules...
+                  </div>
                 )}
-              </div>
-            )}
-          </Card>
-
-          <Card className="rounded-xl border-0 bg-card p-6 shadow-sm space-y-3">
-            <div className="text-base font-semibold">Configuration Summary</div>
-            <div className="space-y-2 text-sm">
-              {summaryItems.length === 0 && <div className="text-muted-foreground">No fields set.</div>}
-              {summaryItems.map((item) => (
-                <div key={item.label} className="flex items-center justify-between rounded-lg bg-muted/30 dark:bg-muted/40 px-3 py-2">
-                  <span className="font-medium">{item.label}</span>
-                  <span className="text-muted-foreground text-xs">{JSON.stringify(item.value)}</span>
+              </Card>
+              <Card className="rounded-xl border-0 bg-card p-6 shadow-sm space-y-4">
+                <div className="text-base font-semibold">Configuration</div>
+                {!selectedModule && (
+                  <div className="text-sm text-muted-foreground">Select a module to view its inputs.</div>
+                )}
+                {selectedModule && (
+                  <div className="space-y-6">
+                    <div className="flex items-center gap-2 rounded-lg bg-muted/30 dark:bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                      <Info className="h-4 w-4" />
+                      Fill required fields; optional fields may be left empty. Values are sent to the server for validation.
+                    </div>
+                    <div className="space-y-3">
+                      <div className="text-sm font-semibold">Core settings</div>
+                      <div className="space-y-3">
+                        {fieldsCore.map((f) => renderField(f, false))}
+                      </div>
+                    </div>
+                    {fieldsAdvanced.length > 0 && (
+                      <details className="rounded-lg bg-muted/30 dark:bg-muted/40 p-3" open={false}>
+                        <summary className="cursor-pointer text-sm font-semibold">Advanced settings</summary>
+                        <div className="mt-3 space-y-3">
+                          {fieldsAdvanced.map((f) => renderField(f))}
+                        </div>
+                      </details>
+                    )}
+                  </div>
+                )}
+              </Card>
+              <Card className="rounded-xl border-0 bg-card p-6 shadow-sm space-y-3">
+                <div className="text-base font-semibold">Configuration Summary</div>
+                <div className="space-y-2 text-sm">
+                  {summaryItems.length === 0 && (
+                    <div className="text-muted-foreground">No fields set.</div>
+                  )}
+                  {summaryItems.map((item) => (
+                    <div
+                      key={item.label}
+                      className="flex items-center justify-between rounded-lg bg-muted/30 dark:bg-muted/40 px-3 py-2"
+                    >
+                      <span className="font-medium">{item.label}</span>
+                      <span className="text-muted-foreground text-xs">
+                        {JSON.stringify(item.value)}
+                      </span>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-            {error && <div className="text-xs text-destructive">{error}</div>}
-            <div className="flex justify-end pt-2">
-              <Button
-                disabled={loadingSubmit || !project || !environment || !moduleName}
-                onClick={handleSubmit}
-              >
-                {loadingSubmit ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                {loadingSubmit ? "Creating..." : "Create Request"}
-              </Button>
-            </div>
-          </Card>
+                {error && <div className="text-xs text-destructive">{error}</div>}
+                <div className="flex justify-end pt-2">
+                  <Button
+                    disabled={loadingSubmit || !project || !environment || !moduleName}
+                    onClick={handleSubmit}
+                  >
+                    {loadingSubmit ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    {loadingSubmit ? "Creating..." : "Create Request"}
+                  </Button>
+                </div>
+              </Card>
+            </>
+          )}
         </div>
 
         <ActionProgressDialog

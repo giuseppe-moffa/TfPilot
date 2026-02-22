@@ -95,6 +95,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
       }),
     })
 
+    // Brief delay so the newly triggered run appears first in the list
+    await new Promise((r) => setTimeout(r, 2500))
+
     let destroyRunId: number | undefined
     let destroyRunUrl: string | undefined
     try {
@@ -116,7 +119,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
     const now = new Date().toISOString()
     const updated = await updateRequest(request.id, (current) => ({
       ...current,
-      status: "destroyed",
+      status: "destroying",
       statusDerivedAt: now,
       destroyRun: {
         runId: destroyRunId ?? current.destroyRun?.runId,

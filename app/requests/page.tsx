@@ -199,9 +199,10 @@ export default function RequestsPage() {
     const term = searchTerm.trim().toLowerCase()
     const filtered = requests.filter((row) => {
       const status = row.status
-      const isDestroyed = status === "destroyed" || status === "destroying"
-      if (datasetMode === "destroyed" && !isDestroyed) return false
-      if (datasetMode === "active" && isDestroyed) return false
+      const isFullyDestroyed = status === "destroyed"
+      const isInDestroyedTab = status === "destroyed" || status === "destroying"
+      if (datasetMode === "destroyed" && !isInDestroyedTab) return false
+      if (datasetMode === "active" && isFullyDestroyed) return false
       if (datasetMode === "drifted" && row.drift?.status !== "detected") return false
 
       if (envFilter !== "all" && row.environment?.toLowerCase() !== envFilter) return false

@@ -12,6 +12,7 @@ import { getSessionFromCookies } from "@/lib/auth/session"
 import { getUserRole } from "@/lib/auth/roles"
 import { logLifecycleEvent } from "@/lib/logs/lifecycle"
 import { buildResourceName } from "@/lib/requests/naming"
+import { injectServerAuthoritativeTags, assertRequiredTagsPresent } from "@/lib/requests/tags"
 import { ensureAssistantState } from "@/lib/assistant/state"
 
 const PLAN_WORKFLOW = env.GITHUB_PLAN_WORKFLOW_FILE
@@ -85,9 +86,7 @@ function appendRequestIdToNames(config: Record<string, unknown>, requestId: stri
     if (!trimmed) continue
     if (trimmed.includes(requestId)) continue
 
-    const candidate = buildResourceName(trimmed, requestId)
-    // AWS resource names must be lowercase
-    config[field] = candidate.toLowerCase()
+    config[field] = buildResourceName(trimmed, requestId)
   }
 }
 
@@ -261,10 +260,16 @@ function renderHclValue(value: unknown): string {
   return `"${String(value)}"`
 }
 
+/** HCL map keys with ':' or other non-identifier chars must be quoted. */
+function hclTagKey(key: string): string {
+  if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)) return key
+  return `"${key.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`
+}
+
 function renderModuleBlock(request: any, moduleSource: string) {
   const renderedInputs = Object.entries(request.config).map(([key, val]) => {
     if (key === "tags" && val && typeof val === "object" && !Array.isArray(val)) {
-      const tagEntries = Object.entries(val as Record<string, unknown>).map(([k, v]) => `    ${k} = ${renderHclValue(v)}`)
+      const tagEntries = Object.entries(val as Record<string, unknown>).map(([k, v]) => `    ${hclTagKey(k)} = ${renderHclValue(v)}`)
       return `  tags = {\n${tagEntries.join("\n")}\n  }`
     }
     return `  ${key} = ${renderHclValue(val)}`
@@ -499,6 +504,11 @@ export async function POST(req: NextRequest) {
     })
 
     appendRequestIdToNames(finalConfig, current.id)
+
+    // Server-authoritative tags: re-inject so required keys always present in stored/rendered config.
+    injectServerAuthoritativeTags(finalConfig, current, session.login)
+    assertRequiredTagsPresent(finalConfig, current)
+
     validatePolicy(finalConfig)
 
     const moduleSource = `../../modules/${current.module}`

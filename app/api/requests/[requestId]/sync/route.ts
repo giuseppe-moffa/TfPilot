@@ -23,6 +23,7 @@ async function ghWithRetry(token: string, url: string, attempts = 3, delayMs = 3
 
 import { deriveStatus } from "@/lib/requests/status"
 import { getRequest, updateRequest } from "@/lib/storage/requestsStore"
+import { getRequestCost } from "@/lib/services/cost-service"
 import { env } from "@/lib/config/env"
 import { ensureAssistantState } from "@/lib/assistant/state"
 import { sendAdminNotification, formatRequestNotification } from "@/lib/notifications/email"
@@ -297,10 +298,17 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
       }
     }
 
+    let destroyRunCreatedAt: string | undefined
     if (request.destroyRun?.runId) {
       try {
         const runRes = await ghWithRetry(token, `/repos/${request.targetOwner}/${request.targetRepo}/actions/runs/${request.destroyRun.runId}`)
-        const runJson = (await runRes.json()) as { status?: string; conclusion?: string; html_url?: string }
+        const runJson = (await runRes.json()) as {
+          status?: string
+          conclusion?: string
+          html_url?: string
+          created_at?: string
+        }
+        destroyRunCreatedAt = runJson.created_at
         request.destroyRun = {
           ...request.destroyRun,
           status: runJson.status ?? request.destroyRun.status,
@@ -318,7 +326,31 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
       applyRun: request.applyRun,
       approval: request.approval,
     })
-    if (request.status !== "destroyed") {
+
+    // Destroying: transition to destroyed when our tracked destroy run completes successfully.
+    // We fetch the run by request.destroyRun.runId (set at dispatch), so conclusion applies to that run.
+    // For success we trust that run; for failure we require the run to be "current" (time window) so we
+    // don't mark failed based on an old run from a previous destroy attempt.
+    const isCurrentDestroyRun =
+      !request.statusDerivedAt ||
+      !destroyRunCreatedAt ||
+      new Date(destroyRunCreatedAt).getTime() >= new Date(request.statusDerivedAt).getTime() - 5000
+
+    if (request.status === "destroying") {
+      if (request.destroyRun?.conclusion === "success") {
+        request.status = "destroyed"
+        request.reason = "Terraform destroy completed"
+      } else if (
+        isCurrentDestroyRun &&
+        request.destroyRun?.conclusion &&
+        ["failure", "cancelled", "timed_out", "action_required", "startup_failure", "stale"].includes(
+          request.destroyRun.conclusion
+        )
+      ) {
+        request.status = "failed"
+        request.reason = "Destroy failed or was cancelled"
+      }
+    } else if (request.status !== "destroyed") {
       const keepMerged =
         previousStatus === "merged" && derived.status !== "merged" && !request.pr?.merged
       if (!keepMerged) {
@@ -330,8 +362,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
     request.statusDerivedAt = nowIso
     request.updatedAt = nowIso
 
-    // If apply run failed, reflect failure so UI allows recovery actions
-    if (request.applyRun?.conclusion === "failure") {
+    // If apply run failed, reflect failure so UI allows recovery actions (do not overwrite destroy outcome)
+    if (
+      request.applyRun?.conclusion === "failure" &&
+      request.status !== "destroyed" &&
+      request.status !== "destroying"
+    ) {
       request.status = "failed"
       request.reason = "Apply failed"
     }
@@ -418,6 +454,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
       plan: request.plan,
       destroyRun: request.destroyRun,
     }))
+
+    const cost = await getRequestCost(requestId)
+    if (cost) {
+      ;(updated as any).cost = cost
+    }
 
     return NextResponse.json({ ok: true, request: updated })
   } catch (error) {

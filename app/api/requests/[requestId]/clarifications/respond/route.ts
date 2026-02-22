@@ -112,9 +112,7 @@ function appendRequestIdToNames(config: Record<string, unknown>, requestId: stri
     if (!trimmed) continue
     if (trimmed.includes(requestId)) continue
 
-    const candidate = buildResourceName(trimmed, requestId)
-    // AWS resource names must be lowercase
-    config[field] = candidate.toLowerCase()
+    config[field] = buildResourceName(trimmed, requestId)
   }
 }
 

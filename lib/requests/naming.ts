@@ -25,7 +25,7 @@ export function buildResourceName(base: string, requestId: string) {
   if (candidate.length > MAX_LEN) {
     candidate = candidate.slice(0, MAX_LEN).replace(/-+$/, "")
   }
-  return candidate
+  return candidate.toLowerCase()
 }
 
 export function validateResourceName(name: string) {

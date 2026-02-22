@@ -13,6 +13,7 @@ const WHITELIST_KEYS = [
   "plan",
   "cleanupPr",
   "timeline",
+  "cost",
 ] as const
 
 function mergeRequest(prev: RequestLike, next: RequestLike): RequestLike {
@@ -35,6 +36,8 @@ function mergeRequest(prev: RequestLike, next: RequestLike): RequestLike {
     if (next[key] !== undefined) {
       if (key === "planRun" || key === "applyRun" || key === "approval" || key === "pr" || key === "cleanupPr") {
         merged[key] = { ...(prev as any)[key], ...(next as any)[key] }
+      } else if (key === "cost") {
+        merged[key] = (next as any)[key]
       } else {
         merged[key] = next[key]
       }

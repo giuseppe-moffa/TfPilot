@@ -12,11 +12,12 @@ export async function GET() {
   const generatedAt = new Date().toISOString()
   const schemaVersion = 2
 
+  // Tags are server-authoritative: never expose in UI so users cannot configure them.
   const modules = moduleRegistry.map((entry) => ({
     type: entry.type,
     category: entry.category ?? "core",
     description: entry.description ?? "",
-    fields: (entry.fields ?? []).map((f) => ({
+    fields: (entry.fields ?? []).filter((f) => f.name !== "tags").map((f) => ({
       name: f.name,
       type: f.type,
       required: Boolean(f.required),

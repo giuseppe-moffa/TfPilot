@@ -10,7 +10,8 @@ import { saveRequest, listRequests } from "@/lib/storage/requestsStore"
 import { moduleRegistry, type ModuleRegistryEntry, type ModuleField } from "@/config/module-registry"
 import { generateRequestId } from "@/lib/requests/id"
 import { deriveStatus } from "@/lib/requests/status"
-import { buildResourceName, validateResourceName } from "@/lib/requests/naming"
+import { buildResourceName } from "@/lib/requests/naming"
+import { injectServerAuthoritativeTags, assertRequiredTagsPresent } from "@/lib/requests/tags"
 import { getSessionFromCookies } from "@/lib/auth/session"
 import { logLifecycleEvent } from "@/lib/logs/lifecycle"
 import { getUserRole } from "@/lib/auth/roles"
@@ -21,6 +22,8 @@ type RequestPayload = {
   environment?: string
   module?: string
   config?: Record<string, unknown>
+  templateId?: string
+  environmentName?: string
 }
 
 type StoredRequest = {
@@ -57,6 +60,13 @@ type StoredRequest = {
   registryRef?: { commitSha: string; resolvedAt: string }
   rendererVersion?: string
   render?: { renderHash: string; inputsHash?: string; reproducible?: boolean; computedAt: string }
+  templateId?: string
+  environmentName?: string
+  cost?: {
+    monthlyCost?: number
+    diffSummary?: string
+    lastUpdated?: string
+  }
 }
 
 const PLAN_WORKFLOW = env.GITHUB_PLAN_WORKFLOW_FILE
@@ -89,14 +99,12 @@ function validatePayload(body: RequestPayload) {
 
 function planDiffForModule(mod?: string) {
   switch (mod) {
-    case "ecs-service":
-      return "+ aws_ecs_service.app"
-    case "sqs-queue":
-      return "+ aws_sqs_queue.main"
     case "s3-bucket":
       return "+ aws_s3_bucket.main"
-    case "iam-role-app":
-      return "+ aws_iam_role.app"
+    case "ec2-instance":
+      return "+ aws_instance.this"
+    case "ecr-repo":
+      return "+ aws_ecr_repository.this"
     default:
       return "+ aws_null_resource.default"
   }
@@ -108,6 +116,12 @@ function renderHclValue(value: unknown): string {
     return `jsonencode(${JSON.stringify(value)})`
   }
   return `"${String(value)}"`
+}
+
+/** HCL map keys with ':' or other non-identifier chars must be quoted. */
+function hclTagKey(key: string): string {
+  if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)) return key
+  return `"${key.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`
 }
 
 function toSnakeCase(key: string) {
@@ -187,9 +201,7 @@ function appendRequestIdToNames(config: Record<string, unknown>, requestId: stri
     if (!trimmed) continue
     if (trimmed.includes(requestId)) continue
 
-    const candidate = buildResourceName(trimmed, requestId)
-    // AWS resource names must be lowercase
-    config[field] = candidate.toLowerCase()
+    config[field] = buildResourceName(trimmed, requestId)
   }
 }
 
@@ -235,7 +247,7 @@ function renderModuleBlock(request: StoredRequest, moduleSource: string) {
   const renderedInputs = Object.entries(request.config).map(([key, val]) => {
     if (key === "tags" && val && typeof val === "object" && !Array.isArray(val)) {
       const tagEntries = Object.entries(val as Record<string, unknown>).map(
-        ([k, v]) => `    ${k} = ${renderHclValue(v)}`
+        ([k, v]) => `    ${hclTagKey(k)} = ${renderHclValue(v)}`
       )
       return `  tags = {\n${tagEntries.join("\n")}\n  }`
     }
@@ -617,6 +629,9 @@ export async function POST(request: NextRequest) {
       status: "created",
       plan: { diff: planDiffForModule(body.module) },
     }
+    if (body.templateId != null) newRequest.templateId = String(body.templateId)
+    if (typeof body.environmentName === "string" && body.environmentName.trim())
+      newRequest.environmentName = body.environmentName.trim()
 
     newRequest.config = buildModuleConfig(regEntry, newRequest.config, {
       requestId: newRequest.id,
@@ -625,6 +640,10 @@ export async function POST(request: NextRequest) {
     })
 
     appendRequestIdToNames(newRequest.config, requestId)
+
+    // Server-authoritative tags: always inject required keys; required overwrite any incoming tags.
+    injectServerAuthoritativeTags(newRequest.config, newRequest, session.login)
+    assertRequiredTagsPresent(newRequest.config, newRequest)
 
     // Policy checks (naming, region allowlist)
     validatePolicy(newRequest.config)

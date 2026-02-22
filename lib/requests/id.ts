@@ -2,12 +2,11 @@ import crypto from "node:crypto"
 
 const MODULE_CODE_MAP: Record<string, string> = {
   "s3-bucket": "s3",
-  "sqs-queue": "sqs",
-  "ecs-service": "ecs",
-  "iam-role-app": "iam",
+  "ec2-instance": "ec2",
+  "ecr-repo": "ecr",
 }
 
-const SAFE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789" // no O0I1
+const SAFE_ALPHABET = "abcdefghjklmnpqrstuvwxyz23456789" // no o0i1l; lowercase for AWS-friendly IDs
 
 function randomCode(length = 6) {
   const bytes = crypto.randomBytes(length * 2)

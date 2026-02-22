@@ -6,12 +6,14 @@ Terraform self-service platform (Next.js + API) with S3-backed state, GitHub Act
 
 **Production URL:** [https://tfpilot.com](https://tfpilot.com)
 
+**Tech stack:** Next.js 16, React 19, Tailwind CSS 4, shadcn/ui. UI follows a minimal, background-based design (sections and fields separated with `bg-muted` / `bg-card`, no borders) in light and dark mode.
+
 ### Architecture
 - **Hosting:** AWS ECS Fargate behind Application Load Balancer (ALB) with HTTPS, deployed via GitHub Actions CI/CD. Infrastructure managed in [tfpilot-terraform](https://github.com/giuseppe-moffa/tfpilot-terraform) repository.
-- **Storage:** Requests persisted in S3 (`requests/`), optimistic locking via `version`; destroyed requests archived to `history/`. Assistant state (clarifications, suggestions, patches) stored in request JSON. Lifecycle events logged to S3. Chat logs stored in S3 bucket (e.g., `tfpilot-chat-logs`) with SSE-S3.
+- **Storage:** Requests persisted in S3 (`requests/`), optimistic locking via `version`; destroyed requests archived to `history/`. Cost estimation JSONs (Infracost) stored under `cost/<requestId>/` in the same requests bucket. Assistant state (clarifications, suggestions, patches) stored in request JSON. Lifecycle events logged to S3. Chat logs stored in S3 bucket (e.g., `tfpilot-chat-logs`) with SSE-S3.
 - **Auth/RBAC:** Session cookie validation in middleware; prod actions (create/approve/merge/apply/destroy/cleanup dispatch) gated by `TFPILOT_PROD_ALLOWED_USERS` allow-list. Role-based access (viewer/developer/approver/admin) enforced on critical routes. GitHub OAuth for authentication.
 - **GitHub:** Workflows for plan/apply/destroy/cleanup dispatched with shared concurrency per project+env+request and OIDC. Cleanup strips only the TfPilot block before destroy. Updates create new PRs and supersede previous ones.
-- **UI:** Form-based request creation with assistant drawer; requests table with filters (status/env/module/project/search); detail pages with timeline, suggestions panel, clarifications, actions (approve/merge/apply/destroy), apply/destroy dialogs, and cleanup PR info. SWR polling for freshness and optimistic updates on critical actions.
+- **UI:** Requests list (filters: status/env/module/project/search, dataset modes: active/drifted/destroyed/all), new request form (project/env/module + config with core/advanced fields), request detail (Overview with metadata and monthly cost estimate, timeline, PR/approve/merge/apply/destroy, suggestions panel, plan diff). Assistant drawer with chat and suggestion panel; design uses background colors only for separation (no borders). AWS Connect at `/aws/connect` for account setup. SWR polling and per-request sync for freshness.
 - **AI Assistant:** Schema-driven assistant that guides users through module inputs, provides suggestions (patches), asks clarifications (text/choice/boolean), and helps refine configurations. Assistant state persisted in requests with hash-based validation to prevent stale suggestions.
 
 ### Request lifecycle
@@ -23,23 +25,30 @@ Terraform self-service platform (Next.js + API) with S3-backed state, GitHub Act
 6) **Apply**: User triggers apply → GitHub Actions runs `terraform apply` → status transitions to `applying` → `complete` on success or `failed` on error.
 7) **Destroy** (optional): User triggers destroy → cleanup PR created (strips TfPilot block) → destroy workflow runs → request archived to `history/`.
 
-**Status transitions**: `created` → `pr_open` → `planning` → `plan_ready` → `awaiting_approval` → `approved` → `merged` → `applying` → `complete` (or `failed` at any stage). Destroy flow: `destroying` → `destroyed`.
+**Status transitions** (canonical): `request_created` → `planning` → `plan_ready` → `approved` → `merged` → `applying` → `applied` (or `failed` at any stage). Destroy flow: `destroying` → `destroyed`. Backend may use variants (e.g. `pr_open`, `awaiting_approval`, `complete`); UI normalizes to these for display.
 
 ### Workflows (core/payments repos)
-- **Plan**: Uses project/env backend, shared concurrency per project+env+request. Runs on request creation and updates. Uploads plan output as artifact; records runId/url/status/conclusion back to request.
+- **Plan**: Uses project/env backend, shared concurrency per project+env+request. Runs on request creation and updates. Uploads plan output as artifact; records runId/url/status/conclusion back to request. **Infracost** runs after a successful plan (when Terraform files changed): produces cost and diff JSON, uploads them to S3 `cost/<requestId>/`, and optionally posts/updates a single PR comment with cost summary. Requires `INFRACOST_API_KEY` secret and (for S3 upload) workflow dispatch with `request_id` input; cost is shown in the request Overview in the UI.
 - **Apply**: Requires merged PR; prod-guarded; records runId/url/status/conclusion back to request. Uses same concurrency controls as plan.
 - **Destroy**: Runs cleanup PR workflow first, then destroy; prod-guarded. Archives request to `history/` after successful destroy.
 - **Cleanup**: Strips only the TfPilot module block; branch `cleanup/{requestId}`; can auto-merge in dev. Required before destroy to remove Terraform block.
 - **Drift-Plan**: Runs terraform plan on base branch to detect infrastructure drift (dev-only). Scheduled nightly via drift-check workflow. Reports drift status back to TfPilot API.
 - **Drift-Check**: Scheduled workflow (2 AM daily) that enumerates eligible dev requests and dispatches drift-plan workflows per request.
 
+### Cost estimation
+- **Source:** [Infracost](https://www.infracost.io/) runs inside the Plan workflow in infra repos (core-terraform, payments-terraform) after a successful Terraform plan, only when Terraform files have changed.
+- **Storage:** Cost and diff JSONs are uploaded to the same requests bucket at `s3://<bucket>/cost/<requestId>/infracost-cost.json` and `infracost-diff.json`. The app reads these via `GET /api/requests/:id` and sync; no cost data is stored in the request document.
+- **UI:** Request detail Overview shows **Cost estimate** with monthly cost (e.g. `Monthly: $11.64`) when data exists; otherwise shows "—".
+- **Infra setup:** In the infra repo, add GitHub secret `INFRACOST_API_KEY` and ensure the Plan workflow is dispatched with `request_id` so uploads target the correct path. Optional: set repo variable `TFPILOT_REQUESTS_BUCKET` if the bucket name differs from the default.
+
 ### Environment (see `env.example`)
 - Buckets/region: `TFPILOT_REQUESTS_BUCKET`, `TFPILOT_CHAT_LOGS_BUCKET`, `TFPILOT_DEFAULT_REGION`
 - Prod guardrails: `TFPILOT_PROD_ALLOWED_USERS` (comma-separated GitHub usernames for general prod access), `TFPILOT_DESTROY_PROD_ALLOWED_USERS` (comma-separated GitHub usernames for prod destroy - separate allowlist)
 - RBAC: `TFPILOT_ADMINS`, `TFPILOT_APPROVERS` (comma-separated GitHub usernames)
+- Policy (optional): `TFPILOT_ALLOWED_REGIONS` (comma-separated regions for module validation)
 - Email notifications: `TFPILOT_ADMIN_EMAILS` (comma-separated email addresses), `TFPILOT_EMAIL_FROM` (sender address, must be verified in AWS SES)
-- Workflows: `GITHUB_PLAN_WORKFLOW_FILE`, `GITHUB_APPLY_WORKFLOW_FILE`, `GITHUB_DESTROY_WORKFLOW_FILE`, `GITHUB_CLEANUP_WORKFLOW_FILE`
-- Auth: Session secret, GitHub app/OAuth variables for token exchange
+- Workflows: `GITHUB_PLAN_WORKFLOW_FILE`, `GITHUB_APPLY_WORKFLOW_FILE`, `GITHUB_DESTROY_WORKFLOW_FILE`, `GITHUB_CLEANUP_WORKFLOW_FILE` (workflow filenames, e.g. `plan.yml`)
+- Auth: `AUTH_SECRET`, GitHub OAuth (`GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_OAUTH_REDIRECT`)
 
 ### Deployment
 
@@ -69,6 +78,13 @@ Ensure env vars above are set (buckets/region, workflow filenames, session secre
 - GitHub OAuth app credentials
 - OpenAI API key (if using the AI assistant)
 
+### Scripts
+- `npm run dev` — start Next.js dev server
+- `npm run build` / `npm run start` — production build and start
+- `npm run lint` — ESLint
+- `npm run validate:registry` — validate module registry (`config/module-registry.ts`)
+- `npm run validate:tags` — validate server tags
+
 ### Security & guardrails
 - Session validation on all APIs; prod allow-list on approve/merge/apply/destroy/cleanup dispatch.
 - Separate prod destroy allowlist (`TFPILOT_DESTROY_PROD_ALLOWED_USERS`) for additional protection against accidental prod resource destruction.
@@ -85,4 +101,5 @@ Ensure env vars above are set (buckets/region, workflow filenames, session secre
 
 ### Observability
 - **Current**: UI polling (SWR) for list and per-request sync; statuses surfaced for plan/apply/destroy; cleanup PR displayed. Lifecycle events logged to S3 (JSON format) for plan/approve/merge/apply/destroy/cleanup/configuration_updated events. Request detail pages show timeline of events. Downloadable audit logs (JSON export) for compliance and troubleshooting. Admin email notifications (AWS SES) for apply/destroy/plan success and failure events. Passive drift detection (dev-only): nightly terraform plans for successfully applied requests detect infrastructure drift; drift status surfaced in UI with plan run links.
-- **Gaps/TODO**: Slack notifications; summary/metrics/health endpoints; cost estimation.
+- **Endpoints:** `/api/health`, `/api/metrics` for health and basic metrics.
+- **Gaps/TODO:** Slack notifications.

@@ -640,7 +640,6 @@ function RequestDetailPage() {
 
   async function handleDestroy() {
     if (!requestId || isDestroying || isDestroyed) return
-    setDestroyModalOpen(false)
     setDestroyStatus("pending")
     setDestroyError(null)
     optimisticUpdate({ status: "destroying", statusDerivedAt: new Date().toISOString() })
@@ -655,9 +654,14 @@ function RequestDetailPage() {
       }
       await mutateStatus(undefined, true)
       setDestroyStatus("success")
-    } catch (err: any) {
+      setTimeout(() => {
+        setDestroyModalOpen(false)
+        setDestroyStatus("idle")
+        setDestroyConfirmation("")
+      }, 2000)
+    } catch (err: unknown) {
       setDestroyStatus("error")
-      setDestroyError(err?.message || "Failed to dispatch destroy")
+      setDestroyError(err instanceof Error ? err.message : "Failed to dispatch destroy")
     } finally {
       clearActionProgress()
     }
@@ -1199,6 +1203,14 @@ function RequestDetailPage() {
                     {formatDate(request.createdAt ?? request.updatedAt ?? "")}
                   </p>
                 </div>
+                <div>
+                  <p className="text-muted-foreground text-xs">Cost estimate</p>
+                  <p className="font-normal mt-0.5">
+                    {request?.cost?.monthlyCost !== undefined
+                      ? `Monthly: $${request.cost.monthlyCost.toFixed(2)}`
+                      : "—"}
+                  </p>
+                </div>
               </div>
             </div>
           </div>
@@ -1291,6 +1303,7 @@ function RequestDetailPage() {
                       className={cn(
                         "h-9",
                         (!statusSlice ||
+                          !isPlanReady ||
                           statusSlice.status === "approved" ||
                           statusSlice.status === "applied" ||
                           isMerged ||
@@ -1303,6 +1316,7 @@ function RequestDetailPage() {
                       )}
                       disabled={
                         !statusSlice ||
+                        !isPlanReady ||
                         statusSlice.status === "approved" ||
                         statusSlice.status === "applied" ||
                         isMerged ||
@@ -1327,9 +1341,9 @@ function RequestDetailPage() {
                       )}
                     </Button>
                   </TooltipTrigger>
-                  {requestStatus !== "pending" && requestStatus !== "planned" && (
+                  {(!isPlanReady || (requestStatus !== "pending" && requestStatus !== "planned" && requestStatus !== "approved")) && (
                     <TooltipContent>
-                      Already approved, merged, applied, destroying, applying, or failed
+                      {!isPlanReady ? "Wait for plan to be ready" : "Already approved, merged, applied, destroying, applying, or failed"}
                     </TooltipContent>
                   )}
                 </Tooltip>
@@ -2145,31 +2159,18 @@ function RequestDetailPage() {
           if (!isApplying && !val) {
             setApplyModalOpen(false)
             setApplyStatus("idle")
+            setActionError(null)
           }
         }}
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Applying changes</DialogTitle>
+            <DialogTitle>Apply changes</DialogTitle>
             <DialogDescription asChild>
               <div className="space-y-1">
                 {applyStatus === "idle" && (
-                  <div className="space-y-3 text-sm text-muted-foreground">
-                    <div className="rounded-md border border-amber-300/60 bg-amber-50 p-3 text-amber-900 dark:border-amber-400/40 dark:bg-amber-950/40 dark:text-amber-100">
-                      This will run Terraform apply and create the resource in core/dev. Confirm you want to apply to this environment.
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-xs text-muted-foreground" htmlFor="apply-note">
-                        Optional note for this apply (reason/intent)
-                      </label>
-                      <textarea
-                        id="apply-note"
-                        className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
-                        rows={3}
-                        value={applyNote}
-                        onChange={(e) => setApplyNote(e.target.value)}
-                      />
-                    </div>
+                  <div className="text-sm text-muted-foreground">
+                    Are you sure you want to apply these changes? This will run Terraform apply for this request.
                   </div>
                 )}
                 {applyStatus === "pending" && (
@@ -2179,11 +2180,13 @@ function RequestDetailPage() {
                   </div>
                 )}
                 {applyStatus === "success" && (
-                  <div className="text-sm text-emerald-700">✅ Changes applied</div>
+                  <div className="text-sm text-emerald-700">✅ Apply dispatched</div>
                 )}
                 {applyStatus === "error" && (
-                  <div className="text-sm text-red-700">
-                    ❌ Something went wrong. Please try again.
+                  <div className="space-y-2 text-sm">
+                    <p className="text-destructive">
+                      {actionError ?? "Something went wrong. Please try again."}
+                    </p>
                   </div>
                 )}
               </div>
@@ -2215,6 +2218,21 @@ function RequestDetailPage() {
                 </Button>
               </div>
             )}
+            {applyStatus === "error" && (
+              <div className="mt-4 flex flex-wrap justify-end gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setApplyModalOpen(false)
+                    setApplyStatus("idle")
+                    setActionError(null)
+                  }}
+                >
+                  Dismiss
+                </Button>
+              </div>
+            )}
           </DialogHeader>
         </DialogContent>
       </Dialog>
@@ -2226,6 +2244,7 @@ function RequestDetailPage() {
             setDestroyModalOpen(false)
             setDestroyStatus("idle")
             setDestroyError(null)
+            setDestroyConfirmation("")
           }
         }}
       >
@@ -2264,8 +2283,10 @@ function RequestDetailPage() {
                   <div className="text-sm text-emerald-700">✅ Destroy dispatched</div>
                 )}
                 {destroyStatus === "error" && (
-                  <div className="text-sm text-red-700">
-                    ❌ {destroyError || "Something went wrong. Please try again."}
+                  <div className="space-y-2 text-sm">
+                    <p className="text-destructive">
+                      {destroyError ?? "Something went wrong. Please try again."}
+                    </p>
                   </div>
                 )}
               </div>
@@ -2289,11 +2310,26 @@ function RequestDetailPage() {
                   variant="destructive"
                   disabled={destroyConfirmation !== "destroy"}
                   onClick={() => {
-                    setDestroyStatus("pending")
                     void handleDestroy()
                   }}
                 >
                   Yes, destroy
+                </Button>
+              </div>
+            )}
+            {destroyStatus === "error" && (
+              <div className="mt-4 flex flex-wrap justify-end gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setDestroyModalOpen(false)
+                    setDestroyStatus("idle")
+                    setDestroyError(null)
+                    setDestroyConfirmation("")
+                  }}
+                >
+                  Dismiss
                 </Button>
               </div>
             )}
