@@ -12,7 +12,7 @@ import { useTheme } from "./theme-provider"
 
 const navItems = [
   { label: "Requests", href: "/requests" },
-  { label: "Catalogue", href: "/templates" },
+  { label: "Catalogue", href: "/catalogue" },
   { label: "Environments", href: "/environments" },
 ]
 

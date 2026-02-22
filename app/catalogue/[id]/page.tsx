@@ -292,7 +292,7 @@ export default function TemplateEditorPage() {
           throw new Error(data?.error ?? "Failed to create")
         }
         const created = await res.json()
-        router.replace(`/templates/${created.id}`)
+        router.replace(`/catalogue/${created.id}`)
       } else {
         const res = await fetch(`/api/admin/templates/${id}`, {
           method: "PUT",
@@ -320,7 +320,7 @@ export default function TemplateEditorPage() {
     return (
       <div className="flex min-h-[50vh] flex-col items-center justify-center gap-4 p-8">
         <h1 className="text-xl font-semibold">Not found</h1>
-        <Link href="/templates">
+        <Link href="/catalogue">
           <Button variant="outline">Back to catalogue</Button>
         </Link>
       </div>
@@ -338,7 +338,7 @@ export default function TemplateEditorPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-6 p-4">
       <header className="flex items-center justify-between gap-3">
-        <Link href="/templates">
+        <Link href="/catalogue">
           <Button variant="ghost" size="sm" className="gap-2">
             <ArrowLeft className="h-4 w-4" />
             Back

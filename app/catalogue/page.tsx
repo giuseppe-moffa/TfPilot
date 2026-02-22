@@ -263,7 +263,7 @@ export default function TemplatesListPage() {
               <Download className="h-4 w-4" />
               {seeding ? "Importing…" : "Import default templates"}
             </Button>
-            <Link href="/templates/new">
+            <Link href="/catalogue/new">
               <Button size="sm" className="gap-2">
                 <Plus className="h-4 w-4" />
                 New template
@@ -336,7 +336,7 @@ export default function TemplatesListPage() {
               <div className="mt-auto flex flex-wrap gap-2">
                 {isAdminView ? (
                   <>
-                    <Link href={`/templates/${entry.id}`}>
+                    <Link href={`/catalogue/${entry.id}`}>
                       <Button variant="outline" size="sm" className="gap-1">
                         <Edit className="h-3 w-3" />
                         Edit
