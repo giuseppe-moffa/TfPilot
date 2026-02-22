@@ -245,9 +245,9 @@ export default function TemplatesListPage() {
             </Button>
           </Link>
           <div>
-            <h1 className="text-lg font-semibold">Template catalogue</h1>
+            <h1 className="text-lg font-semibold">Catalogue</h1>
             {!loading && !isAdminView && (
-              <p className="text-xs text-muted-foreground">Browse templates. Create a request from the Requests page.</p>
+              <p className="text-xs text-muted-foreground">Browse the catalogue. Create a request from the Requests page.</p>
             )}
           </div>
         </div>
