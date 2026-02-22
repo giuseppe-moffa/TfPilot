@@ -396,7 +396,7 @@ export function AssistantHelper({ context, onAssistantState }: AssistantHelperPr
       </div>
 
       {/* Input area - positioned to grow upward */}
-      <div className="absolute bottom-0 left-0 right-0 border-x border-b border-border bg-card px-3 py-3 shadow-sm">
+      <div className="absolute bottom-0 left-0 right-0 bg-muted/40 dark:bg-muted/30 px-3 py-3 shadow-sm">
         {error && <div className="mb-2 text-xs text-destructive">{error}</div>}
         <div className="relative">
           <Textarea
@@ -404,7 +404,7 @@ export function AssistantHelper({ context, onAssistantState }: AssistantHelperPr
             value={prompt}
             onChange={handleTextareaChange}
             placeholder="Describe what infrastructure you need..."
-            className="min-h-[44px] pr-12 border border-border focus-visible:ring-2 focus-visible:ring-primary/30 resize-none"
+            className="min-h-[44px] pr-12 rounded-lg bg-muted/50 dark:bg-muted/40 focus-visible:ring-2 focus-visible:ring-primary/20 focus-visible:ring-offset-0 resize-none"
             style={{ maxHeight: '200px', overflowY: prompt.split('\n').length > 6 ? 'auto' : 'hidden' }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {

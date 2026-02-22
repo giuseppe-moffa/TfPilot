@@ -287,7 +287,7 @@ export function SuggestionPanel({ request, requestId, onRefresh, onConfigUpdate,
 
   return (
     <div className="px-4 py-3">
-      <div className="space-y-3 rounded-lg border border-border bg-muted/20 p-3">
+      <div className="space-y-3 rounded-xl bg-muted/30 dark:bg-muted/40 p-3">
       <div
         className="flex items-center justify-between cursor-pointer"
         onClick={() => setIsCollapsed(!isCollapsed)}
@@ -317,7 +317,7 @@ export function SuggestionPanel({ request, requestId, onRefresh, onConfigUpdate,
                 const oldVal = getValueAtPath(request?.config, patch.path)
                 const newVal = patch.op === "unset" ? "unset" : patch.value
                 return (
-                  <div key={patchId} className="flex items-start gap-2 rounded-md border border-border bg-card/80 p-2 text-xs">
+                  <div key={patchId} className="flex items-start gap-2 rounded-lg bg-muted/50 dark:bg-muted/40 p-2 text-xs">
                     <input
                       type="checkbox"
                       className="mt-0.5 h-3 w-3 flex-shrink-0"

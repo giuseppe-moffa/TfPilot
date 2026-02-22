@@ -72,7 +72,7 @@ const FieldCard = ({
 }) => (
   <div
     id={id}
-    className={`rounded-lg border border-border bg-card/80 px-3 py-3 shadow-sm transition focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-primary/20 focus-within:ring-offset-0 ${
+    className={`rounded-lg bg-muted/50 dark:bg-muted/40 px-3 py-3 transition focus-within:ring-2 focus-within:ring-primary/20 focus-within:ring-offset-0 ${
       fullWidth ? 'md:col-span-2' : ''
     }`}
   >
@@ -520,9 +520,9 @@ export default function NewRequestPage() {
         </Button>
       </header>
 
-      <div className="flex-1 p-4">
-        <div className="space-y-4">
-          <Card className="space-y-4 rounded-lg border border-border bg-card p-4 shadow-sm">
+      <div className="flex-1 p-4 overflow-auto">
+        <div className="mx-auto max-w-4xl space-y-6">
+          <Card className="rounded-xl border-0 bg-card p-6 shadow-sm space-y-4">
             <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
               <div className="space-y-2">
                 <Label className="text-sm font-medium">Project</Label>
@@ -582,12 +582,12 @@ export default function NewRequestPage() {
             )}
           </Card>
 
-          <Card className="space-y-4 rounded-lg border border-border bg-card p-4 shadow-sm">
+          <Card className="rounded-xl border-0 bg-card p-6 shadow-sm space-y-4">
             <div className="text-base font-semibold">Configuration</div>
             {!selectedModule && <div className="text-sm text-muted-foreground">Select a module to view its inputs.</div>}
             {selectedModule && (
               <div className="space-y-6">
-                <div className="flex items-center gap-2 rounded-lg border border-border bg-card/70 px-3 py-2 text-xs text-muted-foreground">
+                <div className="flex items-center gap-2 rounded-lg bg-muted/30 dark:bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
                   <Info className="h-4 w-4" />
                   Fill required fields; optional fields may be left empty. Values are sent to the server for validation.
                 </div>
@@ -598,7 +598,7 @@ export default function NewRequestPage() {
                   </div>
                 </div>
                 {fieldsAdvanced.length > 0 && (
-                  <details className="rounded-lg border border-border bg-card p-3" open={false}>
+                  <details className="rounded-lg bg-muted/30 dark:bg-muted/40 p-3" open={false}>
                     <summary className="cursor-pointer text-sm font-semibold">Advanced settings</summary>
                     <div className="mt-3 space-y-3">
                       {fieldsAdvanced.map((f) => renderField(f))}
@@ -609,12 +609,12 @@ export default function NewRequestPage() {
             )}
           </Card>
 
-          <Card className="space-y-3 rounded-lg border border-border bg-card p-4 shadow-sm">
+          <Card className="rounded-xl border-0 bg-card p-6 shadow-sm space-y-3">
             <div className="text-base font-semibold">Configuration Summary</div>
             <div className="space-y-2 text-sm">
               {summaryItems.length === 0 && <div className="text-muted-foreground">No fields set.</div>}
               {summaryItems.map((item) => (
-                <div key={item.label} className="flex items-center justify-between rounded border border-border px-2 py-1">
+                <div key={item.label} className="flex items-center justify-between rounded-lg bg-muted/30 dark:bg-muted/40 px-3 py-2">
                   <span className="font-medium">{item.label}</span>
                   <span className="text-muted-foreground text-xs">{JSON.stringify(item.value)}</span>
                 </div>

@@ -82,7 +82,7 @@ export function AssistantDrawer({
         ref={drawerRef}
         tabIndex={-1}
         style={{ width: drawerWidth }}
-        className={`fixed inset-y-0 right-0 z-40 flex h-screen transform border-l border-border bg-card shadow-2xl transition-transform duration-200 ease-out focus:outline-none ${
+        className={`fixed inset-y-0 right-0 z-40 flex h-screen transform bg-card shadow-2xl transition-transform duration-200 ease-out focus:outline-none ${
           isOpen ? "translate-x-0" : "translate-x-full"
         }`}
       >
