@@ -746,7 +746,18 @@ export async function POST(request: NextRequest) {
       prUrl: newRequestWithAssistant.prUrl,
     })
   } catch (error) {
-    console.error("[api/requests] error parsing request:", error)
+    console.error("[api/requests] error:", error)
+    const err = error as { status?: number; message?: string }
+    if (err?.status === 403 || (typeof err?.message === "string" && err.message.includes("Resource not accessible by integration"))) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "GitHub denied write access to the repo. Sign out and sign in again, and when GitHub asks, grant repo (write) access. If using a GitHub App: ensure it has Contents → Read and write (Permissions & events). For org repos, an admin must approve the app under Third-party access.",
+        },
+        { status: 403 }
+      )
+    }
     const message =
       error instanceof Error ? error.message : typeof error === "string" ? error : "Invalid JSON payload"
     return NextResponse.json({ success: false, error: message }, { status: 400 })

@@ -100,6 +100,13 @@ function buildRedirectUri(req: NextRequest) {
   return uri
 }
 
+/** Public base URL for redirects (never use req.url origin behind ALB – it can be internal host). */
+function getPublicBaseUrl(): string {
+  const envRedirect = process.env.GITHUB_OAUTH_REDIRECT
+  if (envRedirect) return new URL(envRedirect).origin
+  return "https://tfpilot.com"
+}
+
 export async function GET(req: NextRequest) {
   console.log('[auth/github/callback] ===== OAuth Callback Request =====')
   console.log('[auth/github/callback] Request URL:', req.url)
@@ -124,7 +131,8 @@ export async function GET(req: NextRequest) {
     console.error('[auth/github/callback] Missing returnedState:', !returnedState)
     console.error('[auth/github/callback] Missing expectedState:', !expectedState)
     console.error('[auth/github/callback] State mismatch:', returnedState !== expectedState)
-    return NextResponse.redirect(new URL("/login?error=oauth_state", req.url))
+    const baseUrl = getPublicBaseUrl()
+    return NextResponse.redirect(new URL("/login?error=oauth_state", baseUrl))
   }
 
   try {
@@ -167,6 +175,6 @@ export async function GET(req: NextRequest) {
   } catch (error) {
     console.error("[auth/github/callback] ===== OAuth Error ===== ", error)
     console.error("[auth/github/callback] Error details:", error instanceof Error ? error.message : String(error))
-    return NextResponse.redirect(new URL("/login?error=oauth_failed", req.url))
+    return NextResponse.redirect(new URL("/login?error=oauth_failed", getPublicBaseUrl()))
   }
 }
