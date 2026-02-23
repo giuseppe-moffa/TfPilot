@@ -82,13 +82,26 @@ export function clearSession(res: NextResponse) {
   })
 }
 
+/** In production, set domain so the cookie is sent when GitHub redirects back to tfpilot.com. */
+function stateCookieDomain(): string | undefined {
+  const redirect = process.env.GITHUB_OAUTH_REDIRECT
+  if (!redirect) return undefined
+  try {
+    const host = new URL(redirect).hostname
+    if (host && host !== "localhost" && !host.startsWith("127.")) return host
+  } catch {}
+  return undefined
+}
+
 export function setStateCookie(res: NextResponse, value: string) {
+  const domain = stateCookieDomain()
   res.cookies.set(STATE_COOKIE, value, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
     path: "/",
     maxAge: 600,
+    ...(domain && { domain }),
   })
 }
 
@@ -98,11 +111,13 @@ export async function readStateCookie(store?: ReturnType<typeof cookies> | Cooki
 }
 
 export function clearStateCookie(res: NextResponse) {
+  const domain = stateCookieDomain()
   res.cookies.set(STATE_COOKIE, "", {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
     path: "/",
     maxAge: 0,
+    ...(domain && { domain }),
   })
 }
