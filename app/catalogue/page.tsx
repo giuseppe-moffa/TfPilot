@@ -302,7 +302,7 @@ export default function TemplatesListPage() {
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {filtered.map((entry) => (
-            <Card key={entry.id} className="flex flex-col gap-3 p-4">
+            <Card key={entry.id} className="flex flex-col gap-3 border border-border p-4">
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <div className="font-semibold text-foreground">{entry.label}</div>
