@@ -3,6 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
+import { Suspense } from "react"
 import { ArrowLeft, Info, Loader2, Search, Sparkles } from "lucide-react"
 
 import { ActionProgressDialog } from "@/components/action-progress-dialog"
@@ -116,7 +117,7 @@ const FieldCard = ({
   </div>
 )
 
-export default function NewRequestPage() {
+function NewRequestPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [project, setProject] = React.useState("")
@@ -1115,5 +1116,19 @@ export default function NewRequestPage() {
         </AssistantDrawer>
       </div>
     </div>
+  )
+}
+
+export default function NewRequestPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-[40vh] items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      }
+    >
+      <NewRequestPageContent />
+    </Suspense>
   )
 }
