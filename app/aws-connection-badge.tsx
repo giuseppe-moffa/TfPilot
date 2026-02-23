@@ -1,8 +1,5 @@
 "use client"
 
-import Link from "next/link"
-
-import { Button } from "@/components/ui/button"
 import { useAwsConnection } from "./providers"
 
 export default function AwsConnectionBadge() {

@@ -78,11 +78,9 @@ export async function POST(req: NextRequest) {
 
     let mergeRes: Response
     let mergeErrDetail: string | null = null
-    let mergeErrStatus: number | undefined
     try {
       mergeRes = await attemptMerge()
     } catch (mergeErr: unknown) {
-      const status = (mergeErr as { status?: number })?.status
       const msg = mergeErr instanceof Error ? mergeErr.message : ""
       let detail = "Merge failed"
       const bodyMatch = typeof msg === "string" && msg.includes(": ") ? msg.split(": ").slice(1).join(": ") : ""
@@ -93,8 +91,6 @@ export async function POST(req: NextRequest) {
         if (bodyMatch && bodyMatch.length < 200) detail = bodyMatch
       }
       mergeErrDetail = detail
-      // Use 400 for merge failures so client doesn't see "405 Method Not Allowed"
-      mergeErrStatus = status === 405 || (status && status >= 400 && status < 600) ? 400 : status
     }
 
     // If merge failed (conflicts / not mergeable / out of date), run update-branch to resolve, then retry once
@@ -130,14 +126,13 @@ export async function POST(req: NextRequest) {
         mergeErrDetail = null
         try {
           mergeRes = await attemptMerge()
-        } catch (retryErr: unknown) {
+        } catch (_retryErr: unknown) {
           // One more short wait and retry before asking user to click Merge again
           console.log("[TfPilot merge] First retry failed, waiting 4s then retrying merge once more…")
           await new Promise((r) => setTimeout(r, 4000))
           try {
             mergeRes = await attemptMerge()
           } catch (secondRetryErr: unknown) {
-            const status = (secondRetryErr as { status?: number })?.status
             const msg = secondRetryErr instanceof Error ? secondRetryErr.message : ""
             let detail = "Merge failed"
             const bodyMatch = typeof msg === "string" && msg.includes(": ") ? msg.split(": ").slice(1).join(": ") : ""
@@ -176,7 +171,6 @@ export async function POST(req: NextRequest) {
     }
 
     await updateRequest(request.id, (current) => ({
-      status: "merged",
       mergedSha: mergeJson.sha,
       pr: {
         ...(current.pr ?? {}),

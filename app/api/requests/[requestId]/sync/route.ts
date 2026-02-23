@@ -21,7 +21,7 @@ async function ghWithRetry(token: string, url: string, attempts = 3, delayMs = 3
   throw lastErr
 }
 
-import { deriveStatus } from "@/lib/requests/status"
+import { deriveLifecycleStatus } from "@/lib/requests/deriveLifecycleStatus"
 import { getRequest, updateRequest } from "@/lib/storage/requestsStore"
 import { getRequestCost } from "@/lib/services/cost-service"
 import { env } from "@/lib/config/env"
@@ -66,11 +66,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
     const request = ensureAssistantState(await getRequest(requestId).catch(() => null))
     if (!request) return NextResponse.json({ error: "Request not found" }, { status: 404 })
 
-    // Store previous state for transition detection
+    // Store previous state for email deduplication
     const previousPlanConclusion = request.planRun?.conclusion
     const previousApplyConclusion = request.applyRun?.conclusion
     const previousDestroyConclusion = request.destroyRun?.conclusion
-    const previousStatus = request.status
 
     if (!request.targetOwner || !request.targetRepo) {
       return NextResponse.json({ error: "Request missing repo info" }, { status: 400 })
@@ -300,7 +299,6 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
       }
     }
 
-    let destroyRunCreatedAt: string | undefined
     if (request.destroyRun?.runId) {
       try {
         const runRes = await ghWithRetry(token, `/repos/${request.targetOwner}/${request.targetRepo}/actions/runs/${request.destroyRun.runId}`)
@@ -308,9 +306,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
           status?: string
           conclusion?: string
           html_url?: string
-          created_at?: string
         }
-        destroyRunCreatedAt = runJson.created_at
         request.destroyRun = {
           ...request.destroyRun,
           status: runJson.status ?? request.destroyRun.status,
@@ -322,57 +318,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
       }
     }
 
-    const derived = deriveStatus({
-      pr: request.pr,
-      planRun: request.planRun,
-      applyRun: request.applyRun,
-      approval: request.approval,
-    })
-
-    // Destroying: transition to destroyed when our tracked destroy run completes successfully.
-    // We fetch the run by request.destroyRun.runId (set at dispatch), so conclusion applies to that run.
-    // For success we trust that run; for failure we require the run to be "current" (time window) so we
-    // don't mark failed based on an old run from a previous destroy attempt.
-    const isCurrentDestroyRun =
-      !request.statusDerivedAt ||
-      !destroyRunCreatedAt ||
-      new Date(destroyRunCreatedAt).getTime() >= new Date(request.statusDerivedAt).getTime() - 5000
-
-    if (request.status === "destroying") {
-      if (request.destroyRun?.conclusion === "success") {
-        request.status = "destroyed"
-        request.reason = "Terraform destroy completed"
-      } else if (
-        isCurrentDestroyRun &&
-        request.destroyRun?.conclusion &&
-        ["failure", "cancelled", "timed_out", "action_required", "startup_failure", "stale"].includes(
-          request.destroyRun.conclusion
-        )
-      ) {
-        request.status = "failed"
-        request.reason = "Destroy failed or was cancelled"
-      }
-    } else if (request.status !== "destroyed") {
-      const keepMerged =
-        previousStatus === "merged" && derived.status !== "merged" && !request.pr?.merged
-      if (!keepMerged) {
-        request.status = derived.status
-        request.reason = derived.reason
-      }
-    }
+    const status = deriveLifecycleStatus(request)
+    request.status = status
     const nowIso = new Date().toISOString()
     request.statusDerivedAt = nowIso
     request.updatedAt = nowIso
-
-    // If apply run failed, reflect failure so UI allows recovery actions (do not overwrite destroy outcome)
-    if (
-      request.applyRun?.conclusion === "failure" &&
-      request.status !== "destroyed" &&
-      request.status !== "destroying"
-    ) {
-      request.status = "failed"
-      request.reason = "Apply failed"
-    }
 
     // Email notifications on lifecycle transitions (deduplicated by checking previous state)
     // Apply success/failure
@@ -449,7 +399,6 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
       approval: request.approval,
       cleanupPr: request.cleanupPr,
       status: request.status,
-      reason: request.reason,
       statusDerivedAt: request.statusDerivedAt,
       updatedAt: request.updatedAt,
       timeline: request.timeline,

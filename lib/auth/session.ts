@@ -2,7 +2,9 @@ import { cookies } from "next/headers"
 import { NextResponse } from "next/server"
 import crypto from "node:crypto"
 
-type SessionPayload = {
+import { logWarn } from "@/lib/observability/logger"
+
+export type SessionPayload = {
   login: string
   name: string | null
   avatarUrl: string | null
@@ -50,7 +52,6 @@ type CookieStore = Awaited<ReturnType<typeof cookies>>
 async function resolveStore(store?: ReturnType<typeof cookies> | CookieStore) {
   if (!store) return await cookies()
   // newer Next.js returns a Promise from cookies(); handle both cases
-  // eslint-disable-next-line @typescript-eslint/await-thenable
   return store instanceof Promise ? await store : store
 }
 
@@ -59,6 +60,32 @@ export async function getSessionFromCookies(store?: ReturnType<typeof cookies> |
   const token = jar.get(SESSION_COOKIE)?.value
   if (!token) return null
   return decodeSessionToken(token)
+}
+
+/** Standard 401 JSON body for unauthenticated requests. Used by requireSession(). */
+export const UNAUTHORIZED_JSON = { error: "Unauthorized" } as const
+
+export type RequireSessionContext = { correlationId?: string; route?: string }
+
+/**
+ * Requires a valid session from cookies. Use in protected API routes.
+ * Returns the session if valid; otherwise returns a 401 JSON Response (no redirect).
+ * Pass context (e.g. from withCorrelation(req, {})) to include correlationId/route in logs.
+ */
+export async function requireSession(
+  store?: ReturnType<typeof cookies> | CookieStore,
+  context?: RequireSessionContext
+): Promise<SessionPayload | NextResponse> {
+  const start = Date.now()
+  const session = await getSessionFromCookies(store)
+  if (!session) {
+    logWarn("auth.unauthorized", undefined, {
+      ...context,
+      duration_ms: Date.now() - start,
+    })
+    return NextResponse.json(UNAUTHORIZED_JSON, { status: 401 })
+  }
+  return session
 }
 
 export function setSession(res: NextResponse, payload: SessionPayload) {

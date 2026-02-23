@@ -2,12 +2,16 @@ import { NextRequest, NextResponse } from "next/server"
 import { getGitHubAccessToken } from "@/lib/github/auth"
 import { gh } from "@/lib/github/client"
 import { env } from "@/lib/config/env"
+import { withCorrelation } from "@/lib/observability/correlation"
+import { logError } from "@/lib/observability/logger"
 import { getRequest, updateRequest } from "@/lib/storage/requestsStore"
 import { getSessionFromCookies } from "@/lib/auth/session"
 import { logLifecycleEvent } from "@/lib/logs/lifecycle"
 import { getUserRole } from "@/lib/auth/roles"
 
 export async function POST(req: NextRequest) {
+  const start = Date.now()
+  const correlation = withCorrelation(req, {})
   try {
     const body = (await req.json()) as { requestId?: string }
     if (!body?.requestId) {
@@ -82,7 +86,6 @@ export async function POST(req: NextRequest) {
     }
 
     await updateRequest(request.id, (current) => ({
-      status: "applying",
       applyTriggeredAt: new Date().toISOString(),
       applyRunId: applyRunId ?? current.applyRunId,
       applyRunUrl: applyRunUrl ?? current.applyRunUrl,
@@ -108,7 +111,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ ok: true })
   } catch (error) {
-    console.error("[api/github/apply] error", error)
+    logError("github.dispatch_failed", error, { ...correlation, duration_ms: Date.now() - start })
     return NextResponse.json({ error: "Failed to dispatch apply" }, { status: 500 })
   }
 }

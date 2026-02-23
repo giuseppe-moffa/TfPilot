@@ -4,8 +4,12 @@ import { gh } from "@/lib/github/client"
 import { env } from "@/lib/config/env"
 import { getRequest, updateRequest } from "@/lib/storage/requestsStore"
 import { getSessionFromCookies } from "@/lib/auth/session"
+import { withCorrelation } from "@/lib/observability/correlation"
+import { logError } from "@/lib/observability/logger"
 
 export async function POST(req: NextRequest) {
+  const start = Date.now()
+  const correlation = withCorrelation(req, {})
   try {
     const body = (await req.json()) as { requestId?: string }
     if (!body?.requestId) {
@@ -77,7 +81,6 @@ export async function POST(req: NextRequest) {
     }
 
     await updateRequest(request.id, (current) => ({
-      status: "planning",
       workflowRunId: workflowRunId ?? current.workflowRunId,
       planRunId: workflowRunId ?? current.planRunId,
       planRunUrl: workflowRunUrl ?? current.planRunUrl,
@@ -93,7 +96,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ ok: true, workflowRunId, workflowRunUrl })
   } catch (error) {
-    console.error("[api/github/plan] error", error)
+    logError("github.dispatch_failed", error, { ...correlation, duration_ms: Date.now() - start })
     return NextResponse.json({ error: "Failed to dispatch plan" }, { status: 500 })
   }
 }

@@ -184,7 +184,7 @@ async function resolveMergeConflictAcceptBoth(
   token: string,
   request: Request,
   baseBranch: string,
-  prBranch: string
+  _prBranch: string
 ): Promise<string> {
   const { targetOwner, targetRepo, branchName: prBranchName } = request
   const compareRes = await gh(

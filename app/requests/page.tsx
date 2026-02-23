@@ -34,7 +34,6 @@ import {
 import { Eye, Search } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useAwsConnection } from "../providers"
-import type { RequestStatus } from "@/lib/requests/status"
 import { normalizeRequestStatus } from "@/lib/status/status-config"
 import { getStatusLabel } from "@/lib/status/status-config"
 
@@ -44,7 +43,7 @@ type RequestRow = {
   environment: string
   service?: string
   module?: string
-  status?: RequestStatus | "pending" | "applied" | "planned" | "destroying" | "destroyed"
+  status?: string
   pullRequest?: { status?: string }
   createdAt?: string
   config?: Record<string, unknown>

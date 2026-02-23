@@ -48,7 +48,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ re
         method: "POST",
         body: JSON.stringify({ event: "APPROVE" }),
       })
-    } catch (err: any) {
+    } catch (_err: unknown) {
       return NextResponse.json({ success: false, error: "Failed to submit approval to GitHub" }, { status: 500 })
     }
 
@@ -71,7 +71,6 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ re
     const updated = await updateRequest(requestId, (current) => ({
       ...current,
       approval: { approved: true, approvers: current.approval?.approvers ?? [] },
-      status: "approved",
       statusDerivedAt: now,
       updatedAt: now,
       timeline: nextTimeline,

@@ -1,51 +1,6 @@
-import * as React from "react"
 import useSWR from "swr"
 
 type RequestLike = Record<string, any> | null
-
-const WHITELIST_KEYS = [
-  "status",
-  "statusDerivedAt",
-  "planRun",
-  "applyRun",
-  "approval",
-  "pr",
-  "plan",
-  "cleanupPr",
-  "timeline",
-  "cost",
-] as const
-
-function mergeRequest(prev: RequestLike, next: RequestLike): RequestLike {
-  if (!next) return prev
-  if (!prev) return next
-
-  const merged: any = { ...prev }
-
-  for (const key of WHITELIST_KEYS) {
-    if (key === "plan") {
-      if (next.plan) {
-        merged.plan = {
-          ...(prev.plan ?? {}),
-          ...(next.plan?.diff !== undefined ? { diff: next.plan.diff } : {}),
-          ...(next.plan?.output !== undefined ? { output: next.plan.output } : {}),
-        }
-      }
-      continue
-    }
-    if (next[key] !== undefined) {
-      if (key === "planRun" || key === "applyRun" || key === "approval" || key === "pr" || key === "cleanupPr") {
-        merged[key] = { ...(prev as any)[key], ...(next as any)[key] }
-      } else if (key === "cost") {
-        merged[key] = (next as any)[key]
-      } else {
-        merged[key] = next[key]
-      }
-    }
-  }
-
-  return merged
-}
 
 const fetcher = async (url: string) => {
   const res = await fetch(url, { cache: "no-store" })
@@ -54,9 +9,10 @@ const fetcher = async (url: string) => {
   return json.request ?? json
 }
 
-export function useRequestStatus(requestId?: string, initial?: RequestLike) {
-  const prevDataRef = React.useRef<RequestLike>(initial ?? null)
+/** Terminal statuses: stop polling when API returns one of these. */
+const TERMINAL_STATUSES = ["applied", "complete", "failed", "destroyed"]
 
+export function useRequestStatus(requestId?: string, initial?: RequestLike) {
   const swr: any = useSWR(
     requestId ? `/api/requests/${requestId}/sync` : null,
     fetcher,
@@ -70,22 +26,16 @@ export function useRequestStatus(requestId?: string, initial?: RequestLike) {
       revalidateOnMount: true,
       refreshInterval: (latest: unknown): number => {
         if (!requestId) return 0
-        const status = (latest as any)?.status ?? prevDataRef.current?.status
-        if (status === "complete" || status === "failed" || status === "destroyed") return 0
+        const status = (latest as any)?.status
+        if (status && TERMINAL_STATUSES.includes(status)) return 0
         return 3000
       },
     }
   )
   const { data, error, isValidating, mutate } = swr
 
-  const merged = React.useMemo(() => {
-    const nextMerged = mergeRequest(prevDataRef.current, data ?? null)
-    prevDataRef.current = nextMerged
-    return nextMerged
-  }, [data])
-
   return {
-    request: merged,
+    request: data ?? initial ?? null,
     error,
     isSyncing: isValidating,
     mutate,

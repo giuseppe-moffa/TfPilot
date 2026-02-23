@@ -8,7 +8,7 @@ import { useAuth, useAwsConnection } from "./providers"
 export default function Home() {
   const router = useRouter()
   const { user, loading } = useAuth()
-  const { isConnected } = useAwsConnection()
+  useAwsConnection()
 
   React.useEffect(() => {
     // Middleware handles server-side redirects, but as a fallback:

@@ -42,10 +42,6 @@ function toListMarkdown(rationale?: string | string[]): string | null {
   return rationale
 }
 
-function hasPatch(resp?: AssistantResponse | null) {
-  return resp?.patch && Object.keys(resp.patch).length > 0
-}
-
 function normalizeQuestions(
   questions: AssistantResponse["questions"],
   clarifications: AssistantResponse["clarifications"],
@@ -133,7 +129,7 @@ function normalizeQuestions(
   return [...normalizedQuestions, ...(extra ?? [])]
 }
 
-export function normalizeAssistantResponse({ mode, response, fieldsMeta, now }: NormalizeCtx): ChatMessage[] {
+export function normalizeAssistantResponse({ mode, response, fieldsMeta: _fieldsMeta, now }: NormalizeCtx): ChatMessage[] {
   const safe: Required<AssistantResponse> = {
     patch: response?.patch && typeof response.patch === "object" ? response.patch : {},
     rationale: Array.isArray(response?.rationale)

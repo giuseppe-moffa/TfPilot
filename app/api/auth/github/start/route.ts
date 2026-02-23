@@ -9,7 +9,7 @@ const EXPECTED_PROD_CALLBACK = "https://tfpilot.com/api/auth/github/callback"
 /** Required OAuth scopes for TfPilot (profile + repo write). */
 const REQUIRED_SCOPE = "read:user user:email repo"
 
-function buildRedirectUri(req: NextRequest) {
+function buildRedirectUri(_req: NextRequest) {
   // Use env so local dev can set http://localhost:3000/... and prod can set https://tfpilot.com/...
   const envRedirect = process.env.GITHUB_OAUTH_REDIRECT
   if (envRedirect) {

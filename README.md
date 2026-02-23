@@ -6,7 +6,19 @@ Terraform self-service platform (Next.js + API) with S3-backed state, GitHub Act
 
 **Production URL:** [https://tfpilot.com](https://tfpilot.com)
 
-**Tech stack:** Next.js 16, React 19, Tailwind CSS 4, shadcn/ui. UI follows a minimal, background-based design (sections and fields separated with `bg-muted` / `bg-card`, no borders) in light and dark mode.
+**Tech stack:** Next.js 16, React 19, Tailwind CSS 4, shadcn/ui.
+
+### For users: Sign-in and GitHub App
+
+TfPilot uses GitHub for authentication. If your instance uses a **GitHub App** (not an OAuth App), you must **install the app on your GitHub account** before you can log in:
+
+1. Open the TfPilot GitHub App’s install page (your admin will provide the link, or find it under the app’s **Public page** / **Install App** in GitHub).
+2. Click **Install** (or **Configure** if you’ve already installed it).
+3. Choose **your user account** (or the organization that owns the repo you use with TfPilot).
+4. Select the **repository/repositories** that TfPilot will use (e.g. the Terraform repo for your project).
+5. Complete the installation.
+
+After that, go to [tfpilot.com](https://tfpilot.com) (or your instance URL), click **Sign in with GitHub**, and authorize when prompted. Collaborators and non-owners must install the app on their own account for the repos they need; the app must be **public** (Advanced → Make public) so others can install it. UI follows a minimal, background-based design (sections and fields separated with `bg-muted` / `bg-card`, no borders) in light and dark mode.
 
 ### Architecture
 - **Hosting:** AWS ECS Fargate behind Application Load Balancer (ALB) with HTTPS, deployed via GitHub Actions CI/CD. Infrastructure managed in [tfpilot-terraform](https://github.com/giuseppe-moffa/tfpilot-terraform) repository.

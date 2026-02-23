@@ -9,10 +9,12 @@ import { env, logEnvDebug } from "@/lib/config/env"
 import { saveRequest, listRequests } from "@/lib/storage/requestsStore"
 import { moduleRegistry, type ModuleRegistryEntry, type ModuleField } from "@/config/module-registry"
 import { generateRequestId } from "@/lib/requests/id"
-import { deriveStatus } from "@/lib/requests/status"
+import { deriveLifecycleStatus } from "@/lib/requests/deriveLifecycleStatus"
 import { buildResourceName } from "@/lib/requests/naming"
 import { injectServerAuthoritativeTags, assertRequiredTagsPresent } from "@/lib/requests/tags"
 import { getSessionFromCookies } from "@/lib/auth/session"
+import { withCorrelation } from "@/lib/observability/correlation"
+import { logError, logInfo, timeAsync } from "@/lib/observability/logger"
 import { logLifecycleEvent } from "@/lib/logs/lifecycle"
 import { getUserRole } from "@/lib/auth/roles"
 import { ensureAssistantState } from "@/lib/assistant/state"
@@ -565,6 +567,9 @@ async function createBranchCommitPrAndPlan(
 }
 
 export async function POST(request: NextRequest) {
+  const start = Date.now()
+  const correlation = withCorrelation(request, {})
+  let userLogin: string | undefined
   try {
     const body = (await request.json()) as RequestPayload
     const errors = validatePayload(body)
@@ -580,6 +585,7 @@ export async function POST(request: NextRequest) {
     if (!session) {
       return NextResponse.json({ success: false, error: "Not authenticated" }, { status: 401 })
     }
+    userLogin = session.login
     const role = getUserRole(session.login)
     if (role === "viewer") {
       return NextResponse.json({ success: false, error: "Insufficient role" }, { status: 403 })
@@ -597,6 +603,7 @@ export async function POST(request: NextRequest) {
     }
 
     const requestId = generateRequestId(body.environment!, body.module!)
+    logInfo("request.create", { ...correlation, requestId, user: userLogin })
 
     console.log("[api/requests] received payload:", body)
     console.log("[api/requests] Triggering generation for", requestId)
@@ -697,7 +704,6 @@ export async function POST(request: NextRequest) {
       headSha: ghResult.planHeadSha,
       open: true,
     }
-    newRequest.status = "planning"
     newRequest.targetOwner = targetRepo.owner
     newRequest.targetRepo = targetRepo.repo
     newRequest.targetBase = targetRepo.base
@@ -746,7 +752,7 @@ export async function POST(request: NextRequest) {
       prUrl: newRequestWithAssistant.prUrl,
     })
   } catch (error) {
-    console.error("[api/requests] error:", error)
+    logError("request.create_failed", error, { ...correlation, user: userLogin, duration_ms: Date.now() - start })
     const err = error as { status?: number; message?: string }
     if (err?.status === 403 || (typeof err?.message === "string" && err.message.includes("Resource not accessible by integration"))) {
       return NextResponse.json(
@@ -764,28 +770,19 @@ export async function POST(request: NextRequest) {
   }
 }
 
-export async function GET(_req: NextRequest) {
+export async function GET(req: NextRequest) {
+  const correlation = withCorrelation(req, {})
   try {
-    const raw: StoredRequest[] = (await listRequests()) as StoredRequest[]
-    const requests = raw.map((req) => {
-      if (req.status === "destroyed" || req.status === "destroying") {
-        return req
-      }
-      const derived = deriveStatus({
-        pr: req.pr,
-        planRun: req.planRun,
-        applyRun: req.applyRun,
-        approval: req.approval,
+    return await timeAsync("request.list", correlation, async () => {
+      const raw: StoredRequest[] = (await listRequests()) as StoredRequest[]
+      const requests = raw.map((req) => ({
+        ...req,
+        status: deriveLifecycleStatus(req),
+      }))
+      return NextResponse.json({
+        success: true,
+        requests,
       })
-      let status = derived.status
-      if (req.applyRun?.conclusion === "failure") {
-        status = "failed"
-      }
-      return { ...req, status }
-    })
-    return NextResponse.json({
-      success: true,
-      requests,
     })
   } catch {
     return NextResponse.json({

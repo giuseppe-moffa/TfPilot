@@ -65,7 +65,11 @@ async function fetchGithubUser(token: string) {
       "User-Agent": "TfPilot",
     },
   })
-  if (!resp.ok) throw new Error("Failed to fetch GitHub user")
+  if (!resp.ok) {
+    const body = await resp.text()
+    console.error("[auth/github/callback] GitHub /user failed:", resp.status, body)
+    throw new Error(`Failed to fetch GitHub user: ${resp.status} ${body.slice(0, 200)}`)
+  }
   return (await resp.json()) as { login: string; name: string | null; avatar_url: string | null }
 }
 
@@ -86,7 +90,7 @@ async function fetchGithubUserEmail(token: string): Promise<string | null> {
   return verified?.email ?? data[0]?.email ?? null
 }
 
-function buildRedirectUri(req: NextRequest) {
+function buildRedirectUri(_req: NextRequest) {
   // Use env so local dev and prod can each set their callback (must match start route).
   const envRedirect = process.env.GITHUB_OAUTH_REDIRECT
   if (envRedirect) {
@@ -102,7 +106,7 @@ function buildRedirectUri(req: NextRequest) {
 
 /** Public base URL for redirects (never use req.url origin behind ALB – it can be internal host). */
 function getPublicBaseUrl(): string {
-  const envRedirect = process.env.GITHUB_OAUTH_REDIRECT
+  const envRedirect = process.env.GITHUB_OAUTH_REDIRECT?.trim()
   if (envRedirect) return new URL(envRedirect).origin
   return "https://tfpilot.com"
 }

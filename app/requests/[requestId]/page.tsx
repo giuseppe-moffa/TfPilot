@@ -1,8 +1,7 @@
 "use client"
 
 import * as React from "react"
-import Link from "next/link"
-import { ChevronDown, ChevronUp, Copy, Github, Loader2, Link as LinkIcon, Download, Wand2 } from "lucide-react"
+import { ChevronDown, ChevronUp, Copy, Github, Loader2, Link as LinkIcon, Download } from "lucide-react"
 import useSWR from "swr"
 import { useParams } from "next/navigation"
 
@@ -26,7 +25,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Code } from "@/components/ui/code"
 import { cn } from "@/lib/utils"
@@ -45,7 +43,6 @@ import { StatusIndicator } from "@/components/status/StatusIndicator"
 import { AssistantHelper } from "@/components/assistant-helper"
 import { AssistantDrawer } from "@/components/assistant-drawer"
 import { SuggestionPanel } from "@/components/suggestion-panel"
-import { useAuth } from "@/app/providers"
 
 type FieldMeta = {
   name: string
@@ -138,16 +135,6 @@ function TimelineStep({
       </div>
     </div>
   )
-}
-
-const statusBadgeVariant: Record<
-  "submitted" | "planned" | "merged" | "applied",
-  "warning" | "info" | "success"
-> = {
-  submitted: "warning",
-  planned: "warning",
-  merged: "warning",
-  applied: "success",
 }
 
 function lineClass(line: string) {
@@ -245,10 +232,6 @@ function getServiceName(config?: Record<string, unknown>) {
     if (typeof val === "string" && val.trim()) return val
   }
   return null
-}
-
-function shallowEqual(a: any, b: any) {
-  return JSON.stringify(a ?? {}) === JSON.stringify(b ?? {})
 }
 
 function stripLogTimestamps(text: string) {
@@ -373,7 +356,6 @@ function RequestDetailPage() {
   const [planLogExpanded, setPlanLogExpanded] = React.useState(false)
   const [initialRequest, setInitialRequest] = React.useState<any>(null)
   const [initialLoading, setInitialLoading] = React.useState<boolean>(true)
-  const [statusSlice, setStatusSlice] = React.useState<any>(null)
   const [updateModalOpen, setUpdateModalOpen] = React.useState(false)
   const [moduleSchemas, setModuleSchemas] = React.useState<ModuleSchema[] | null>(null)
   const [patchText, setPatchText] = React.useState("{\n}")
@@ -427,32 +409,6 @@ function RequestDetailPage() {
   }, [])
 
   const { request, mutate: mutateStatus } = useRequestStatus(requestId, initialRequest)
-  const optimisticUpdate = React.useCallback(
-    (updates: Record<string, any>) => {
-      mutateStatus(
-        (prev: any) => (prev ? { ...prev, ...updates } : prev),
-        false
-      )
-    },
-    [mutateStatus]
-  )
-
-  React.useEffect(() => {
-    if (!request) return
-    const next = {
-      status: request.status,
-      statusDerivedAt: request.statusDerivedAt,
-      planRun: request.planRun,
-      applyRun: request.applyRun,
-      approval: request.approval,
-      pr: request.pr ?? request.pullRequest,
-      plan: request.plan,
-    }
-    setStatusSlice((prev: any) => {
-      if (shallowEqual(prev, next)) return prev
-      return next
-    })
-  }, [request])
 
   React.useEffect(() => {
     // Set panelAssistantState from request only if we don't have a more recent assistant state
@@ -462,13 +418,11 @@ function RequestDetailPage() {
     }
   }, [request, panelAssistantState, assistantStateOverride])
 
-  const memoStatusSlice = React.useMemo(() => statusSlice, [statusSlice])
+  const planRunId = request?.planRun?.runId ?? request?.planRunId
+  const applyRunId = request?.applyRun?.runId ?? request?.applyRunId
+  const prNumber = request?.pr?.number ?? request?.pullRequest?.number ?? request?.pr?.number
 
-  const planRunId = memoStatusSlice?.planRun?.runId ?? request?.planRun?.runId ?? request?.planRunId
-  const applyRunId = memoStatusSlice?.applyRun?.runId ?? request?.applyRun?.runId ?? request?.applyRunId
-  const prNumber = memoStatusSlice?.pr?.number ?? request?.pullRequest?.number ?? request?.pr?.number
-
-  const planKey = planRunId && !(memoStatusSlice?.plan?.output) ? [`plan-output`, requestId, planRunId] : null
+  const planKey = planRunId && !(request?.plan?.output) ? [`plan-output`, requestId, planRunId] : null
   const { data: planOutput, isLoading: planOutputLoading } = useSWR(
     planKey,
     () => fetcher(`/api/github/plan-output?requestId=${requestId}`),
@@ -592,7 +546,7 @@ function RequestDetailPage() {
   }, [])
 
   async function handleApplyOnly() {
-    if (!requestId || !memoStatusSlice || memoStatusSlice.status !== "approved") return
+    if (!requestId || !request || request.status !== "approved") return
     setApplyModalOpen(false)
     setIsApplying(true)
     setApplyStatus("pending")
@@ -616,7 +570,6 @@ function RequestDetailPage() {
     }
     setIsApplying(true)
     setActionError(null)
-    optimisticUpdate({ status: "applying", statusDerivedAt: new Date().toISOString() })
     startActionProgress("apply")
     try {
       const res = await fetch("/api/github/apply", {
@@ -643,7 +596,6 @@ function RequestDetailPage() {
     if (!requestId || isDestroying || isDestroyed) return
     setDestroyStatus("pending")
     setDestroyError(null)
-    optimisticUpdate({ status: "destroying", statusDerivedAt: new Date().toISOString() })
     startActionProgress("destroy")
     try {
       const res = await fetch(`/api/requests/${requestId}/destroy`, {
@@ -704,10 +656,9 @@ function RequestDetailPage() {
   }
 
   async function handleMerge() {
-    if (!requestId || !statusSlice || statusSlice.status !== "approved") return
+    if (!requestId || !request || request.status !== "approved") return
     setMergeModalOpen(false)
     setMergeStatus("pending")
-    optimisticUpdate({ status: "merged", statusDerivedAt: new Date().toISOString() })
     startActionProgress("merge")
     try {
       const res = await fetch("/api/github/merge", {
@@ -768,11 +719,10 @@ function RequestDetailPage() {
   )
 
   async function handleApprove() {
-    if (!requestId || !memoStatusSlice || memoStatusSlice.status === "approved" || memoStatusSlice.status === "applied") return
+    if (!requestId || !request || request.status === "approved" || request.status === "applied") return
     setApproveModalOpen(false)
     setIsApproving(true)
     setApproveStatus("pending")
-    optimisticUpdate({ status: "approved", statusDerivedAt: new Date().toISOString() })
     startActionProgress("approve")
     try {
       const res = await fetch(`/api/requests/${requestId}/approve`, {
@@ -790,16 +740,13 @@ function RequestDetailPage() {
     }
   }
 
-  const requestStatus = memoStatusSlice?.status ?? request?.status ?? "created"
+  const requestStatus = request?.status ?? "created"
   const planSucceeded =
-    memoStatusSlice?.planRun?.conclusion === "success" ||
-    request?.planRun?.conclusion === "success" ||
-    request?.planRun?.status === "completed"
-  const planFailed =
-    memoStatusSlice?.planRun?.conclusion === "failure" || request?.planRun?.conclusion === "failure"
-  const planRunStatus = memoStatusSlice?.planRun?.status ?? request?.planRun?.status
-  const planRunConclusion = memoStatusSlice?.planRun?.conclusion ?? request?.planRun?.conclusion
-  const planRunUrl = memoStatusSlice?.planRun?.url ?? request?.planRun?.url
+    request?.planRun?.conclusion === "success" || request?.planRun?.status === "completed"
+  const planFailed = request?.planRun?.conclusion === "failure"
+  const planRunStatus = request?.planRun?.status
+  const planRunConclusion = request?.planRun?.conclusion
+  const planRunUrl = request?.planRun?.url
   const planRunning =
     planRunStatus === "in_progress" ||
     planRunStatus === "queued" ||
@@ -818,22 +765,17 @@ function RequestDetailPage() {
     !hasPlanText &&
     (planOutputLoading || (!!planKey && !planOutput?.planText))
   const prMerged =
-    memoStatusSlice?.pr?.merged ??
     request?.pr?.merged ??
     request?.pullRequest?.merged ??
     request?.pullRequest?.open === false
   const applySucceeded =
-    memoStatusSlice?.applyRun?.conclusion === "success" ||
     request?.applyRun?.conclusion === "success" ||
     requestStatus === "complete" ||
     requestStatus === "applied"
-  const applyFailed =
-    memoStatusSlice?.applyRun?.conclusion === "failure" || request?.applyRun?.conclusion === "failure"
+  const applyFailed = request?.applyRun?.conclusion === "failure"
 
   const applyRunning =
-    requestStatus === "applying" ||
-    memoStatusSlice?.applyRun?.status === "in_progress" ||
-    request?.applyRun?.status === "in_progress"
+    requestStatus === "applying" || request?.applyRun?.status === "in_progress"
   const isApplyingDerived =
     isApplying || applyRunning || applyStatus === "pending" || applyStatus === "success"
   const isApplied = applySucceeded
@@ -849,7 +791,7 @@ function RequestDetailPage() {
     isMerged ||
     isApplied
   const isApproved =
-    memoStatusSlice?.approval?.approved ||
+    request?.approval?.approved ||
     requestStatus === "approved" ||
     requestStatus === "awaiting_approval" ||
     isMerged ||
@@ -1303,10 +1245,10 @@ function RequestDetailPage() {
                       size="sm"
                       className={cn(
                         "h-9",
-                        (!statusSlice ||
+                        (!request ||
                           !isPlanReady ||
-                          statusSlice.status === "approved" ||
-                          statusSlice.status === "applied" ||
+                          request.status === "approved" ||
+                          request.status === "applied" ||
                           isMerged ||
                           isApplied ||
                           isDestroying ||
@@ -1316,10 +1258,10 @@ function RequestDetailPage() {
                           "cursor-not-allowed bg-muted text-muted-foreground opacity-70"
                       )}
                       disabled={
-                        !statusSlice ||
+                        !request ||
                         !isPlanReady ||
-                        statusSlice.status === "approved" ||
-                        statusSlice.status === "applied" ||
+                        request.status === "approved" ||
+                        request.status === "applied" ||
                         isMerged ||
                         isApplied ||
                         isDestroying ||
@@ -1355,10 +1297,10 @@ function RequestDetailPage() {
                       size="sm"
                       className={cn(
                         "h-9",
-                        (!statusSlice || statusSlice.status !== "approved" || isMerged || isDestroying || isDestroyed || isFailed) &&
+                        (!request || request.status !== "approved" || isMerged || isDestroying || isDestroyed || isFailed) &&
                           "cursor-not-allowed bg-muted text-muted-foreground opacity-70"
                       )}
-                      disabled={!statusSlice || statusSlice.status !== "approved" || isMerged || isDestroying || isDestroyed || isFailed}
+                      disabled={!request || request.status !== "approved" || isMerged || isDestroying || isDestroyed || isFailed}
                       onClick={() => {
                         setMergeStatus("idle")
                         setMergeError(null)

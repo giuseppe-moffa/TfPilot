@@ -1,4 +1,4 @@
-import { readFile, readdir, stat } from "node:fs/promises"
+import { readFile, stat } from "node:fs/promises"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -6,7 +6,6 @@ import { createRequire } from "module"
 const require = createRequire(import.meta.url)
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { moduleRegistry }: { moduleRegistry: Array<any> } = require("../config/module-registry")
-type ModuleRegistryEntry = (typeof moduleRegistry)[number]
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)

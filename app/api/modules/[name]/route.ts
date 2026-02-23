@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { readFile, stat } from "node:fs/promises"
+import { stat } from "node:fs/promises"
 import path from "node:path"
 
 import { loadModuleMeta } from "../route"

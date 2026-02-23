@@ -4,13 +4,19 @@ import { getSessionFromCookies } from "@/lib/auth/session"
 import { getGitHubAccessToken } from "@/lib/github/auth"
 import { gh } from "@/lib/github/client"
 import { env } from "@/lib/config/env"
+import { withCorrelation } from "@/lib/observability/correlation"
+import { logError } from "@/lib/observability/logger"
 import { archiveRequest, getRequest, updateRequest } from "@/lib/storage/requestsStore"
 import { logLifecycleEvent } from "@/lib/logs/lifecycle"
 import { getUserRole } from "@/lib/auth/roles"
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ requestId: string }> }) {
+  const start = Date.now()
+  const correlation = withCorrelation(req, {})
+  let requestId: string | undefined
   try {
-    const { requestId } = await params
+    const p = await params
+    requestId = p.requestId
     if (!requestId) {
       return NextResponse.json({ error: "requestId required" }, { status: 400 })
     }
@@ -119,11 +125,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
     const now = new Date().toISOString()
     const updated = await updateRequest(request.id, (current) => ({
       ...current,
-      status: "destroying",
       statusDerivedAt: now,
       destroyRun: {
         runId: destroyRunId ?? current.destroyRun?.runId,
         url: destroyRunUrl ?? current.destroyRun?.url,
+        status: "in_progress",
       },
       cleanupPr: current.cleanupPr ?? { status: "pending" },
       updatedAt: now,
@@ -150,7 +156,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
 
     return NextResponse.json({ ok: true, destroyRunId, destroyRunUrl, request: updated })
   } catch (error) {
-    console.error("[api/requests/destroy] error", error)
+    logError("github.dispatch_failed", error, { ...correlation, requestId, duration_ms: Date.now() - start })
     return NextResponse.json({ error: "Failed to dispatch destroy" }, { status: 500 })
   }
 }

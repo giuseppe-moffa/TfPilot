@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
 
+import { requireSession } from "@/lib/auth/session"
+import { withCorrelation } from "@/lib/observability/correlation"
+import { timeAsync } from "@/lib/observability/logger"
+
 const SYSTEM_PROMPT = `You are an AI Infrastructure Assistant inside a Terraform self-service platform.
 
 CRITICAL: Your response must be ONLY a valid JSON object with NO additional text, markdown, or explanations. Start your response with { and end with }.
@@ -23,8 +27,17 @@ Rules:
 type ChatMessage = { role: "user" | "system"; content: string }
 
 export async function POST(req: NextRequest) {
+  const correlation = withCorrelation(req, {})
+  const sessionOr401 = await requireSession(undefined, correlation)
+  if (sessionOr401 instanceof NextResponse) return sessionOr401
+  const session = sessionOr401
+
   try {
-    const body = (await req.json()) as {
+    return await timeAsync(
+      "assistant.request",
+      { ...correlation, user: session.login },
+      async () => {
+        const body = (await req.json()) as {
       messages?: ChatMessage[]
       project?: string
       environment?: string
@@ -47,7 +60,7 @@ export async function POST(req: NextRequest) {
       .filter((f: any) => !(f.readOnly || f.immutable))
       .map((f: { name: string }) => f.name)
       .filter(Boolean)
-    const fieldMetaByName = new Map<string, { name: string; type?: string; enum?: string[]; required?: boolean; default?: any }>(
+    const _fieldMetaByName = new Map<string, { name: string; type?: string; enum?: string[]; required?: boolean; default?: any }>(
       (body.fieldsMeta ?? []).map((f) => [f.name, f])
     )
     const hasModule = Boolean(body.module)
@@ -370,13 +383,13 @@ Return ONLY JSON: {"patch": {"field": "value"}, "rationale": ["explanation"]}` }
       hasClarifications: assistant_state.clarifications.length > 0,
     })
 
-    return NextResponse.json({
-      role: "assistant",
-      content: JSON.stringify(assistant_state),
-      assistant_state,
-    })
-  } catch (error) {
-    console.error("[api/infra-assistant] error", error)
+        return NextResponse.json({
+          role: "assistant",
+          content: JSON.stringify(assistant_state),
+          assistant_state,
+        })
+      })
+  } catch {
     return NextResponse.json({ error: "Internal error" }, { status: 500 })
   }
 }

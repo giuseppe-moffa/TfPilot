@@ -10,6 +10,8 @@ import { moduleRegistry, type ModuleRegistryEntry, type ModuleField } from "@/co
 import { getRequest, saveRequest } from "@/lib/storage/requestsStore"
 import { getSessionFromCookies } from "@/lib/auth/session"
 import { getUserRole } from "@/lib/auth/roles"
+import { withCorrelation } from "@/lib/observability/correlation"
+import { logError, logInfo } from "@/lib/observability/logger"
 import { logLifecycleEvent } from "@/lib/logs/lifecycle"
 import { buildResourceName } from "@/lib/requests/naming"
 import { injectServerAuthoritativeTags, assertRequiredTagsPresent } from "@/lib/requests/tags"
@@ -444,6 +446,8 @@ function isApplyRunning(request: any) {
 }
 
 export async function POST(req: NextRequest) {
+  const start = Date.now()
+  const correlation = withCorrelation(req, {})
   try {
     const body = (await req.json()) as { requestId?: string; patch?: Record<string, unknown> }
     if (!body.requestId || typeof body.requestId !== "string") {
@@ -471,6 +475,7 @@ export async function POST(req: NextRequest) {
     if (!current) {
       return NextResponse.json({ success: false, error: "Request not found" }, { status: 404 })
     }
+    logInfo("request.update", { ...correlation, requestId: current.id, user: session.login })
 
     if (isApplyRunning(current)) {
       return NextResponse.json({ success: false, error: "Cannot update while apply in progress" }, { status: 409 })
@@ -564,7 +569,6 @@ export async function POST(req: NextRequest) {
       config: finalConfig,
       revision: revisionNext,
       updatedAt: new Date().toISOString(),
-      status: "planning",
       branchName: ghResult.branchName,
       prNumber: ghResult.prNumber,
       prUrl: ghResult.prUrl,
@@ -635,7 +639,7 @@ export async function POST(req: NextRequest) {
       planRunId: ghResult.planRunId,
     })
   } catch (error) {
-    console.error("[api/requests/update] error:", error)
+    logError("request.update_failed", error, { ...correlation, duration_ms: Date.now() - start })
     const message = error instanceof Error ? error.message : "Unexpected error"
     return NextResponse.json({ success: false, error: message }, { status: 400 })
   }

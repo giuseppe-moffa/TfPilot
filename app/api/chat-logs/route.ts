@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server"
 import { randomUUID } from "node:crypto"
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3"
 
+import { requireSession } from "@/lib/auth/session"
 import { env } from "@/lib/config/env"
+import { withCorrelation } from "@/lib/observability/correlation"
+import { timeAsync } from "@/lib/observability/logger"
 
 type ChatLogEntry = {
   timestamp: string
@@ -32,22 +35,32 @@ async function appendLog(entry: ChatLogEntry) {
 }
 
 export async function POST(req: NextRequest) {
+  const correlation = withCorrelation(req, {})
+  const sessionOr401 = await requireSession(undefined, correlation)
+  if (sessionOr401 instanceof NextResponse) return sessionOr401
+  const session = sessionOr401
+
   try {
-    const body = (await req.json()) as Partial<ChatLogEntry>
-    if (!body?.messages || !Array.isArray(body.messages)) {
-      return NextResponse.json({ error: "messages required" }, { status: 400 })
-    }
-    const entry: ChatLogEntry = {
-      timestamp: new Date().toISOString(),
-      project: body.project,
-      environment: body.environment,
-      module: body.module,
-      messages: body.messages,
-    }
-    const result = await appendLog(entry)
-    return NextResponse.json({ ok: true, key: result.key })
-  } catch (error) {
-    console.error("[api/chat-logs] error", error)
+    return await timeAsync(
+      "chat_log.write",
+      { ...correlation, user: session.login },
+      async () => {
+        const body = (await req.json()) as Partial<ChatLogEntry>
+        if (!body?.messages || !Array.isArray(body.messages)) {
+          return NextResponse.json({ error: "messages required" }, { status: 400 })
+        }
+        const entry: ChatLogEntry = {
+          timestamp: new Date().toISOString(),
+          project: body.project,
+          environment: body.environment,
+          module: body.module,
+          messages: body.messages,
+        }
+        const result = await appendLog(entry)
+        return NextResponse.json({ ok: true, key: result.key })
+      }
+    )
+  } catch {
     return NextResponse.json({ error: "failed to write log" }, { status: 500 })
   }
 }
