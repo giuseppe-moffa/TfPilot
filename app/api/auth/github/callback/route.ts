@@ -107,32 +107,54 @@ function getPublicBaseUrl(): string {
   return "https://tfpilot.com"
 }
 
+/** Build login error URL with optional description for friendly error page. */
+function loginErrorUrl(baseUrl: string, error: string, errorDescription?: string | null): string {
+  const u = new URL("/login", baseUrl)
+  u.searchParams.set("error", error)
+  if (errorDescription && errorDescription.trim()) {
+    u.searchParams.set("error_description", errorDescription.trim().slice(0, 200))
+  }
+  return u.toString()
+}
+
 export async function GET(req: NextRequest) {
+  const url = new URL(req.url)
+  const code = url.searchParams.get("code")
+  const returnedState = url.searchParams.get("state")
+  const error = url.searchParams.get("error")
+  const errorDescription = url.searchParams.get("error_description")
+
+  // Debug: log all callback query params and request context
   console.log('[auth/github/callback] ===== OAuth Callback Request =====')
   console.log('[auth/github/callback] Request URL:', req.url)
   console.log('[auth/github/callback] Request origin:', req.nextUrl.origin)
   console.log('[auth/github/callback] Host header:', req.headers.get('host'))
   console.log('[auth/github/callback] X-Forwarded-Host:', req.headers.get('x-forwarded-host'))
   console.log('[auth/github/callback] X-Forwarded-Proto:', req.headers.get('x-forwarded-proto'))
-  
-  const url = new URL(req.url)
-  const code = url.searchParams.get("code")
-  const returnedState = url.searchParams.get("state")
-  const expectedState = await readStateCookie()
+  console.log('[auth/github/callback] CALLBACK_QUERY_DEBUG', JSON.stringify({
+    has_code: !!code,
+    code_length: code?.length ?? 0,
+    has_state: !!returnedState,
+    error: error ?? null,
+    error_description: errorDescription ?? null,
+    all_params: Object.fromEntries(url.searchParams.entries()),
+  }))
 
-  console.log('[auth/github/callback] Code present:', !!code)
-  console.log('[auth/github/callback] Returned state:', returnedState)
-  console.log('[auth/github/callback] Expected state:', expectedState)
-  console.log('[auth/github/callback] State match:', returnedState === expectedState)
+  // GitHub may redirect with error/error_description (e.g. user denied, redirect_uri_mismatch)
+  if (error) {
+    console.error('[auth/github/callback] GitHub returned error:', error, errorDescription ?? '')
+    const baseUrl = getPublicBaseUrl()
+    const reason = error === "redirect_uri_mismatch" ? "callback_mismatch" : error === "access_denied" ? "access_denied" : "oauth_failed"
+    return NextResponse.redirect(loginErrorUrl(baseUrl, reason, errorDescription ?? undefined))
+  }
+
+  const expectedState = await readStateCookie()
+  console.log('[auth/github/callback] Code present:', !!code, 'Expected state:', !!expectedState, 'State match:', returnedState === expectedState)
 
   if (!code || !returnedState || !expectedState || returnedState !== expectedState) {
-    console.error('[auth/github/callback] ERROR: State validation failed')
-    console.error('[auth/github/callback] Missing code:', !code)
-    console.error('[auth/github/callback] Missing returnedState:', !returnedState)
-    console.error('[auth/github/callback] Missing expectedState:', !expectedState)
-    console.error('[auth/github/callback] State mismatch:', returnedState !== expectedState)
+    console.error('[auth/github/callback] ERROR: State validation failed', { missing_code: !code, missing_returned_state: !returnedState, missing_expected_state: !expectedState, state_mismatch: returnedState !== expectedState })
     const baseUrl = getPublicBaseUrl()
-    return NextResponse.redirect(new URL("/login?error=oauth_state", baseUrl))
+    return NextResponse.redirect(loginErrorUrl(baseUrl, "oauth_state", "State or code missing. Start sign-in from the app login page."))
   }
 
   try {
@@ -148,7 +170,7 @@ export async function GET(req: NextRequest) {
 
     if (env.TFPILOT_ALLOWED_LOGINS.length > 0 && !env.TFPILOT_ALLOWED_LOGINS.includes(user.login)) {
       console.warn('[auth/github/callback] Login rejected: user not in TFPILOT_ALLOWED_LOGINS:', user.login)
-      return NextResponse.redirect(new URL("/login?error=not_allowed", req.url))
+      return NextResponse.redirect(loginErrorUrl(getPublicBaseUrl(), "not_allowed"))
     }
 
     console.log('[auth/github/callback] Creating session and redirecting to /requests')
@@ -172,9 +194,14 @@ export async function GET(req: NextRequest) {
     })
     console.log('[auth/github/callback] ===== OAuth Success =====')
     return res
-  } catch (error) {
-    console.error("[auth/github/callback] ===== OAuth Error ===== ", error)
-    console.error("[auth/github/callback] Error details:", error instanceof Error ? error.message : String(error))
-    return NextResponse.redirect(new URL("/login?error=oauth_failed", getPublicBaseUrl()))
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error("[auth/github/callback] ===== OAuth Error ===== ", err)
+    console.error("[auth/github/callback] Error details:", message)
+    const baseUrl = getPublicBaseUrl()
+    const isMismatch = /redirect_uri|not associated|callback/i.test(message)
+    const isScope = /scope|permission/i.test(message)
+    const reason = isMismatch ? "callback_mismatch" : isScope ? "missing_scope" : "oauth_failed"
+    return NextResponse.redirect(loginErrorUrl(baseUrl, reason, message))
   }
 }
