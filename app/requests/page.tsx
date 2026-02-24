@@ -34,6 +34,7 @@ import {
 import { Eye, Search } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useAwsConnection } from "../providers"
+import { patchRequestCache } from "@/hooks/use-request"
 import { normalizeRequestStatus } from "@/lib/status/status-config"
 import { getStatusLabel } from "@/lib/status/status-config"
 
@@ -89,6 +90,11 @@ function formatTimestamp(iso?: string) {
   const time = d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })
   return `${date} · ${time}`
 }
+
+/** Min ms between sync batches for the same visible set to avoid hammering. */
+const VISIBLE_SYNC_DEBOUNCE_MS = 25_000
+/** Interval to re-sync visible rows so status (e.g. planning → plan_ready) updates without opening detail. */
+const VISIBLE_SYNC_INTERVAL_MS = 30_000
 
 function SkeletonRow() {
   return (
@@ -236,6 +242,42 @@ export default function RequestsPage() {
       }
     })
   }, [requests, datasetMode, envFilter, moduleFilter, projectFilter, searchTerm, sortKey, sortDirection])
+
+  const visibleIdsKey = React.useMemo(
+    () => filteredRequests.map((r) => r.id).join(","),
+    [filteredRequests]
+  )
+  const lastVisibleSyncRef = React.useRef<{ key: string; at: number }>({ key: "", at: 0 })
+  const [visibleSyncTick, setVisibleSyncTick] = React.useState(0)
+  React.useEffect(() => {
+    const id = setInterval(() => setVisibleSyncTick((t) => t + 1), VISIBLE_SYNC_INTERVAL_MS)
+    return () => clearInterval(id)
+  }, [])
+  React.useEffect(() => {
+    if (!visibleIdsKey) return
+    const now = Date.now()
+    if (
+      lastVisibleSyncRef.current.key === visibleIdsKey &&
+      now - lastVisibleSyncRef.current.at < VISIBLE_SYNC_DEBOUNCE_MS
+    )
+      return
+    lastVisibleSyncRef.current = { key: visibleIdsKey, at: now }
+    const ids = visibleIdsKey.split(",")
+    const syncOne = async (id: string) => {
+      try {
+        const res = await fetch(`/api/requests/${id}/sync`, { cache: "no-store" })
+        if (!res.ok) return
+        const json = await res.json().catch(() => null)
+        const request = json?.request ?? json
+        if (request) await patchRequestCache(id, request)
+      } catch {
+        /* ignore */
+      }
+    }
+    void Promise.allSettled(ids.map(syncOne)).then(() => {
+      mutateList()
+    })
+  }, [visibleIdsKey, mutateList, visibleSyncTick])
 
   const showEmpty = !isInitialLoading && filteredRequests.length === 0
   const isLoading = isInitialLoading

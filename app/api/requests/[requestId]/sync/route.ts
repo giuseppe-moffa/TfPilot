@@ -19,9 +19,98 @@ type ApplyRunLike = {
   url?: string
 } | null | undefined
 
+type DestroyRunLike = {
+  runId?: number
+  status?: string
+  conclusion?: string
+  headSha?: string
+  url?: string
+  completedAt?: string
+} | null | undefined
+
+/** True if the GitHub run is the destroy workflow (not plan/apply). */
+function isDestroyWorkflowRun(runPath: string | undefined, destroyWorkflowFile: string): boolean {
+  if (!runPath || !destroyWorkflowFile) return false
+  return runPath.endsWith(destroyWorkflowFile) || runPath.includes(destroyWorkflowFile)
+}
+
+/**
+ * Correlate a run to this request: head_sha in candidateShas, or run name contains requestId/branchName/PR number.
+ */
+function isDestroyRunCorrelated(
+  runHeadSha: string | undefined,
+  runName: string | undefined,
+  candidateShas: Set<string>,
+  requestId: string,
+  branchName: string | undefined,
+  prNumber: number | undefined
+): boolean {
+  if (runHeadSha && candidateShas.has(runHeadSha)) return true
+  if (!runName) return false
+  const r = runName.toLowerCase()
+  if (requestId && r.includes(requestId.toLowerCase())) return true
+  if (branchName && r.includes(branchName.toLowerCase())) return true
+  if (prNumber != null && r.includes(String(prNumber))) return true
+  return false
+}
+
+/**
+ * Reconcile destroy run: only apply when run is the destroy workflow.
+ * When we already have existing.runId (we stored it from destroy dispatch), we're refreshing that run by ID — trust it and require only workflow path match.
+ * Correlation by head_sha/name is for discovery; when refreshing by runId we don't need it (destroy runs on targetBase so head_sha often isn't in candidateShas).
+ */
+function reconcileDestroyRun(
+  existing: DestroyRunLike,
+  fetched: { status?: string; conclusion?: string; head_sha?: string; completed_at?: string; html_url?: string; path?: string; name?: string },
+  candidateShas: Set<string>,
+  requestId: string,
+  request: { branchName?: string; pr?: { number?: number } },
+  destroyWorkflowFile: string
+): DestroyRunLike {
+  const runPath = fetched.path
+  const runHeadSha = fetched.head_sha
+  const runName = fetched.name
+  const sameRunWeKnow = existing?.runId != null
+  if (!runPath) return existing ?? undefined
+  const isDestroy = isDestroyWorkflowRun(runPath, destroyWorkflowFile)
+  if (!isDestroy) return existing ?? undefined
+  const correlated = isDestroyRunCorrelated(
+    runHeadSha,
+    runName,
+    candidateShas,
+    requestId,
+    request.branchName,
+    request.pr?.number
+  )
+  if (!correlated && !sameRunWeKnow) return existing ?? undefined
+  const existingActive = existing?.status === "queued" || existing?.status === "in_progress"
+  const ghStatus = fetched.status
+  const status =
+    ghStatus === "queued" || ghStatus === "in_progress"
+      ? ghStatus
+      : ghStatus === "completed"
+        ? "completed"
+        : existing?.status
+  const conclusion = ghStatus === "completed" ? (fetched.conclusion ?? existing?.conclusion) : undefined
+  const completedAt = ghStatus === "completed" ? (fetched.completed_at ?? existing?.completedAt) : undefined
+  if (existingActive && status === "completed" && existing?.runId) {
+    return { ...existing, status, conclusion, completedAt, url: fetched.html_url ?? existing.url, headSha: runHeadSha ?? existing.headSha }
+  }
+  return {
+    ...existing,
+    runId: existing?.runId,
+    status,
+    conclusion,
+    completedAt,
+    url: fetched.html_url ?? existing?.url,
+    headSha: runHeadSha ?? existing?.headSha,
+  }
+}
+
 /**
  * Single-writer reconciliation: never clear an active (queued/in_progress) applyRun until
  * GitHub confirms completion or we have a positively correlated replacement.
+ * When incoming is terminal (completed + conclusion), allow upgrade so request can leave "applying".
  */
 function reconcileApplyRun(
   existing: ApplyRunLike,
@@ -30,12 +119,23 @@ function reconcileApplyRun(
 ): ApplyRunLike {
   const existingActive =
     existing?.status === "queued" || existing?.status === "in_progress"
+  const incomingTerminal =
+    incoming?.status === "completed" && incoming?.conclusion != null
   const incomingCorrelated = incoming?.headSha ? candidateShas.has(incoming.headSha) : false
-  const sameRun = existing?.runId && incoming?.runId && existing.runId === incoming.runId
+  const sameRunId = existing?.runId && incoming?.runId && existing.runId === incoming.runId
+  const sameRunByHeadSha =
+    existing?.headSha && incoming?.headSha && existing.headSha === incoming.headSha
+  const sameRunByUrl =
+    existing?.url && incoming?.url && existing.url === incoming.url
+  const sameRun = sameRunId || sameRunByHeadSha || sameRunByUrl
+  const terminalCorrelates =
+    incomingTerminal &&
+    (sameRun || incomingCorrelated || (existing?.url && incoming?.url && existing.url === incoming.url))
 
   if (existingActive) {
     if (!incoming) return existing
     if (sameRun) return { ...existing, ...incoming }
+    if (terminalCorrelates) return { ...existing, ...incoming }
     return existing
   }
   if (existing && !existingActive) {
@@ -45,6 +145,7 @@ function reconcileApplyRun(
     return existing
   }
   if (!existing && incoming && incomingCorrelated) return incoming
+  if (!existing && incomingTerminal && incomingCorrelated) return incoming
   if (!existing && incoming && !incomingCorrelated) return undefined
   return existing ?? incoming ?? undefined
 }
@@ -312,7 +413,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
     let hydratedExisting: ApplyRunLike = null
     if (existingApplyRun?.runId) {
       try {
-        const runJson = await githubRequest<{ status?: string; conclusion?: string; html_url?: string }>({
+        const runJson = await githubRequest<{
+          status?: string
+          conclusion?: string
+          head_sha?: string
+          html_url?: string
+        }>({
           token,
           key: `gh:run:${request.targetOwner}:${request.targetRepo}:${existingApplyRun.runId}`,
           ttlMs: 10_000,
@@ -323,6 +429,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
           ...existingApplyRun,
           status: runJson.status ?? existingApplyRun.status,
           conclusion: runJson.conclusion ?? existingApplyRun.conclusion,
+          headSha: runJson.head_sha ?? existingApplyRun.headSha,
           url: runJson.html_url ?? existingApplyRun.url,
         }
       } catch {
@@ -336,7 +443,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
       (!existingApplyRun?.runId || discoveredApplyRun.runId !== existingApplyRun.runId)
     ) {
       try {
-        const runJson = await githubRequest<{ status?: string; conclusion?: string; html_url?: string }>({
+        const runJson = await githubRequest<{
+          status?: string
+          conclusion?: string
+          head_sha?: string
+          html_url?: string
+        }>({
           token,
           key: `gh:run:${request.targetOwner}:${request.targetRepo}:${discoveredApplyRun.runId}`,
           ttlMs: 10_000,
@@ -347,6 +459,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
           ...discoveredApplyRun,
           status: runJson.status ?? discoveredApplyRun.status,
           conclusion: runJson.conclusion ?? discoveredApplyRun.conclusion,
+          headSha: runJson.head_sha ?? discoveredApplyRun.headSha,
           url: runJson.html_url ?? discoveredApplyRun.url,
         }
       } catch {
@@ -409,7 +522,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
         const runJson = await githubRequest<{
           status?: string
           conclusion?: string
+          head_sha?: string
           html_url?: string
+          completed_at?: string
+          path?: string
+          name?: string
         }>({
           token,
           key: `gh:run:${request.targetOwner}:${request.targetRepo}:${request.destroyRun.runId}`,
@@ -417,20 +534,41 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
           path: `/repos/${request.targetOwner}/${request.targetRepo}/actions/runs/${request.destroyRun.runId}`,
           context: { route: "requests/[requestId]/sync", correlationId: requestId },
         })
-        const ghStatus = runJson.status ?? request.destroyRun.status
-        request.destroyRun = {
-          ...request.destroyRun,
-          status:
-            ghStatus === "queued" || ghStatus === "in_progress"
-              ? ghStatus
-              : ghStatus === "completed"
-                ? "completed"
-                : request.destroyRun.status,
-          conclusion:
-            ghStatus === "completed"
-              ? (runJson.conclusion ?? request.destroyRun.conclusion)
-              : undefined,
-          url: runJson.html_url ?? request.destroyRun.url,
+        if (process.env.NODE_ENV === "development") {
+          console.log("[sync destroyRun] candidate run:", {
+            runId: request.destroyRun.runId,
+            headSha: runJson.head_sha,
+            status: runJson.status,
+            conclusion: runJson.conclusion,
+            path: runJson.path,
+            name: runJson.name,
+          })
+        }
+        const nextDestroyRun = reconcileDestroyRun(
+          request.destroyRun,
+          runJson,
+          candidateShas,
+          requestId,
+          request,
+          env.GITHUB_DESTROY_WORKFLOW_FILE
+        )
+        if (nextDestroyRun != null) {
+          const applied = nextDestroyRun !== request.destroyRun
+          if (process.env.NODE_ENV === "development") {
+            console.log(
+              "[sync destroyRun]",
+              applied ? "applied update (destroy workflow + correlated)" : "kept existing",
+              "status:",
+              nextDestroyRun.status,
+              "conclusion:",
+              nextDestroyRun.conclusion
+            )
+          }
+          request.destroyRun = nextDestroyRun
+        } else {
+          if (process.env.NODE_ENV === "development") {
+            console.log("[sync destroyRun] skipped update (run not destroy workflow or not correlated), preserving existing")
+          }
         }
       } catch (err) {
         console.warn("[api/requests/sync] destroy run fetch failed for runId:", request.destroyRun?.runId, err)

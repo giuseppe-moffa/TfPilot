@@ -5,7 +5,7 @@ import { ChevronDown, ChevronUp, Copy, Github, Loader2, Link as LinkIcon, Downlo
 import useSWR from "swr"
 import { useParams } from "next/navigation"
 
-import { useRequestStatus } from "@/hooks/use-request-status"
+import { useRequest } from "@/hooks/use-request"
 import { getSyncPollingInterval } from "@/lib/config/polling"
 import { deriveLifecycleStatus } from "@/lib/requests/deriveLifecycleStatus"
 import { normalizeRequestStatus, isActiveStatus } from "@/lib/status/status-config"
@@ -499,7 +499,7 @@ function RequestDetailPage() {
     })()
   }, [])
 
-  const { request, hasSyncedOnce, error: syncError, mutate: mutateStatus, forceSync, patchCurrentAndNextKey } = useRequestStatus(requestId, initialRequest)
+  const { request, hasSyncedOnce, error: syncError, mutate, revalidate, isSyncing } = useRequest(requestId, initialRequest ?? undefined)
 
   // Temporary debug: log when rendered request has applyRun (remove after verifying apply fix)
   React.useEffect(() => {
@@ -659,7 +659,7 @@ function RequestDetailPage() {
     actionRetryRef.current = { op, fn, closeDialog }
     try {
       await fn()
-      await forceSync()
+      await revalidate()
       if (op === "apply" || op === "destroy") {
         setActionProgress(null)
       } else {
@@ -697,10 +697,7 @@ function RequestDetailPage() {
           request?: { applyRun?: { status?: string }; lock?: { operation?: string } }
         }
         if (!res.ok) throw new Error(data?.error ?? "Failed to dispatch apply")
-        if (data.request) {
-          // Patch current and next (nonce+1) SWR keys so after forceSync the UI keeps showing applyRun/lock
-          await patchCurrentAndNextKey?.(data.request as typeof request)
-        }
+        if (data.request) await mutate(data.request as typeof request, false)
       },
       { closeDialog: () => setApplyModalOpen(false) }
     )
@@ -728,12 +725,13 @@ function RequestDetailPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ requestId, patch: parsed }),
       })
-      const data = await res.json().catch(() => ({}))
+      const data = (await res.json().catch(() => ({}))) as { error?: string; request?: unknown }
       if (!res.ok) {
         throw new Error(data?.error || "Failed to submit update")
       }
       setUpdateModalOpen(false)
-      await mutateStatus(undefined, true)
+      if (data?.request) await mutate(data.request as typeof request, false)
+      else await revalidate()
     } catch (err: any) {
       setPatchError(err?.message || "Failed to submit update")
     } finally {
@@ -756,7 +754,8 @@ function RequestDetailPage() {
       if (!res.ok) {
         throw new Error(data?.error || "Failed to update branch")
       }
-      await mutateStatus(undefined, true)
+      if (data?.request) await mutate(data.request as typeof request, false)
+      else await revalidate()
       setMergeStatus("idle")
       setMergeModalOpen(false)
     } catch (err) {
@@ -787,10 +786,12 @@ function RequestDetailPage() {
     }
     void runAction(
       "approve",
-      () =>
-        fetch(`/api/requests/${requestId}/approve`, { method: "POST" }).then((r) => {
-          if (!r.ok) throw new Error("Approve failed")
-        }),
+      async () => {
+        const r = await fetch(`/api/requests/${requestId}/approve`, { method: "POST" })
+        const data = await r.json().catch(() => ({})) as { request?: unknown }
+        if (!r.ok) throw new Error("Approve failed")
+        if (data.request) await mutate(data.request as typeof request, false)
+      },
       { closeDialog: () => setApproveModalOpen(false) }
     )
   }
@@ -851,9 +852,32 @@ function RequestDetailPage() {
 
   const hasLock = !!(request as any)?.lock
   const applyRunActive =
-    request?.applyRun?.status === "queued" || request?.applyRun?.status === "in_progress"
+    (request?.applyRun?.status === "queued" || request?.applyRun?.status === "in_progress") &&
+    request?.applyRun?.conclusion == null
   const destroyRunActive =
-    request?.destroyRun?.status === "queued" || request?.destroyRun?.status === "in_progress"
+    (request?.destroyRun?.status === "queued" || request?.destroyRun?.status === "in_progress") &&
+    request?.destroyRun?.conclusion == null
+
+  const activeRunRevalidateInFlightRef = React.useRef(false)
+  const ACTIVE_RUN_POLL_INTERVAL_MS = 4_000
+  const ACTIVE_RUN_POLL_MAX_MS = 10 * 60 * 1000 // 10 min
+  React.useEffect(() => {
+    const active = applyRunActive || destroyRunActive
+    if (!active) return
+    const startedAt = Date.now()
+    const id = setInterval(() => {
+      if (Date.now() - startedAt >= ACTIVE_RUN_POLL_MAX_MS) {
+        clearInterval(id)
+        return
+      }
+      if (isSyncing || activeRunRevalidateInFlightRef.current) return
+      activeRunRevalidateInFlightRef.current = true
+      void revalidate().finally(() => {
+        activeRunRevalidateInFlightRef.current = false
+      })
+    }, ACTIVE_RUN_POLL_INTERVAL_MS)
+    return () => clearInterval(id)
+  }, [applyRunActive, destroyRunActive, isSyncing, revalidate])
 
   function isActionDisabled(action: MutationAction): boolean {
     if (hasLock) return true
@@ -1250,7 +1274,7 @@ function RequestDetailPage() {
             size="sm"
             variant="outline"
             className="shrink-0 border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-100 hover:bg-amber-100 dark:hover:bg-amber-800/40"
-            onClick={() => mutateStatus()}
+            onClick={() => void revalidate()}
           >
             Retry
           </Button>
@@ -2157,7 +2181,7 @@ function RequestDetailPage() {
                         assistant_state: finalAssistantState,
                       }}
                       requestId={request.id}
-                      onRefresh={() => mutateStatus(undefined, true)}
+                      onRefresh={() => void revalidate()}
                     />
                   )
                 })()}
@@ -2226,8 +2250,9 @@ function RequestDetailPage() {
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({ requestId }),
                       })
-                      const data = await res.json().catch(() => ({}))
+                      const data = await res.json().catch(() => ({})) as { error?: string; request?: unknown }
                       if (!res.ok) throw new Error(data?.error ?? "Failed to merge PR")
+                      if (data.request) await mutate(data.request as typeof request, false)
                     },
                     { closeDialog: () => setMergeModalOpen(false) }
                   )
@@ -2386,7 +2411,7 @@ function RequestDetailPage() {
                         throw new Error(
                           data?.error ?? "Failed to dispatch destroy"
                         )
-                      if (data.request) mutateStatus(data.request as typeof request, false)
+                      if (data.request) await mutate(data.request as typeof request, false)
                     },
                     {
                       closeDialog: () => {

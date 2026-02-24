@@ -13,6 +13,20 @@ import { getUserRole } from "@/lib/auth/roles"
 import { getIdempotencyKey, assertIdempotentOrRecord, ConflictError } from "@/lib/requests/idempotency"
 import { acquireLock, releaseLock, LockConflictError, type RequestDocWithLock } from "@/lib/requests/lock"
 
+function isDestroyRunCorrelated(
+  r: { head_sha?: string; name?: string },
+  candidateShas: Set<string>,
+  requestId: string,
+  req: { branchName?: string; prNumber?: number }
+): boolean {
+  if (r.head_sha && candidateShas.has(r.head_sha)) return true
+  if (!r.name) return false
+  if (r.name.includes(requestId)) return true
+  if (req.branchName && r.name.includes(req.branchName)) return true
+  if (req.prNumber != null && r.name.includes(String(req.prNumber))) return true
+  return false
+}
+
 export async function POST(req: NextRequest, { params }: { params: Promise<{ requestId: string }> }) {
   const start = Date.now()
   const correlation = withCorrelation(req, {})
@@ -165,16 +179,34 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
     let destroyRunId: number | undefined
     let destroyRunUrl: string | undefined
     try {
-      const runsJson = await githubRequest<{ workflow_runs?: Array<{ id: number }> }>({
+      const runsJson = await githubRequest<{
+        workflow_runs?: Array<{ id: number; head_sha?: string; name?: string; status?: string }>
+      }>({
         token,
         key: `gh:wf-runs:${request.targetOwner}:${request.targetRepo}:${env.GITHUB_DESTROY_WORKFLOW_FILE}:${request.targetBase ?? env.GITHUB_DEFAULT_BASE_BRANCH}`,
         ttlMs: 15_000,
         path: `/repos/${request.targetOwner}/${request.targetRepo}/actions/workflows/${env.GITHUB_DESTROY_WORKFLOW_FILE}/runs?branch=${encodeURIComponent(
           request.targetBase ?? env.GITHUB_DEFAULT_BASE_BRANCH
-        )}&per_page=1`,
+        )}&per_page=5`,
         context: { route: "requests/[requestId]/destroy", correlationId: requestId },
       })
-      destroyRunId = runsJson.workflow_runs?.[0]?.id
+      const candidateShas = new Set(
+        [
+          request.mergedSha,
+          request.commitSha,
+          (request as { planRun?: { headSha?: string } }).planRun?.headSha,
+          (request as { pr?: { headSha?: string } }).pr?.headSha,
+        ].filter(Boolean) as string[]
+      )
+      const runs = runsJson.workflow_runs ?? []
+      const active = (r: { status?: string }) => r.status === "queued" || r.status === "in_progress"
+      const correlated = runs.find((r) =>
+        isDestroyRunCorrelated(r, candidateShas, requestId ?? "", request)
+      )
+      const correlatedActive = correlated && active(correlated) ? correlated : null
+      const firstActive = runs.find(active)
+      const chosen = correlatedActive ?? correlated ?? firstActive ?? runs[0]
+      destroyRunId = chosen?.id
       if (destroyRunId) {
         destroyRunUrl = `https://github.com/${request.targetOwner}/${request.targetRepo}/actions/runs/${destroyRunId}`
       }
