@@ -175,7 +175,7 @@ export const moduleRegistry: ModuleRegistryEntry[] = [
       }
     },
     fields: [
-      { name: "name", type: "string", label: "Resource name", required: true, immutable: true, description: "Resource name. Logical resource name (used for tagging and derived names); bucket name in Terraform is project-environment-name" },
+      { name: "name", type: "string", label: "Resource name", required: true, immutable: true, description: "Resource name" },
       { name: "project", type: "string", required: true, readOnly: true, immutable: true, description: "Project identifier" },
       { name: "environment", type: "string", required: true, readOnly: true, immutable: true, description: "Environment identifier" },
       { name: "request_id", type: "string", required: true, readOnly: true, immutable: true, description: "Request correlation id" },
@@ -270,11 +270,17 @@ export const moduleRegistry: ModuleRegistryEntry[] = [
       }
     },
     fields: [
-      { name: "name", type: "string", label: "Resource name", required: true, immutable: true, readOnly: true, description: "Resource name. Logical resource name (used for tagging and derived names); bucket name in Terraform is project-environment-name" },
+      {
+        name: "name",
+        type: "string",
+        label: "Resource name",
+        required: true,
+        immutable: true,
+        description: "Resource name",
+      },
       { name: "project", type: "string", required: true, readOnly: true, immutable: true, description: "Project identifier" },
       { name: "environment", type: "string", required: true, readOnly: true, immutable: true, description: "Environment identifier" },
       { name: "request_id", type: "string", required: true, readOnly: true, immutable: true, description: "Request correlation id" },
-      { name: "repo_name", type: "string", required: false, description: "Override ECR repository name (optional)" },
       { name: "scan_on_push", type: "boolean", required: false, default: true, description: "Enable image scanning on push" },
       { name: "retain_images", type: "number", required: false, default: 5, description: "Lifecycle policy: retain last N images (1–100)" },
       { name: "force_delete", type: "boolean", required: false, default: false, description: "Allow force delete when repo has images", category: "advanced", risk_level: "high" },

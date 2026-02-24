@@ -1679,7 +1679,11 @@ function RequestDetailPage() {
             {(isDestroying || isDestroyed || request.destroyRun) && (
               <div className="rounded-md bg-muted/30 px-3 py-2 text-sm text-foreground">
                 <div className="flex items-center gap-2">
-                  <Badge variant={isDestroyed ? "success" : "destructive"}>
+                  <Badge
+                    variant={
+                      isDestroyed ? "success" : isDestroying ? "destroying" : "destructive"
+                    }
+                  >
                     {isDestroyed ? "Destroyed" : isDestroying ? "Destroying" : "Destroy triggered"}
                   </Badge>
                   {request.destroyRun?.url && (

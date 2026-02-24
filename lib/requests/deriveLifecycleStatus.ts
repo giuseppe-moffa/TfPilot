@@ -30,6 +30,17 @@ type ApprovalInfo = {
 /** Minimal request shape needed for derivation. */
 export type RequestLike = {
   pr?: PrInfo
+  /** Webhook patches write here; prefer over pr when present. */
+  github?: {
+    pr?: PrInfo
+    /** Webhook workflow_run patches; prefer over top-level planRun/applyRun/destroyRun when present. */
+    workflows?: {
+      plan?: RunInfo
+      apply?: RunInfo
+      destroy?: RunInfo
+      cleanup?: RunInfo
+    }
+  }
   planRun?: RunInfo
   applyRun?: RunInfo
   approval?: ApprovalInfo
@@ -54,7 +65,11 @@ const FAILED_CONCLUSIONS = [
 export function deriveLifecycleStatus(request: RequestLike | null | undefined): CanonicalStatus {
   if (!request) return "request_created"
 
-  const { pr, planRun, applyRun, approval, destroyRun } = request
+  const pr = request.github?.pr ?? request.pr
+  const planRun = request.github?.workflows?.plan ?? request.planRun
+  const applyRun = request.github?.workflows?.apply ?? request.applyRun
+  const destroyRun = request.github?.workflows?.destroy ?? request.destroyRun
+  const { approval } = request
 
   // 1. Destroy lifecycle: "destroyed" only when run is completed with success; never treat missing conclusion as success
   if (destroyRun?.status === "in_progress" || destroyRun?.status === "queued") {

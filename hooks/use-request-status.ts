@@ -1,15 +1,31 @@
 import { useEffect, useRef, useState } from "react"
 import useSWR from "swr"
+import * as SWRModule from "swr"
 import {
   getSyncPollingInterval,
   SYNC_INTERVAL_RATE_LIMIT_BACKOFF_MS,
 } from "@/lib/config/polling"
+import {
+  subscribeToRequestEvents,
+  subscribeToConnectionState,
+} from "@/lib/sse/streamClient"
+import { requestCacheKey } from "@/hooks/use-request"
 
 type GlobalMutator = (key: string, data?: unknown, opts?: { revalidate?: boolean }) => Promise<unknown>
 
 type RequestLike = Record<string, any> | null
 
-const fetcher = async (url: string) => {
+export type SyncMeta = {
+  mode?: string
+  degraded?: boolean
+  retryAfterMs?: number
+  reason?: string
+  scope?: "repo" | "global"
+}
+
+export type SyncResponseShape = { success: true; request: RequestLike; sync?: SyncMeta }
+
+const fetcher = async (url: string): Promise<SyncResponseShape> => {
   const res = await fetch(url, { cache: "no-store" })
   if (!res.ok) {
     const text = await res.text()
@@ -24,17 +40,20 @@ const fetcher = async (url: string) => {
     err.status = res.status
     throw err
   }
-  const json = await res.json()
-  return json.request ?? json
+  const json = (await res.json()) as { success?: boolean; request: RequestLike; sync?: SyncMeta }
+  if (!json.request) throw new Error("Invalid sync response: missing request")
+  return { success: true, request: json.request, sync: json.sync ?? {} }
 }
 
 const BACKOFF_BASE_MS = 5_000
 const BACKOFF_MAX_MS = 60_000
+const SSE_BACKOFF_MS = 60_000
 
 export function useRequestStatus(requestId?: string, initial?: RequestLike) {
   const [tabHidden, setTabHidden] = useState(
     typeof document !== "undefined" ? document.hidden : false
   )
+  const [sseConnected, setSseConnected] = useState(false)
   const [nonce, setNonce] = useState(0)
   const errorRef = useRef<Error & { status?: number } | null>(null)
   const tabHiddenRef = useRef(tabHidden)
@@ -55,6 +74,24 @@ export function useRequestStatus(requestId?: string, initial?: RequestLike) {
     return () => document.removeEventListener("visibilitychange", handler)
   }, [])
 
+  const mutateRef = useRef<(() => void) | null>(null)
+
+  const globalMutate = (SWRModule as unknown as { mutate: (key: string) => Promise<unknown> }).mutate
+
+  useEffect(() => {
+    const unsubEvents = subscribeToRequestEvents((ev) => {
+      const k = requestCacheKey(ev.requestId)
+      if (k) void globalMutate(k)
+      void globalMutate("/api/requests")
+      if (ev.requestId === requestId) mutateRef.current?.()
+    })
+    const unsubConn = subscribeToConnectionState(setSseConnected)
+    return () => {
+      unsubEvents()
+      unsubConn()
+    }
+  }, [requestId])
+
   const key = requestId ? `/api/requests/${requestId}/sync?nonce=${nonce}` : null
   const prevNonceRef = useRef<number>(nonce)
   if (prevNonceRef.current !== nonce) {
@@ -68,21 +105,26 @@ export function useRequestStatus(requestId?: string, initial?: RequestLike) {
     key,
     fetcher,
     {
-      fallbackData: initial ?? null,
+      fallbackData: initial != null ? { success: true as const, request: initial, sync: undefined } : undefined,
       keepPreviousData: true,
       revalidateOnFocus: true,
       revalidateOnReconnect: true,
       dedupingInterval: 2000,
       revalidateIfStale: true,
       revalidateOnMount: true,
-      refreshInterval: (latest: unknown) => {
+      refreshInterval: (latest: SyncResponseShape | undefined) => {
         if (errorRef.current?.status === 429) {
           return SYNC_INTERVAL_RATE_LIMIT_BACKOFF_MS
         }
-        return getSyncPollingInterval(
-          latest as RequestLike,
+        if (latest?.sync?.degraded && (latest.sync?.retryAfterMs ?? 0) > 0) {
+          return latest.sync.retryAfterMs!
+        }
+        const base = getSyncPollingInterval(
+          latest?.request ?? null,
           tabHiddenRef.current
         )
+        if (sseConnected) return Math.max(base, SSE_BACKOFF_MS)
+        return base
       },
       onErrorRetry: (
         err: Error & { status?: number },
@@ -104,8 +146,9 @@ export function useRequestStatus(requestId?: string, initial?: RequestLike) {
     }
   )
   const { data, error, isValidating, mutate } = swr
+  mutateRef.current = mutate
   errorRef.current = error ?? null
-  if (data != null) lastGoodRequestRef.current = data
+  if (data?.request != null) lastGoodRequestRef.current = data.request
 
   useEffect(() => {
     if (pendingForceSyncRef.current && !isValidating) {
@@ -131,17 +174,18 @@ export function useRequestStatus(requestId?: string, initial?: RequestLike) {
     }
     const m = globalMutateRef.current
     if (!m) return
+    const payload: SyncResponseShape = { success: true, request: patched, sync: data?.sync }
     const opts = { revalidate: false }
-    if (key) await m(key, patched, opts)
+    if (key) await m(key, payload, opts)
     const nextKey = `/api/requests/${requestId}/sync?nonce=${nonce + 1}`
-    await m(nextKey, patched, opts)
+    await m(nextKey, payload, opts)
   }
 
   /** True after at least one successful response from the sync endpoint (not just fallback). */
   const hasSyncedOnce = data !== undefined
 
   return {
-    request: data ?? lastGoodRequestRef.current ?? initial ?? null,
+    request: data?.request ?? lastGoodRequestRef.current ?? initial ?? null,
     error,
     isSyncing: isValidating,
     hasSyncedOnce,

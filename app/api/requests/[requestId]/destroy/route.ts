@@ -12,6 +12,7 @@ import { logLifecycleEvent } from "@/lib/logs/lifecycle"
 import { getUserRole } from "@/lib/auth/roles"
 import { getIdempotencyKey, assertIdempotentOrRecord, ConflictError } from "@/lib/requests/idempotency"
 import { acquireLock, releaseLock, LockConflictError, type RequestDocWithLock } from "@/lib/requests/lock"
+import { getEnvTargetFile, getModuleType } from "@/lib/infra/moduleType"
 
 function isDestroyRunCorrelated(
   r: { head_sha?: string; name?: string },
@@ -142,11 +143,19 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
 
     // Fire cleanup PR workflow first so code removal is ready before destroy completes
     if (env.GITHUB_CLEANUP_WORKFLOW_FILE && request.targetOwner && request.targetRepo) {
+      // Use stored targetFiles when present; otherwise derive from module + env path (e.g. old requests or any missing targetFiles)
+      const targetFiles = request.targetFiles ?? []
+      const cleanupPaths =
+        targetFiles.length > 0
+          ? targetFiles.join(",")
+          : request.targetEnvPath && request.module
+            ? getEnvTargetFile(request.targetEnvPath, getModuleType(request.module))
+            : ""
       const cleanupInputs = {
         request_id: request.id,
         environment: request.environment ?? "dev",
         target_base: request.targetBase ?? env.GITHUB_DEFAULT_BASE_BRANCH,
-        cleanup_paths: (request.targetFiles ?? []).join(","),
+        cleanup_paths: cleanupPaths,
         target_env_path: request.targetEnvPath ?? "",
         auto_merge: isProd ? "false" : "true",
       }

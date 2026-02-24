@@ -23,6 +23,7 @@ import {
   ConflictError,
 } from "@/lib/requests/idempotency"
 import { logLifecycleEvent } from "@/lib/logs/lifecycle"
+import { putPrIndex } from "@/lib/requests/prIndex"
 import { getUserRole } from "@/lib/auth/roles"
 import { ensureAssistantState } from "@/lib/assistant/state"
 
@@ -737,6 +738,8 @@ export async function POST(request: NextRequest) {
 
     await saveRequest(newRequestWithAssistant)
     if (idemKey) recordCreate(idemKey, requestId, newRequestWithAssistant as Record<string, unknown>, now)
+
+    await putPrIndex(targetRepo.owner, targetRepo.repo, ghResult.prNumber, requestId).catch(() => {})
 
     await logLifecycleEvent({
       requestId,

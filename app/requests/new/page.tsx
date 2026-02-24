@@ -34,16 +34,7 @@ function randomShortId(): string {
 
 /** Primary identifier form key by module (used for generatedName prefill). */
 function primaryIdKeyForModule(moduleKey: string): string {
-  switch (moduleKey) {
-    case "ec2-instance":
-      return "name"
-    case "s3-bucket":
-      return "name"
-    case "ecr-repo":
-      return "repo_name"
-    default:
-      return "name"
-  }
+  return "name"
 }
 
 type FieldMeta = {
@@ -508,6 +499,8 @@ function NewRequestPageContent() {
     // Name from Step 2 (generatedName = logical name + shortId) is read-only in Step 3
     const primaryKey = selectedModule ? primaryIdKeyForModule(selectedModule.type) : ""
     const isNameFromStep2 = Boolean(generatedName && field.name === primaryKey)
+    // Name is always included and user cannot amend; do not show required asterisk
+    const showRequired = field.name === "name" ? false : field.required
 
     switch (field.type) {
       case "boolean":
@@ -517,7 +510,7 @@ function NewRequestPageContent() {
             id={fieldId}
             label={fieldLabel}
             description={description}
-            required={field.required}
+            required={showRequired}
             alignEnd
           >
             <Switch
@@ -534,7 +527,7 @@ function NewRequestPageContent() {
             id={fieldId}
             label={fieldLabel}
             description={description}
-            required={field.required}
+            required={showRequired}
             fullWidth={fullWidth}
           >
             <Select value={String(value ?? "")} onValueChange={(v) => handleFieldChange(field.name, v)}>
@@ -558,7 +551,7 @@ function NewRequestPageContent() {
             id={fieldId}
             label={fieldLabel}
             description={description}
-            required={field.required}
+            required={showRequired}
             fullWidth={fullWidth}
           >
             <Textarea
@@ -578,7 +571,7 @@ function NewRequestPageContent() {
             id={fieldId}
             label={fieldLabel}
             description={description}
-            required={field.required}
+            required={showRequired}
             fullWidth={fullWidth}
           >
             <Textarea
@@ -598,7 +591,7 @@ function NewRequestPageContent() {
             id={fieldId}
             label={fieldLabel}
             description={description}
-            required={field.required}
+            required={showRequired}
             fullWidth={fullWidth}
           >
             <Input
@@ -619,7 +612,7 @@ function NewRequestPageContent() {
             id={fieldId}
             label={fieldLabel}
             description={description}
-            required={field.required}
+            required={showRequired}
             fullWidth={fullWidth}
           >
             <Input
@@ -641,9 +634,10 @@ function NewRequestPageContent() {
     const items: { label: string; value: any }[] = []
     if (selectedModule) {
       for (const f of selectedModule.fields) {
-        if (f.readOnly || f.immutable) continue
+        if (f.readOnly) continue
         if (configObject[f.name] === undefined) continue
-        items.push({ label: f.name, value: configObject[f.name] })
+        const label = f.label ?? f.name
+        items.push({ label, value: configObject[f.name] })
       }
     }
     return items
@@ -917,8 +911,14 @@ function NewRequestPageContent() {
                             if (t) {
                               const trimmedName = environmentName.trim()
                               const shortId = randomShortId()
-                              const genName = `${trimmedName}-${shortId}`
-                              setGeneratedName(genName)
+                              const fullName = [project, environment, trimmedName, shortId]
+                                .filter(Boolean)
+                                .join("-")
+                                .toLowerCase()
+                                .replace(/[^a-z0-9-]/g, "-")
+                                .replace(/-+/g, "-")
+                                .replace(/^-|-$/g, "") || `${trimmedName}-${shortId}`
+                              setGeneratedName(fullName)
                               const effectiveModule = showProjectSelector ? moduleName : t.moduleKey
                               if (!showProjectSelector) setModuleName(t.moduleKey)
                               const mod = modules.find((m) => m.type === effectiveModule)
@@ -934,8 +934,8 @@ function NewRequestPageContent() {
                               setFormValues({
                                 ...base,
                                 ...templateConfig,
-                                name: genName,
-                                [primaryKey]: genName,
+                                name: fullName,
+                                [primaryKey]: fullName,
                               } as Record<string, unknown>)
                             }
                           }}

@@ -29,7 +29,6 @@ const SAVE_DIALOG_MIN_MS = 700
 /** Field names that are set per request (name, primary ids), not from template defaultConfig. */
 const REQUEST_DERIVED_FIELD_NAMES = new Set([
   "name",
-  "repo_name",
   "project",
   "environment",
   "request_id",

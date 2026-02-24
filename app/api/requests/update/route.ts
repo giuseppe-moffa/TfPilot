@@ -14,6 +14,7 @@ import { getUserRole } from "@/lib/auth/roles"
 import { withCorrelation } from "@/lib/observability/correlation"
 import { logError, logInfo, logWarn } from "@/lib/observability/logger"
 import { logLifecycleEvent } from "@/lib/logs/lifecycle"
+import { putPrIndex } from "@/lib/requests/prIndex"
 import { getIdempotencyKey, assertIdempotentOrRecord, ConflictError } from "@/lib/requests/idempotency"
 import { acquireLock, releaseLock, LockConflictError, type RequestDocWithLock } from "@/lib/requests/lock"
 import { buildResourceName } from "@/lib/requests/naming"
@@ -690,6 +691,8 @@ export async function POST(req: NextRequest) {
       { ...updatedRequest, version: currentVersion + 1 },
       { expectedVersion: currentVersion }
     )
+
+    await putPrIndex(targetOwner, targetRepo, ghResult.prNumber, current.id).catch(() => {})
 
     const afterSave = await getRequest(current.id)
     if (afterSave) {

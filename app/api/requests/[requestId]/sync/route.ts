@@ -3,13 +3,15 @@ import { NextRequest, NextResponse } from "next/server"
 import { requireSession } from "@/lib/auth/session"
 import { getGitHubAccessToken } from "@/lib/github/auth"
 import { githubRequest } from "@/lib/github/rateAware"
+import { getRateLimitBackoff, setRateLimitBackoff } from "@/lib/github/rateLimitState"
+import { dispatchCleanup } from "@/lib/github/dispatchCleanup"
 import { deriveLifecycleStatus } from "@/lib/requests/deriveLifecycleStatus"
+import { needsRepair } from "@/lib/requests/syncPolicy"
 import { getRequest, updateRequest } from "@/lib/storage/requestsStore"
 import { getRequestCost } from "@/lib/services/cost-service"
 import { env } from "@/lib/config/env"
 import { ensureAssistantState } from "@/lib/assistant/state"
 import { sendAdminNotification, formatRequestNotification } from "@/lib/notifications/email"
-import { stripPlanOutputToContent } from "@/lib/plan/strip-plan-output"
 
 type ApplyRunLike = {
   runId?: number
@@ -150,50 +152,25 @@ function reconcileApplyRun(
   return existing ?? incoming ?? undefined
 }
 
-function extractPlan(log: string) {
-  const lower = log.toLowerCase()
-  const planIdx = lower.indexOf("terraform plan")
-  if (planIdx !== -1) {
-    const summaryIdx = lower.lastIndexOf("plan:", lower.length)
-    if (summaryIdx !== -1 && summaryIdx > planIdx) {
-      const endLine = log.indexOf("\n", summaryIdx + 5)
-      return log.slice(planIdx, endLine === -1 ? undefined : endLine + 1)
-    }
-    return log.slice(planIdx)
+function isRateLimitError(err: unknown): boolean {
+  if (err instanceof Error) {
+    const msg = err.message.toLowerCase()
+    if (msg.includes("rate limit") || msg.includes("rate limited")) return true
   }
-  const lines = log.trim().split("\n")
-  return lines.slice(-120).join("\n")
+  const status = (err as { status?: number })?.status
+  return status === 403 || status === 429
 }
 
-async function fetchJobLogs(
-  token: string,
-  owner: string,
-  repo: string,
-  runId: number,
-  requestId: string
-): Promise<string | null> {
-  try {
-    const jobsJson = await githubRequest<{ jobs?: Array<{ id: number }> }>({
-      token,
-      key: `gh:jobs:${owner}:${repo}:${runId}`,
-      ttlMs: 10_000,
-      path: `/repos/${owner}/${repo}/actions/runs/${runId}/jobs`,
-      context: { route: "requests/[requestId]/sync", correlationId: requestId },
-    })
-    const jobId = jobsJson.jobs?.[0]?.id
-    if (!jobId) return null
-    const logs = await githubRequest<string>({
-      token,
-      key: `gh:logs:${owner}:${repo}:${jobId}`,
-      ttlMs: 0,
-      path: `/repos/${owner}/${repo}/actions/jobs/${jobId}/logs`,
-      parseResponse: (r) => r.text(),
-      context: { route: "requests/[requestId]/sync", correlationId: requestId },
-    })
-    return logs
-  } catch {
-    return null
-  }
+function tfpilotOnlyResponse(
+  request: Record<string, unknown>,
+  syncExtra?: { degraded?: boolean; retryAfterMs?: number; reason?: string; scope?: "repo" | "global" }
+) {
+  const status = deriveLifecycleStatus(request as Parameters<typeof deriveLifecycleStatus>[0])
+  return NextResponse.json({
+    success: true,
+    request: { ...request, status },
+    sync: { mode: "tfpilot-only" as const, ...syncExtra },
+  })
 }
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ requestId: string }> }) {
@@ -201,11 +178,32 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
     const sessionOr401 = await requireSession()
     if (sessionOr401 instanceof NextResponse) return sessionOr401
     const { requestId } = await params
-    const token = await getGitHubAccessToken(req)
-    if (!token) return NextResponse.json({ error: "GitHub not connected" }, { status: 401 })
+    const repair = req.nextUrl.searchParams.get("repair") === "1"
+    const hydrate = req.nextUrl.searchParams.get("hydrate") === "1"
 
     const request = ensureAssistantState(await getRequest(requestId).catch(() => null))
     if (!request) return NextResponse.json({ error: "Request not found" }, { status: 404 })
+
+    const doGitHub = repair || hydrate || needsRepair(request)
+    if (!doGitHub) {
+      return tfpilotOnlyResponse(request)
+    }
+
+    const token = await getGitHubAccessToken(req)
+    if (!token) return NextResponse.json({ error: "GitHub not connected" }, { status: 401 })
+
+    const owner = request.targetOwner as string | undefined
+    const repo = request.targetRepo as string | undefined
+    const backoff = await getRateLimitBackoff(owner, repo)
+    if (backoff.until && (backoff.retryAfterMs ?? 0) > 0) {
+      const scope = owner && repo ? ("repo" as const) : ("global" as const)
+      return tfpilotOnlyResponse(request, {
+        degraded: true,
+        retryAfterMs: backoff.retryAfterMs ?? 60_000,
+        reason: "github_rate_limited",
+        scope,
+      })
+    }
 
     // Single-writer: capture applyRun from DB and do not mutate until final reconciliation
     const existingApplyRun: ApplyRunLike = request.applyRun
@@ -226,6 +224,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
       request.pr = { number: request.prNumber, url: request.prUrl }
     }
 
+    try {
     if (request.pr?.number) {
       const prJson = await githubRequest<{
         merged?: boolean
@@ -502,16 +501,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
           headSha: runJson.head_sha ?? request.planRun.headSha,
           url: runJson.html_url ?? request.planRun.url,
         }
-
-        const logs = await fetchJobLogs(token, request.targetOwner, request.targetRepo, request.planRun.runId, requestId)
-        if (logs) {
-          const raw = extractPlan(logs)
-          const planText = raw != null ? stripPlanOutputToContent(raw) : request.plan?.output
-          request.plan = {
-            ...(request.plan ?? {}),
-            output: planText ?? request.plan?.output,
-          }
-        }
+        // Never fetch plan logs in sync (no PR files/diffs/logs)
       } catch {
         /* ignore */
       }
@@ -576,10 +566,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
     }
 
     const status = deriveLifecycleStatus(request)
-    request.status = status
     const nowIso = new Date().toISOString()
-    request.statusDerivedAt = nowIso
     request.updatedAt = nowIso
+    // Status is derived in response only; do not persist request.status
 
     // Email notifications on lifecycle transitions (deduplicated by checking previous state)
     // Apply success/failure
@@ -623,6 +612,46 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
       )
     }
 
+    // Optional repair: re-attempt cleanup dispatch if destroy success but dispatch previously failed
+    if (repair && token) {
+      const destroyRun = request.github?.workflows?.destroy ?? request.destroyRun
+      const destroySuccess =
+        destroyRun?.status === "completed" && destroyRun?.conclusion === "success"
+      if (destroySuccess && request.github?.cleanupDispatchStatus === "error") {
+        const nowIso = new Date().toISOString()
+        await updateRequest(requestId, (current) => ({
+          ...current,
+          github: {
+            ...current.github,
+            cleanupDispatchStatus: "pending",
+            cleanupDispatchAttemptedAt: nowIso,
+            cleanupDispatchLastError: undefined,
+          },
+          updatedAt: nowIso,
+        }))
+        try {
+          await dispatchCleanup({ token, requestId })
+          await updateRequest(requestId, (current) => ({
+            ...current,
+            github: { ...current.github, cleanupDispatchStatus: "dispatched" },
+            updatedAt: new Date().toISOString(),
+          }))
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err)
+          await updateRequest(requestId, (current) => ({
+            ...current,
+            github: {
+              ...current.github,
+              cleanupDispatchStatus: "error",
+              cleanupDispatchLastError: message,
+            },
+            updatedAt: new Date().toISOString(),
+          }))
+        }
+        request.updatedAt = new Date().toISOString()
+      }
+    }
+
     // Timeline updates for cleanup PR
     const timeline = Array.isArray(request.timeline) ? request.timeline : []
     const hasCleanupOpened = timeline.some((t: any) => t.step === "Cleanup PR opened")
@@ -655,12 +684,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
       applyRun: finalApplyRun ?? undefined,
       approval: current.approval?.approved ? current.approval : (request.approval ?? current.approval),
       cleanupPr: request.cleanupPr,
-      status: request.status,
-      statusDerivedAt: request.statusDerivedAt,
       updatedAt: request.updatedAt,
       timeline: request.timeline,
       plan: request.plan,
       destroyRun: request.destroyRun,
+      github: request.github ?? current.github,
     }))
 
     const cost = await getRequestCost(requestId)
@@ -668,7 +696,28 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
       ;(updated as any).cost = cost
     }
 
-    return NextResponse.json({ ok: true, request: updated })
+    const derivedStatus = deriveLifecycleStatus(updated)
+    return NextResponse.json({
+      success: true,
+      request: { ...updated, status: derivedStatus },
+      sync: { mode: "repair" as const },
+    })
+    } catch (repairError) {
+      if (isRateLimitError(repairError)) {
+        const retryAfterMs = 60_000
+        const owner = request.targetOwner as string | undefined
+        const repo = request.targetRepo as string | undefined
+        await setRateLimitBackoff(owner, repo, retryAfterMs, "github_rate_limited").catch(() => {})
+        const scope = owner && repo ? ("repo" as const) : ("global" as const)
+        return tfpilotOnlyResponse(request, {
+          degraded: true,
+          retryAfterMs,
+          reason: "github_rate_limited",
+          scope,
+        })
+      }
+      throw repairError
+    }
   } catch (error) {
     console.error("[api/requests/sync] error", error)
     const status = (error as { status?: number })?.status

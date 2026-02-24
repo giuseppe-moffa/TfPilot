@@ -18,9 +18,9 @@ export function readIntEnv(name: string, fallback: number): number {
   return n
 }
 
-const DEFAULT_ACTIVE_MS = 3_000
-const DEFAULT_IDLE_MS = 10_000
-const DEFAULT_HIDDEN_MS = 10_000
+const DEFAULT_ACTIVE_MS = 10_000
+const DEFAULT_IDLE_MS = 30_000
+const DEFAULT_HIDDEN_MS = 120_000
 const DEFAULT_RATE_LIMIT_BACKOFF_MS = 60_000
 
 /** Polling interval (ms) when request is in an active state (planning, applying, destroying). */

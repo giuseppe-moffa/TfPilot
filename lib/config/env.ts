@@ -23,6 +23,9 @@ type Env = {
   TFPILOT_ALLOWED_REGIONS: string[]
   TFPILOT_ADMIN_EMAILS: string[]
   TFPILOT_EMAIL_FROM: string
+  GITHUB_WEBHOOK_SECRET: string
+  /** Optional: token for webhook-triggered cleanup dispatch (no user session). */
+  GITHUB_SERVER_TOKEN: string
 }
 
 // Check if we're in Next.js build phase (when env vars aren't available)
@@ -78,6 +81,8 @@ export const env: Env = {
   TFPILOT_ALLOWED_REGIONS: list("TFPILOT_ALLOWED_REGIONS", []),
   TFPILOT_ADMIN_EMAILS: list("TFPILOT_ADMIN_EMAILS", []),
   TFPILOT_EMAIL_FROM: required("TFPILOT_EMAIL_FROM", "noreply@tfpilot.local"),
+  GITHUB_WEBHOOK_SECRET: required("GITHUB_WEBHOOK_SECRET", ""),
+  GITHUB_SERVER_TOKEN: required("GITHUB_SERVER_TOKEN", ""),
 }
 
 let logged = false
