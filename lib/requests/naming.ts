@@ -14,12 +14,18 @@ function shortCodeFromRequestId(requestId: string) {
   return slugify(tail)
 }
 
+/** Strip an existing trailing short-code suffix (e.g. -vjvrna) so we don't double-append. */
+function stripTrailingShortCode(value: string): string {
+  return value.replace(/-[a-z0-9]{5,8}$/i, "")
+}
+
 export function buildResourceName(base: string, requestId: string) {
   const safeBase = slugify(base.trim())
+  const baseWithoutExistingSuffix = stripTrailingShortCode(safeBase) || safeBase
   const short = shortCodeFromRequestId(requestId)
   const suffix = `-${short}`
   const available = MAX_LEN - suffix.length
-  const trimmedBase = safeBase.slice(0, Math.max(0, available)).replace(/-+$/, "") || safeBase
+  const trimmedBase = baseWithoutExistingSuffix.slice(0, Math.max(0, available)).replace(/-+$/, "") || baseWithoutExistingSuffix
 
   let candidate = `${trimmedBase}${suffix}`
   if (candidate.length > MAX_LEN) {

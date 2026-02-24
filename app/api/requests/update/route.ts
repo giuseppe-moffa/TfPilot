@@ -3,6 +3,7 @@ import crypto from "crypto"
 
 import { gh } from "@/lib/github/client"
 import { getGitHubAccessToken } from "@/lib/github/auth"
+import { githubRequest } from "@/lib/github/rateAware"
 import { getEnvTargetFile, getModuleType } from "@/lib/infra/moduleType"
 import { resolveInfraRepo } from "@/config/infra-repos"
 import { env } from "@/lib/config/env"
@@ -60,11 +61,7 @@ function validatePolicy(config: Record<string, unknown>) {
   const name =
     typeof config.name === "string" && config.name.trim()
       ? (config.name as string).trim()
-      : typeof config.bucket_name === "string" && config.bucket_name.trim()
-        ? (config.bucket_name as string).trim()
-        : typeof config.queue_name === "string" && config.queue_name.trim()
-          ? (config.queue_name as string).trim()
-          : undefined
+      : undefined
 
   if (name && !/^[a-z0-9-]{3,63}$/i.test(name)) {
     throw new Error("Resource name must be 3-63 chars, alphanumeric and dashes only")
@@ -82,7 +79,7 @@ function validatePolicy(config: Record<string, unknown>) {
 }
 
 function appendRequestIdToNames(config: Record<string, unknown>, requestId: string) {
-  const fields = ["name", "bucket_name", "queue_name", "service_name"]
+  const fields = ["name"]
   for (const field of fields) {
     const current = config[field]
     if (typeof current !== "string") continue
@@ -209,6 +206,13 @@ function buildModuleConfig(entry: ModuleRegistryEntry, rawConfig: Record<string,
   for (const k of Object.keys(fields)) {
     if (merged[k] !== undefined) {
       finalConfig[k] = merged[k]
+    }
+  }
+
+  if (!finalConfig.name && fields.name?.required) {
+    const value = (finalConfig.name ?? rawConfig.name) as string | undefined
+    if (value && typeof value === "string" && value.trim()) {
+      finalConfig.name = value.trim()
     }
   }
 
@@ -384,11 +388,13 @@ async function createBranchCommitPrAndPlan(
   let workflowRunUrl: string | undefined
   const planHeadSha = prJson.head?.sha
   try {
-    const runsRes = await gh(
+    const runsJson = await githubRequest<{ workflow_runs?: Array<{ id: number }> }>({
       token,
-      `/repos/${target.owner}/${target.repo}/actions/workflows/${PLAN_WORKFLOW}/runs?branch=${encodeURIComponent(branchName)}&per_page=1`
-    )
-    const runsJson = (await runsRes.json()) as { workflow_runs?: Array<{ id: number }> }
+      key: `gh:wf-runs:${target.owner}:${target.repo}:${PLAN_WORKFLOW}:${branchName}`,
+      ttlMs: 15_000,
+      path: `/repos/${target.owner}/${target.repo}/actions/workflows/${PLAN_WORKFLOW}/runs?branch=${encodeURIComponent(branchName)}&per_page=1`,
+      context: { route: "requests/update" },
+    })
     workflowRunId = runsJson.workflow_runs?.[0]?.id
     if (workflowRunId) {
       workflowRunUrl = `https://github.com/${target.owner}/${target.repo}/actions/runs/${workflowRunId}`
@@ -419,8 +425,13 @@ async function closeSupersededPr(params: {
 }) {
   const { token, owner, repo, previousPrNumber, newPrNumber, nextRevision } = params
   try {
-    const prRes = await gh(token, `/repos/${owner}/${repo}/pulls/${previousPrNumber}`)
-    const prJson = (await prRes.json()) as { state?: string; merged?: boolean }
+    const prJson = await githubRequest<{ state?: string; merged?: boolean }>({
+      token,
+      key: `gh:pr:${owner}:${repo}:${previousPrNumber}`,
+      ttlMs: 30_000,
+      path: `/repos/${owner}/${repo}/pulls/${previousPrNumber}`,
+      context: { route: "requests/update" },
+    })
     if (prJson.merged) return false
     if (prJson.state !== "open") return false
 

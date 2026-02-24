@@ -38,7 +38,7 @@ function primaryIdKeyForModule(moduleKey: string): string {
     case "ec2-instance":
       return "name"
     case "s3-bucket":
-      return "bucket_name"
+      return "name"
     case "ecr-repo":
       return "repo_name"
     default:
@@ -49,6 +49,7 @@ function primaryIdKeyForModule(moduleKey: string): string {
 type FieldMeta = {
   name: string
   type: "string" | "number" | "boolean" | "map" | "list" | "enum"
+  label?: string
   required?: boolean
   default?: unknown
   description?: string
@@ -402,17 +403,8 @@ function NewRequestPageContent() {
       if (field.required && !(field.name in cfg)) {
         // For 'name' field, try to derive from common name fields if not provided
         if (field.name === 'name' && !(field.name in formValues)) {
-          // Try common name fields: bucket_name, queue_name, service_name
-          const nameFields = ['bucket_name', 'queue_name', 'service_name']
-          let derivedName: string | undefined
-          for (const nameField of nameFields) {
-            const value = formValues[nameField]
-            if (value && typeof value === 'string' && value.trim()) {
-              derivedName = value.trim()
-              break
-            }
-          }
-          cfg[field.name] = derivedName ?? field.default ?? ""
+          const value = formValues["name"]
+          cfg[field.name] = (value && typeof value === "string" && value.trim()) ? value.trim() : (field.default ?? "")
         } else {
           // Use value from formValues if it exists, otherwise use default or empty string
           const raw = formValues[field.name] ?? field.default ?? ""
@@ -509,6 +501,7 @@ function NewRequestPageContent() {
   const renderField = (field: FieldMeta, fullWidth = false) => {
     const value = formValues[field.name] ?? field.default ?? ""
     const description = field.description ?? ""
+    const fieldLabel = field.label ?? formatLabel(field.name)
 
     const fieldId = `field-${field.name}`
 
@@ -522,7 +515,7 @@ function NewRequestPageContent() {
           <FieldCard
             key={field.name}
             id={fieldId}
-            label={formatLabel(field.name)}
+            label={fieldLabel}
             description={description}
             required={field.required}
             alignEnd
@@ -539,7 +532,7 @@ function NewRequestPageContent() {
           <FieldCard
             key={field.name}
             id={fieldId}
-            label={formatLabel(field.name)}
+            label={fieldLabel}
             description={description}
             required={field.required}
             fullWidth={fullWidth}
@@ -563,7 +556,7 @@ function NewRequestPageContent() {
           <FieldCard
             key={field.name}
             id={fieldId}
-            label={formatLabel(field.name)}
+            label={fieldLabel}
             description={description}
             required={field.required}
             fullWidth={fullWidth}
@@ -583,7 +576,7 @@ function NewRequestPageContent() {
           <FieldCard
             key={field.name}
             id={fieldId}
-            label={formatLabel(field.name)}
+            label={fieldLabel}
             description={description}
             required={field.required}
             fullWidth={fullWidth}
@@ -603,7 +596,7 @@ function NewRequestPageContent() {
           <FieldCard
             key={field.name}
             id={fieldId}
-            label={formatLabel(field.name)}
+            label={fieldLabel}
             description={description}
             required={field.required}
             fullWidth={fullWidth}
@@ -624,7 +617,7 @@ function NewRequestPageContent() {
           <FieldCard
             key={field.name}
             id={fieldId}
-            label={formatLabel(field.name)}
+            label={fieldLabel}
             description={description}
             required={field.required}
             fullWidth={fullWidth}

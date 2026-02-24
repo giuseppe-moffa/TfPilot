@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getGitHubAccessToken } from "@/lib/github/auth"
 import { gh } from "@/lib/github/client"
+import { githubRequest } from "@/lib/github/rateAware"
 import { env } from "@/lib/config/env"
 import { withCorrelation } from "@/lib/observability/correlation"
 import { logError, logInfo, logWarn } from "@/lib/observability/logger"
@@ -100,13 +101,13 @@ export async function POST(req: NextRequest) {
 
     const owner = request.targetOwner
     const repo = request.targetRepo
-    const base = request.targetBase ?? "main"
+    const applyRef = request.branchName ?? request.targetBase ?? "main"
     if (!owner || !repo) {
       return NextResponse.json({ error: "Request missing target repo info" }, { status: 400 })
     }
 
     const dispatchBody = {
-      ref: base,
+      ref: applyRef,
       inputs: {
         request_id: request.id,
         environment: request.environment ?? "dev",
@@ -121,13 +122,15 @@ export async function POST(req: NextRequest) {
     let applyRunId: number | undefined
     let applyRunUrl: string | undefined
     try {
-      const runsRes = await gh(
+      const runsJson = await githubRequest<{ workflow_runs?: Array<{ id: number }> }>({
         token,
-        `/repos/${owner}/${repo}/actions/workflows/${env.GITHUB_APPLY_WORKFLOW_FILE}/runs?branch=${encodeURIComponent(
-        base
-      )}&per_page=1`
-      )
-      const runsJson = (await runsRes.json()) as { workflow_runs?: Array<{ id: number }> }
+        key: `gh:wf-runs:${owner}:${repo}:${env.GITHUB_APPLY_WORKFLOW_FILE}:${applyRef}`,
+        ttlMs: 15_000,
+        path: `/repos/${owner}/${repo}/actions/workflows/${env.GITHUB_APPLY_WORKFLOW_FILE}/runs?branch=${encodeURIComponent(
+          applyRef
+        )}&per_page=1`,
+        context: { route: "github/apply", correlationId: requestId },
+      })
       applyRunId = runsJson.workflow_runs?.[0]?.id
       if (applyRunId) {
         applyRunUrl = `https://github.com/${owner}/${repo}/actions/runs/${applyRunId}`

@@ -5,6 +5,8 @@ export type FieldType = "string" | "number" | "boolean" | "map" | "list" | "enum
 export type ModuleField = {
   name: string
   type: FieldType
+  /** Display label; if omitted, derived from name (e.g. "name" → "Name"). */
+  label?: string
   required?: boolean
   default?: unknown
   description?: string
@@ -50,10 +52,10 @@ export const moduleRegistry: ModuleRegistryEntry[] = [
       {
         name: "name",
         type: "string",
+        label: "Resource name",
         required: true,
         immutable: true,
-        readOnly: true,
-        description: "Logical resource name (used for tagging and derived names)",
+        description: "Resource name",
       },
       {
         name: "project",
@@ -78,13 +80,6 @@ export const moduleRegistry: ModuleRegistryEntry[] = [
         readOnly: true,
         immutable: true,
         description: "Request correlation id",
-      },
-      {
-        name: "bucket_name",
-        type: "string",
-        required: true,
-        description: "Bucket name (must be globally unique)",
-        immutable: true,
       },
       {
         name: "versioning_enabled",
@@ -180,7 +175,7 @@ export const moduleRegistry: ModuleRegistryEntry[] = [
       }
     },
     fields: [
-      { name: "name", type: "string", required: true, immutable: true, description: "Logical name for the EC2 instance" },
+      { name: "name", type: "string", label: "Resource name", required: true, immutable: true, description: "Resource name. Logical resource name (used for tagging and derived names); bucket name in Terraform is project-environment-name" },
       { name: "project", type: "string", required: true, readOnly: true, immutable: true, description: "Project identifier" },
       { name: "environment", type: "string", required: true, readOnly: true, immutable: true, description: "Environment identifier" },
       { name: "request_id", type: "string", required: true, readOnly: true, immutable: true, description: "Request correlation id" },
@@ -275,7 +270,7 @@ export const moduleRegistry: ModuleRegistryEntry[] = [
       }
     },
     fields: [
-      { name: "name", type: "string", required: true, immutable: true, readOnly: true, description: "Logical name for the repository" },
+      { name: "name", type: "string", label: "Resource name", required: true, immutable: true, readOnly: true, description: "Resource name. Logical resource name (used for tagging and derived names); bucket name in Terraform is project-environment-name" },
       { name: "project", type: "string", required: true, readOnly: true, immutable: true, description: "Project identifier" },
       { name: "environment", type: "string", required: true, readOnly: true, immutable: true, description: "Environment identifier" },
       { name: "request_id", type: "string", required: true, readOnly: true, immutable: true, description: "Request correlation id" },

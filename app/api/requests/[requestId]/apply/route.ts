@@ -104,7 +104,7 @@ function validateEnum(fields: Record<string, ModuleField>, cfg: Record<string, u
 }
 
 function appendRequestIdToNames(config: Record<string, unknown>, requestId: string) {
-  const fields = ["name", "bucket_name", "queue_name", "service_name"]
+  const fields = ["name"]
   for (const field of fields) {
     const current = config[field]
     if (typeof current !== "string") continue
@@ -120,11 +120,7 @@ function validatePolicy(config: Record<string, unknown>) {
   const name =
     typeof config.name === "string" && config.name.trim()
       ? (config.name as string).trim()
-      : typeof config.bucket_name === "string" && config.bucket_name.trim()
-        ? (config.bucket_name as string).trim()
-        : typeof config.queue_name === "string" && config.queue_name.trim()
-          ? (config.queue_name as string).trim()
-          : undefined
+      : undefined
 
   if (name && !/^[a-z0-9-]{3,63}$/i.test(name)) {
     throw new Error("Resource name must be 3-63 chars, alphanumeric and dashes only")
@@ -164,6 +160,13 @@ function normalizeByFields(entry: ModuleRegistryEntry, rawConfig: Record<string,
   for (const k of Object.keys(fields)) {
     if (merged[k] !== undefined) {
       finalConfig[k] = merged[k]
+    }
+  }
+
+  if (!finalConfig.name && fields.name?.required) {
+    const value = (finalConfig.name ?? rawConfig.name) as string | undefined
+    if (value && typeof value === "string" && value.trim()) {
+      finalConfig.name = value.trim()
     }
   }
 

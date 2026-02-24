@@ -71,7 +71,6 @@ export type UpdateTemplatePayload = Partial<
 /** Keys that are set per request (user/flow), not from template defaultConfig. */
 const REQUEST_DERIVED_CONFIG_KEYS = new Set([
   "name",
-  "bucket_name",
   "repo_name",
   "project",
   "environment",

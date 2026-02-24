@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getGitHubAccessToken } from "@/lib/github/auth"
 import { gh } from "@/lib/github/client"
+import { githubRequest } from "@/lib/github/rateAware"
 import { runUpdateBranch } from "@/lib/github/updateBranch"
 import { getRequest, updateRequest } from "@/lib/storage/requestsStore"
 import { getSessionFromCookies } from "@/lib/auth/session"
@@ -129,8 +130,13 @@ export async function POST(req: NextRequest) {
       let prBranchName = request.branchName
       if (!prBranchName) {
         try {
-          const prRes = await gh(tokenStr, `/repos/${owner}/${repo}/pulls/${prNum}`)
-          const prData = (await prRes.json()) as { head?: { ref?: string } }
+          const prData = await githubRequest<{ head?: { ref?: string } }>({
+            token: tokenStr,
+            key: `gh:pr:${owner}:${repo}:${prNum}`,
+            ttlMs: 30_000,
+            path: `/repos/${owner}/${repo}/pulls/${prNum}`,
+            context: { route: "github/merge" },
+          })
           prBranchName = prData.head?.ref ?? null
         } catch {
           prBranchName = null

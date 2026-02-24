@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getSessionFromCookies } from "@/lib/auth/session"
 import { getGitHubAccessToken } from "@/lib/github/auth"
 import { gh } from "@/lib/github/client"
+import { githubRequest } from "@/lib/github/rateAware"
 import { env } from "@/lib/config/env"
 import { withCorrelation } from "@/lib/observability/correlation"
 import { logError, logInfo, logWarn } from "@/lib/observability/logger"
@@ -164,13 +165,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
     let destroyRunId: number | undefined
     let destroyRunUrl: string | undefined
     try {
-      const runsRes = await gh(
+      const runsJson = await githubRequest<{ workflow_runs?: Array<{ id: number }> }>({
         token,
-        `/repos/${request.targetOwner}/${request.targetRepo}/actions/workflows/${env.GITHUB_DESTROY_WORKFLOW_FILE}/runs?branch=${encodeURIComponent(
+        key: `gh:wf-runs:${request.targetOwner}:${request.targetRepo}:${env.GITHUB_DESTROY_WORKFLOW_FILE}:${request.targetBase ?? env.GITHUB_DEFAULT_BASE_BRANCH}`,
+        ttlMs: 15_000,
+        path: `/repos/${request.targetOwner}/${request.targetRepo}/actions/workflows/${env.GITHUB_DESTROY_WORKFLOW_FILE}/runs?branch=${encodeURIComponent(
           request.targetBase ?? env.GITHUB_DEFAULT_BASE_BRANCH
-        )}&per_page=1`
-      )
-      const runsJson = (await runsRes.json()) as { workflow_runs?: Array<{ id: number }> }
+        )}&per_page=1`,
+        context: { route: "requests/[requestId]/destroy", correlationId: requestId },
+      })
       destroyRunId = runsJson.workflow_runs?.[0]?.id
       if (destroyRunId) {
         destroyRunUrl = `https://github.com/${request.targetOwner}/${request.targetRepo}/actions/runs/${destroyRunId}`

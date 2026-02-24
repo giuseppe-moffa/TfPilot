@@ -78,16 +78,18 @@ function TimelineStep({
   status,
   state,
   timestamp,
+  hidePulse,
 }: {
   displayLabel: string
   status: CanonicalStatus
   state: "pending" | "done" | "current"
   timestamp?: string
+  hidePulse?: boolean
 }) {
   const isDone = state === "done"
   const isCurrent = state === "current"
   const isActive = isDone || isCurrent
-  const showPulse = isCurrent && isActiveStatus(status)
+  const showPulse = !hidePulse && isCurrent && isActiveStatus(status)
   const color = isActive ? getStatusColor(status) : undefined
   const borderTint = color ? `${color}40` : undefined
   const glowTint = isCurrent && color ? `${color}26` : undefined
@@ -226,7 +228,7 @@ function formatDate(iso: string) {
 
 function getServiceName(config?: Record<string, unknown>) {
   if (!config) return null
-  const keys = ["name", "serviceName", "service_name", "bucket_name", "queue_name"]
+  const keys = ["name", "serviceName"]
   for (const key of keys) {
     const val = config[key]
     if (typeof val === "string" && val.trim()) return val
@@ -528,6 +530,14 @@ function RequestDetailPage() {
   }, [sortedEvents])
 
   function startActionProgress(action: "approve" | "merge" | "apply" | "destroy") {
+    if (actionProgressTimerRef.current) {
+      clearTimeout(actionProgressTimerRef.current)
+      actionProgressTimerRef.current = null
+    }
+    if (action === "approve") {
+      setActionProgress("approve")
+      return
+    }
     setActionProgress(null)
     actionProgressTimerRef.current = window.setTimeout(() => setActionProgress(action), 400)
   }
@@ -592,9 +602,8 @@ function RequestDetailPage() {
     }
   }
 
-  async function handleDestroy() {
-    if (!requestId || isDestroying || isDestroyed) return
-    setDestroyStatus("pending")
+  async function handleDestroy(): Promise<boolean> {
+    if (!requestId || isDestroying || isDestroyed) return false
     setDestroyError(null)
     startActionProgress("destroy")
     try {
@@ -606,15 +615,10 @@ function RequestDetailPage() {
         throw new Error(err?.error || "Failed to dispatch destroy")
       }
       await mutateStatus(undefined, true)
-      setDestroyStatus("success")
-      setTimeout(() => {
-        setDestroyModalOpen(false)
-        setDestroyStatus("idle")
-        setDestroyConfirmation("")
-      }, 2000)
+      return true
     } catch (err: unknown) {
-      setDestroyStatus("error")
       setDestroyError(err instanceof Error ? err.message : "Failed to dispatch destroy")
+      return false
     } finally {
       clearActionProgress()
     }
@@ -672,11 +676,9 @@ function RequestDetailPage() {
       }
       if (data.branchUpdated) {
         await mutateStatus(undefined, true)
-        setMergeStatus("idle")
         setMergeError(null)
       } else {
         await mutateStatus(undefined, true)
-        setMergeStatus("success")
       }
     } catch (err) {
       console.error("[request merge] error", err)
@@ -720,7 +722,6 @@ function RequestDetailPage() {
 
   async function handleApprove() {
     if (!requestId || !request || request.status === "approved" || request.status === "applied") return
-    setApproveModalOpen(false)
     setIsApproving(true)
     setApproveStatus("pending")
     startActionProgress("approve")
@@ -731,12 +732,13 @@ function RequestDetailPage() {
       if (!res.ok) throw new Error("Approve failed")
       await mutateStatus(undefined, true)
       setApproveStatus("success")
+      setApproveModalOpen(false)
     } catch (err) {
       console.error("[request approve] error", err)
       setApproveStatus("error")
+      setIsApproving(false)
     } finally {
       clearActionProgress()
-      setIsApproving(false)
     }
   }
 
@@ -809,6 +811,28 @@ function RequestDetailPage() {
     }
   }, [applySucceeded, applyFailed, requestStatus])
 
+  // Clear approve loading state only when timeline shows approved (request data has updated)
+  React.useEffect(() => {
+    if (
+      request &&
+      (request.status === "approved" || request.approval?.approved)
+    ) {
+      setIsApproving(false)
+    }
+  }, [request?.status, request?.approval?.approved])
+
+  // Clear merge loading state only when timeline shows merged (request data has updated)
+  const prMergedForEffect =
+    request?.pr?.merged ??
+    request?.pullRequest?.merged ??
+    request?.pullRequest?.open === false
+  React.useEffect(() => {
+    if (request && (prMergedForEffect || request.status === "merged")) {
+      setMergeStatus("idle")
+      setMergeError(null)
+    }
+  }, [request, prMergedForEffect])
+
   function computeStepInfo() {
     if (isDestroyed) {
       return {
@@ -822,6 +846,13 @@ function RequestDetailPage() {
         key: "applied" as const,
         state: "pending" as const,
         subtitle: "Destroying resources",
+      }
+    }
+    if (actionProgress === "destroy" && isApplied && !isDestroyed) {
+      return {
+        key: "applied" as const,
+        state: "pending" as const,
+        subtitle: "Destroying…",
       }
     }
     if (isApplied) {
@@ -838,6 +869,22 @@ function RequestDetailPage() {
         subtitle: "Applying…",
       }
     }
+    if (
+      isMerged &&
+      !isApplied &&
+      !isDestroying &&
+      !isDestroyed &&
+      !isFailed
+    ) {
+      return {
+        key: "applied" as const,
+        state: "pending" as const,
+        subtitle:
+          isApplyingDerived || actionProgress === "apply"
+            ? "Applying…"
+            : "Waiting for apply",
+      }
+    }
     if (isMerged) {
       return {
         key: "merged" as const,
@@ -845,11 +892,44 @@ function RequestDetailPage() {
         subtitle: "Pull request merged",
       }
     }
+    if (
+      isApproved &&
+      !isMerged &&
+      !isApplied &&
+      !isDestroying &&
+      !isDestroyed &&
+      !isFailed
+    ) {
+      return {
+        key: "merged" as const,
+        state: "pending" as const,
+        subtitle:
+          mergeStatus === "pending" || actionProgress === "merge"
+            ? "Merging…"
+            : "Waiting for PR merge",
+      }
+    }
     if (isApproved) {
       return {
         key: "approved" as const,
         state: "completed" as const,
         subtitle: "Approved",
+      }
+    }
+    if (
+      isPlanReady &&
+      !isApproved &&
+      !isMerged &&
+      !isApplied &&
+      !isDestroying &&
+      !isDestroyed &&
+      !isFailed
+    ) {
+      return {
+        key: "approved" as const,
+        state: "pending" as const,
+        subtitle:
+          isApproving || actionProgress === "approve" ? "Approving…" : "Waiting for approval",
       }
     }
     if (isPlanning) {
@@ -926,7 +1006,7 @@ function RequestDetailPage() {
       case "applied":
         if (state === "done") {
           if (isDestroyed) return "destroyed"
-          if (isDestroying) return "destroying"
+          if (isDestroying || actionProgress === "destroy") return "destroying"
           if (applyFailed) return "failed"
           return "applied"
         }
@@ -952,6 +1032,27 @@ function RequestDetailPage() {
   ): string {
     if (state === "done" || stepKey === "submitted") {
       return getStatusLabel(getStepCanonicalStatus(stepKey, "done"))
+    }
+    if (stepKey === "approved" && state === "current" && (actionProgress === "approve" || isApproving)) {
+      return "Approving…"
+    }
+    if (stepKey === "approved" && state === "current") {
+      return "Waiting for approval"
+    }
+    if (stepKey === "merged" && state === "current" && (mergeStatus === "pending" || actionProgress === "merge")) {
+      return "Merging…"
+    }
+    if (stepKey === "merged" && state === "current") {
+      return "Waiting for PR merge"
+    }
+    if (stepKey === "applied" && state === "current" && (isDestroying || actionProgress === "destroy")) {
+      return "Destroying…"
+    }
+    if (stepKey === "applied" && state === "current" && (isApplyingDerived || actionProgress === "apply")) {
+      return "Applying…"
+    }
+    if (stepKey === "applied" && state === "current") {
+      return "Waiting for apply"
     }
     if (state === "current" && status && isActiveStatus(status)) {
       return getStatusLabel(status)
@@ -1182,6 +1283,21 @@ function RequestDetailPage() {
                       : "pending"
                   const status = getStepCanonicalStatus(step.key, stepStateVal)
                   const displayLabel = getStepDisplayLabel(step.key, state, status)
+                  const hidePulse =
+                    (step.key === "approved" &&
+                      state === "current" &&
+                      !isApproving &&
+                      actionProgress !== "approve") ||
+                    (step.key === "merged" &&
+                      state === "current" &&
+                      mergeStatus !== "pending" &&
+                      actionProgress !== "merge") ||
+                    (step.key === "applied" &&
+                      state === "current" &&
+                      !isApplyingDerived &&
+                      actionProgress !== "apply" &&
+                      !isDestroying &&
+                      actionProgress !== "destroy")
                   return (
                     <TimelineStep
                       key={step.key}
@@ -1189,6 +1305,7 @@ function RequestDetailPage() {
                       status={status}
                       state={state}
                       timestamp={stepTimestamps[step.key]}
+                      hidePulse={hidePulse}
                     />
                   )
                 })}
@@ -1254,7 +1371,8 @@ function RequestDetailPage() {
                           isDestroying ||
                           isDestroyed ||
                           isApplyingDerived ||
-                          isFailed) &&
+                          isFailed ||
+                          isApproving) &&
                           "cursor-not-allowed bg-muted text-muted-foreground opacity-70"
                       )}
                       disabled={
@@ -1267,9 +1385,11 @@ function RequestDetailPage() {
                         isDestroying ||
                         isDestroyed ||
                         isApplyingDerived ||
-                        isFailed
+                        isFailed ||
+                        isApproving
                       }
                       onClick={() => {
+                        if (isApproving) return
                         setApproveStatus("idle")
                         setApproveModalOpen(true)
                       }}
@@ -1297,11 +1417,26 @@ function RequestDetailPage() {
                       size="sm"
                       className={cn(
                         "h-9",
-                        (!request || request.status !== "approved" || isMerged || isDestroying || isDestroyed || isFailed) &&
+                        (!request ||
+                          request.status !== "approved" ||
+                          isMerged ||
+                          mergeStatus === "pending" ||
+                          isDestroying ||
+                          isDestroyed ||
+                          isFailed) &&
                           "cursor-not-allowed bg-muted text-muted-foreground opacity-70"
                       )}
-                      disabled={!request || request.status !== "approved" || isMerged || isDestroying || isDestroyed || isFailed}
+                      disabled={
+                        !request ||
+                        request.status !== "approved" ||
+                        isMerged ||
+                        mergeStatus === "pending" ||
+                        isDestroying ||
+                        isDestroyed ||
+                        isFailed
+                      }
                       onClick={() => {
+                        if (mergeStatus === "pending") return
                         setMergeStatus("idle")
                         setMergeError(null)
                         setMergeModalOpen(true)
@@ -1942,10 +2077,7 @@ function RequestDetailPage() {
                   </div>
                 )}
                 {mergeStatus === "pending" && (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Loader2 className="size-4 animate-spin" />
-                    Merging...
-                  </div>
+                  <div className="text-sm text-muted-foreground">Merging...</div>
                 )}
                 {mergeStatus === "success" && (
                   <div className="text-sm text-emerald-700">✅ Pull request merged</div>
@@ -2055,10 +2187,7 @@ function RequestDetailPage() {
                   </div>
                 )}
                 {approveStatus === "pending" && (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Loader2 className="size-4 animate-spin" />
-                    Approving...
-                  </div>
+                  <div className="text-sm text-muted-foreground">Approving...</div>
                 )}
                 {approveStatus === "success" && (
                   <div className="text-sm text-emerald-700">✅ Request approved</div>
@@ -2086,6 +2215,8 @@ function RequestDetailPage() {
                   size="sm"
                   onClick={() => {
                     setApproveStatus("pending")
+                    setIsApproving(true)
+                    startActionProgress("approve")
                     void handleApprove()
                   }}
                 >
@@ -2109,7 +2240,7 @@ function RequestDetailPage() {
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Apply changes</DialogTitle>
+            <DialogTitle>Deploying resource</DialogTitle>
             <DialogDescription asChild>
               <div className="space-y-1">
                 {applyStatus === "idle" && (
@@ -2118,10 +2249,7 @@ function RequestDetailPage() {
                   </div>
                 )}
                 {applyStatus === "pending" && (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Loader2 className="size-4 animate-spin" />
-                    Applying...
-                  </div>
+                  <div className="text-sm text-muted-foreground">Applying...</div>
                 )}
                 {applyStatus === "success" && (
                   <div className="text-sm text-emerald-700">✅ Apply dispatched</div>
@@ -2184,7 +2312,7 @@ function RequestDetailPage() {
       <Dialog
         open={destroyModalOpen}
         onOpenChange={(val: boolean) => {
-          if (!isDestroying && !val) {
+          if (destroyStatus !== "pending" && !isDestroying && !val) {
             setDestroyModalOpen(false)
             setDestroyStatus("idle")
             setDestroyError(null)
@@ -2218,10 +2346,7 @@ function RequestDetailPage() {
                   </div>
                 )}
                 {destroyStatus === "pending" && (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Loader2 className="size-4 animate-spin" />
-                    Destroying...
-                  </div>
+                  <div className="text-sm text-muted-foreground">Destroying...</div>
                 )}
                 {destroyStatus === "success" && (
                   <div className="text-sm text-emerald-700">✅ Destroy dispatched</div>
@@ -2253,8 +2378,17 @@ function RequestDetailPage() {
                   size="sm"
                   variant="destructive"
                   disabled={destroyConfirmation !== "destroy"}
-                  onClick={() => {
-                    void handleDestroy()
+                  onClick={async () => {
+                    setDestroyStatus("pending")
+                    const ok = await handleDestroy()
+                    setDestroyStatus(ok ? "success" : "error")
+                    if (ok) {
+                      setTimeout(() => {
+                        setDestroyModalOpen(false)
+                        setDestroyStatus("idle")
+                        setDestroyConfirmation("")
+                      }, 2000)
+                    }
                   }}
                 >
                   Yes, destroy

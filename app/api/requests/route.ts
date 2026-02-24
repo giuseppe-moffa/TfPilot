@@ -3,6 +3,7 @@ import crypto from "crypto"
 
 import { gh } from "@/lib/github/client"
 import { getGitHubAccessToken } from "@/lib/github/auth"
+import { githubRequest } from "@/lib/github/rateAware"
 import { getEnvTargetFile, getModuleType } from "@/lib/infra/moduleType"
 import { resolveInfraRepo } from "@/config/infra-repos"
 import { env, logEnvDebug } from "@/lib/config/env"
@@ -188,11 +189,7 @@ function validatePolicy(config: Record<string, unknown>) {
   const name =
     typeof config.name === "string" && config.name.trim()
       ? (config.name as string).trim()
-      : typeof config.bucket_name === "string" && config.bucket_name.trim()
-        ? (config.bucket_name as string).trim()
-        : typeof config.queue_name === "string" && config.queue_name.trim()
-          ? (config.queue_name as string).trim()
-          : undefined
+      : undefined
 
   if (name && !/^[a-z0-9-]{3,63}$/i.test(name)) {
     throw new Error("Resource name must be 3-63 chars, alphanumeric and dashes only")
@@ -210,7 +207,7 @@ function validatePolicy(config: Record<string, unknown>) {
 }
 
 function appendRequestIdToNames(config: Record<string, unknown>, requestId: string) {
-  const fields = ["name", "bucket_name", "queue_name", "service_name"]
+  const fields = ["name"]
   for (const field of fields) {
     const current = config[field]
     if (typeof current !== "string") continue
@@ -391,14 +388,11 @@ function normalizeByFields(entry: ModuleRegistryEntry, rawConfig: Record<string,
 
   const finalConfig: Record<string, unknown> = {}
   for (const k of Object.keys(fields)) {
-    // Include from merged (initial + computed) if available
     if (merged[k] !== undefined) {
       finalConfig[k] = merged[k]
     } else {
-      // For immutable/readOnly fields that were filtered out from initial, include from rawConfig if provided
       const field = fields[k]
       if (field && rawConfig[k] !== undefined) {
-        // Include immutable fields (even if readOnly) from rawConfig for initial creation
         if (field.immutable || (field.readOnly && field.required)) {
           finalConfig[k] = coerceByType(field, rawConfig[k])
         }
@@ -406,15 +400,10 @@ function normalizeByFields(entry: ModuleRegistryEntry, rawConfig: Record<string,
     }
   }
 
-  // Derive 'name' from bucket_name/queue_name/service_name if not provided and name is required
   if (!finalConfig.name && fields.name?.required) {
-    const nameFields = ['bucket_name', 'queue_name', 'service_name']
-    for (const nameField of nameFields) {
-      const value = finalConfig[nameField] || rawConfig[nameField]
-      if (value && typeof value === 'string' && value.trim()) {
-        finalConfig.name = value.trim()
-        break
-      }
+    const value = (finalConfig.name ?? rawConfig.name) as string | undefined
+    if (value && typeof value === "string" && value.trim()) {
+      finalConfig.name = value.trim()
     }
   }
 
@@ -554,13 +543,15 @@ async function createBranchCommitPrAndPlan(
   let workflowRunUrl: string | undefined
   const planHeadSha = prJson.head?.sha
   try {
-    const runsRes = await gh(
+    const runsJson = await githubRequest<{ workflow_runs?: Array<{ id: number }> }>({
       token,
-      `/repos/${target.owner}/${target.repo}/actions/workflows/${PLAN_WORKFLOW}/runs?branch=${encodeURIComponent(
+      key: `gh:wf-runs:${target.owner}:${target.repo}:${PLAN_WORKFLOW}:${branchName}`,
+      ttlMs: 15_000,
+      path: `/repos/${target.owner}/${target.repo}/actions/workflows/${PLAN_WORKFLOW}/runs?branch=${encodeURIComponent(
         branchName
-      )}&per_page=1`
-    )
-    const runsJson = (await runsRes.json()) as { workflow_runs?: Array<{ id: number }> }
+      )}&per_page=1`,
+      context: { route: "requests" },
+    })
     workflowRunId = runsJson.workflow_runs?.[0]?.id
     if (workflowRunId) {
       workflowRunUrl = `https://github.com/${target.owner}/${target.repo}/actions/runs/${workflowRunId}`

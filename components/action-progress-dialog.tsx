@@ -31,12 +31,7 @@ export function ActionProgressDialog({
       aria-busy="true"
     >
       <div className="min-w-[280px] max-w-sm rounded-lg border border-border bg-card px-5 py-4 shadow-lg">
-        <div className="flex items-start gap-3">
-          <Loader2
-            className="mt-0.5 size-4 shrink-0 animate-spin text-muted-foreground"
-            aria-hidden
-          />
-          <div className="space-y-3">
+        <div className="space-y-3">
             <p className="text-sm font-medium text-foreground">{title}</p>
             <p className="text-xs leading-relaxed text-muted-foreground">{body}</p>
             <ul className="space-y-1.5 text-xs text-muted-foreground">
@@ -66,7 +61,6 @@ export function ActionProgressDialog({
                 </li>
               ))}
             </ul>
-          </div>
         </div>
       </div>
     </div>

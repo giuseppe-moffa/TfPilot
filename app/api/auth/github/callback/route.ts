@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server"
 
 import { clearSession, clearStateCookie, readStateCookie, setSession } from "@/lib/auth/session"
 import { env } from "@/lib/config/env"
+import { githubRequest } from "@/lib/github/rateAware"
 
 async function exchangeCodeForToken(code: string, redirectUri: string) {
   console.log('[auth/github/callback] exchangeCodeForToken called')
@@ -58,36 +59,32 @@ async function exchangeCodeForToken(code: string, redirectUri: string) {
 }
 
 async function fetchGithubUser(token: string) {
-  const resp = await fetch("https://api.github.com/user", {
-    headers: {
-      Accept: "application/vnd.github+json",
-      Authorization: `Bearer ${token}`,
-      "User-Agent": "TfPilot",
-    },
+  return githubRequest<{ login: string; name: string | null; avatar_url: string | null }>({
+    token,
+    key: `gh:user:${token.slice(0, 16)}`,
+    ttlMs: 60_000,
+    path: "/user",
+    context: { route: "auth/github/callback" },
   })
-  if (!resp.ok) {
-    const body = await resp.text()
-    console.error("[auth/github/callback] GitHub /user failed:", resp.status, body)
-    throw new Error(`Failed to fetch GitHub user: ${resp.status} ${body.slice(0, 200)}`)
-  }
-  return (await resp.json()) as { login: string; name: string | null; avatar_url: string | null }
 }
 
 type GithubEmail = { email: string; primary: boolean; verified: boolean; visibility: string | null }
 async function fetchGithubUserEmail(token: string): Promise<string | null> {
-  const resp = await fetch("https://api.github.com/user/emails", {
-    headers: {
-      Accept: "application/vnd.github+json",
-      Authorization: `Bearer ${token}`,
-      "User-Agent": "TfPilot",
-    },
-  })
-  if (!resp.ok) return null
-  const data = (await resp.json()) as GithubEmail[]
-  const primary = data.find((e) => e.primary && e.verified)
-  if (primary) return primary.email
-  const verified = data.find((e) => e.verified)
-  return verified?.email ?? data[0]?.email ?? null
+  try {
+    const data = await githubRequest<GithubEmail[]>({
+      token,
+      key: `gh:user/emails:${token.slice(0, 16)}`,
+      ttlMs: 60_000,
+      path: "/user/emails",
+      context: { route: "auth/github/callback" },
+    })
+    const primary = data.find((e) => e.primary && e.verified)
+    if (primary) return primary.email
+    const verified = data.find((e) => e.verified)
+    return verified?.email ?? data[0]?.email ?? null
+  } catch {
+    return null
+  }
 }
 
 function buildRedirectUri(_req: NextRequest) {

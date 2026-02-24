@@ -2,26 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 
 import { requireSession } from "@/lib/auth/session"
 import { getGitHubAccessToken } from "@/lib/github/auth"
-import { gh } from "@/lib/github/client"
-async function ghWithRetry(token: string, url: string, attempts = 3, delayMs = 300) {
-  let lastErr: any
-  for (let i = 0; i < attempts; i++) {
-    try {
-      const res = await gh(token, url)
-      if (!res.ok && res.status >= 500) {
-        throw new Error(`GH ${res.status}`)
-      }
-      return res
-    } catch (err) {
-      lastErr = err
-      if (i < attempts - 1) {
-        await new Promise((r) => setTimeout(r, delayMs * (i + 1)))
-      }
-    }
-  }
-  throw lastErr
-}
-
+import { githubRequest } from "@/lib/github/rateAware"
 import { deriveLifecycleStatus } from "@/lib/requests/deriveLifecycleStatus"
 import { getRequest, updateRequest } from "@/lib/storage/requestsStore"
 import { getRequestCost } from "@/lib/services/cost-service"
@@ -45,14 +26,32 @@ function extractPlan(log: string) {
   return lines.slice(-120).join("\n")
 }
 
-async function fetchJobLogs(token: string, owner: string, repo: string, runId: number): Promise<string | null> {
+async function fetchJobLogs(
+  token: string,
+  owner: string,
+  repo: string,
+  runId: number,
+  requestId: string
+): Promise<string | null> {
   try {
-    const jobsRes = await gh(token, `/repos/${owner}/${repo}/actions/runs/${runId}/jobs`)
-    const jobsJson = (await jobsRes.json()) as { jobs?: Array<{ id: number }> }
+    const jobsJson = await githubRequest<{ jobs?: Array<{ id: number }> }>({
+      token,
+      key: `gh:jobs:${owner}:${repo}:${runId}`,
+      ttlMs: 10_000,
+      path: `/repos/${owner}/${repo}/actions/runs/${runId}/jobs`,
+      context: { route: "requests/[requestId]/sync", correlationId: requestId },
+    })
     const jobId = jobsJson.jobs?.[0]?.id
     if (!jobId) return null
-    const logsRes = await gh(token, `/repos/${owner}/${repo}/actions/jobs/${jobId}/logs`)
-    return await logsRes.text()
+    const logs = await githubRequest<string>({
+      token,
+      key: `gh:logs:${owner}:${repo}:${jobId}`,
+      ttlMs: 0,
+      path: `/repos/${owner}/${repo}/actions/jobs/${jobId}/logs`,
+      parseResponse: (r) => r.text(),
+      context: { route: "requests/[requestId]/sync", correlationId: requestId },
+    })
+    return logs
   } catch {
     return null
   }
@@ -84,8 +83,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
     }
 
     if (request.pr?.number) {
-      const prRes = await ghWithRetry(token, `/repos/${request.targetOwner}/${request.targetRepo}/pulls/${request.pr.number}`)
-      const prJson = (await prRes.json()) as {
+      const prJson = await githubRequest<{
         merged?: boolean
         head?: { sha?: string }
         state?: string
@@ -93,7 +91,13 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
         number?: number
         title?: string
         merge_commit_sha?: string | null
-      }
+      }>({
+        token,
+        key: `gh:pr:${request.targetOwner}:${request.targetRepo}:${request.pr.number}`,
+        ttlMs: 30_000,
+        path: `/repos/${request.targetOwner}/${request.targetRepo}/pulls/${request.pr.number}`,
+        context: { route: "requests/[requestId]/sync", correlationId: requestId },
+      })
       request.pr = {
         number: prJson.number ?? request.pr.number,
         url: prJson.html_url ?? request.pr.url,
@@ -119,8 +123,13 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
       }
 
       try {
-        const revRes = await ghWithRetry(token, `/repos/${request.targetOwner}/${request.targetRepo}/pulls/${request.pr.number}/reviews`)
-        const reviews = (await revRes.json()) as Array<{ user?: { login?: string }; state?: string }>
+        const reviews = await githubRequest<Array<{ user?: { login?: string }; state?: string }>>({
+          token,
+          key: `gh:pr-reviews:${request.targetOwner}:${request.targetRepo}:${request.pr.number}`,
+          ttlMs: 15_000,
+          path: `/repos/${request.targetOwner}/${request.targetRepo}/pulls/${request.pr.number}/reviews`,
+          context: { route: "requests/[requestId]/sync", correlationId: requestId },
+        })
         const latest = new Map<string, string>()
         for (const r of reviews) {
           const login = r.user?.login
@@ -148,20 +157,22 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
     if (request.targetOwner && request.targetRepo) {
       try {
         const cleanupHead = `${request.targetOwner}:cleanup/${request.id}`
-        const cleanupRes = await gh(
-          token,
-          `/repos/${request.targetOwner}/${request.targetRepo}/pulls?head=${encodeURIComponent(
-            cleanupHead
-          )}&state=all&per_page=1`
-        )
-        const cleanupJson = (await cleanupRes.json()) as Array<{
+        const cleanupJson = await githubRequest<Array<{
           number?: number
           html_url?: string
           state?: string
           merged_at?: string | null
           merged?: boolean
           head?: { ref?: string }
-        }>
+        }>>({
+          token,
+          key: `gh:cleanup-pr:${request.targetOwner}:${request.targetRepo}:${request.id}`,
+          ttlMs: 15_000,
+          path: `/repos/${request.targetOwner}/${request.targetRepo}/pulls?head=${encodeURIComponent(
+            cleanupHead
+          )}&state=all&per_page=1`,
+          context: { route: "requests/[requestId]/sync", correlationId: requestId },
+        })
         const cleanupPr = cleanupJson?.[0]
         if (cleanupPr?.number) {
           const merged = Boolean(cleanupPr.merged)
@@ -182,13 +193,17 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
     // If we never captured a plan run ID (GitHub dispatch lag), try to discover it by branch/workflow
     if (!request.planRun?.runId && request.branchName && env.GITHUB_PLAN_WORKFLOW_FILE) {
       try {
-        const runsRes = await ghWithRetry(
+        const runsJson = await githubRequest<{
+          workflow_runs?: Array<{ id: number; status?: string; conclusion?: string; head_sha?: string; html_url?: string }>
+        }>({
           token,
-          `/repos/${request.targetOwner}/${request.targetRepo}/actions/workflows/${env.GITHUB_PLAN_WORKFLOW_FILE}/runs?branch=${encodeURIComponent(
+          key: `gh:wf-runs:${request.targetOwner}:${request.targetRepo}:${env.GITHUB_PLAN_WORKFLOW_FILE}:${request.branchName}`,
+          ttlMs: 15_000,
+          path: `/repos/${request.targetOwner}/${request.targetRepo}/actions/workflows/${env.GITHUB_PLAN_WORKFLOW_FILE}/runs?branch=${encodeURIComponent(
             request.branchName
-          )}&per_page=3`
-        )
-        const runsJson = (await runsRes.json()) as { workflow_runs?: Array<{ id: number; status?: string; conclusion?: string; head_sha?: string; html_url?: string }> }
+          )}&per_page=3`,
+          context: { route: "requests/[requestId]/sync", correlationId: requestId },
+        })
         const firstRun = runsJson.workflow_runs?.[0]
         if (firstRun?.id) {
           request.planRun = {
@@ -215,13 +230,17 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
           request.targetBase ?? env.GITHUB_DEFAULT_BASE_BRANCH ?? "main",
         ].filter(Boolean) as string[]
         for (const branch of candidates) {
-          const runsRes = await ghWithRetry(
+          const runsJson = await githubRequest<{
+            workflow_runs?: Array<{ id: number; status?: string; conclusion?: string; head_sha?: string; html_url?: string }>
+          }>({
             token,
-            `/repos/${request.targetOwner}/${request.targetRepo}/actions/workflows/${env.GITHUB_APPLY_WORKFLOW_FILE}/runs?branch=${encodeURIComponent(
+            key: `gh:wf-runs:${request.targetOwner}:${request.targetRepo}:${env.GITHUB_APPLY_WORKFLOW_FILE}:${branch}`,
+            ttlMs: 15_000,
+            path: `/repos/${request.targetOwner}/${request.targetRepo}/actions/workflows/${env.GITHUB_APPLY_WORKFLOW_FILE}/runs?branch=${encodeURIComponent(
               branch
-            )}&per_page=5`
-          )
-          const runsJson = (await runsRes.json()) as { workflow_runs?: Array<{ id: number; status?: string; conclusion?: string; head_sha?: string; html_url?: string }> }
+            )}&per_page=5`,
+            context: { route: "requests/[requestId]/sync", correlationId: requestId },
+          })
           const firstRun =
             runsJson.workflow_runs?.find(
               (r) =>
@@ -263,8 +282,13 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
 
     if (request.planRun?.runId) {
       try {
-        const runRes = await ghWithRetry(token, `/repos/${request.targetOwner}/${request.targetRepo}/actions/runs/${request.planRun.runId}`)
-        const runJson = (await runRes.json()) as { status?: string; conclusion?: string; head_sha?: string; html_url?: string }
+        const runJson = await githubRequest<{ status?: string; conclusion?: string; head_sha?: string; html_url?: string }>({
+          token,
+          key: `gh:run:${request.targetOwner}:${request.targetRepo}:${request.planRun.runId}`,
+          ttlMs: 10_000,
+          path: `/repos/${request.targetOwner}/${request.targetRepo}/actions/runs/${request.planRun.runId}`,
+          context: { route: "requests/[requestId]/sync", correlationId: requestId },
+        })
         request.planRun = {
           ...request.planRun,
           status: runJson.status ?? request.planRun.status,
@@ -273,7 +297,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
           url: runJson.html_url ?? request.planRun.url,
         }
 
-        const logs = await fetchJobLogs(token, request.targetOwner, request.targetRepo, request.planRun.runId)
+        const logs = await fetchJobLogs(token, request.targetOwner, request.targetRepo, request.planRun.runId, requestId)
         if (logs) {
           const raw = extractPlan(logs)
           const planText = raw != null ? stripPlanOutputToContent(raw) : request.plan?.output
@@ -289,8 +313,13 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
 
     if (request.applyRun?.runId) {
       try {
-        const runRes = await ghWithRetry(token, `/repos/${request.targetOwner}/${request.targetRepo}/actions/runs/${request.applyRun.runId}`)
-        const runJson = (await runRes.json()) as { status?: string; conclusion?: string; html_url?: string }
+        const runJson = await githubRequest<{ status?: string; conclusion?: string; html_url?: string }>({
+          token,
+          key: `gh:run:${request.targetOwner}:${request.targetRepo}:${request.applyRun.runId}`,
+          ttlMs: 10_000,
+          path: `/repos/${request.targetOwner}/${request.targetRepo}/actions/runs/${request.applyRun.runId}`,
+          context: { route: "requests/[requestId]/sync", correlationId: requestId },
+        })
         request.applyRun = {
           ...request.applyRun,
           status: runJson.status ?? request.applyRun.status,
@@ -304,12 +333,17 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
 
     if (request.destroyRun?.runId) {
       try {
-        const runRes = await ghWithRetry(token, `/repos/${request.targetOwner}/${request.targetRepo}/actions/runs/${request.destroyRun.runId}`)
-        const runJson = (await runRes.json()) as {
+        const runJson = await githubRequest<{
           status?: string
           conclusion?: string
           html_url?: string
-        }
+        }>({
+          token,
+          key: `gh:run:${request.targetOwner}:${request.targetRepo}:${request.destroyRun.runId}`,
+          ttlMs: 10_000,
+          path: `/repos/${request.targetOwner}/${request.targetRepo}/actions/runs/${request.destroyRun.runId}`,
+          context: { route: "requests/[requestId]/sync", correlationId: requestId },
+        })
         request.destroyRun = {
           ...request.destroyRun,
           status: runJson.status ?? request.destroyRun.status,

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getGitHubAccessToken } from "@/lib/github/auth"
 import { gh } from "@/lib/github/client"
+import { githubRequest } from "@/lib/github/rateAware"
 import { env } from "@/lib/config/env"
 import { getRequest, updateRequest } from "@/lib/storage/requestsStore"
 import { getSessionFromCookies } from "@/lib/auth/session"
@@ -113,21 +114,28 @@ export async function POST(req: NextRequest) {
     let planHeadSha: string | undefined
 
     try {
-      const prRes = await gh(token, `/repos/${request.targetOwner}/${request.targetRepo}/pulls/${request.prNumber}`)
-      const prJson = (await prRes.json()) as { head?: { sha?: string } }
+      const prJson = await githubRequest<{ head?: { sha?: string } }>({
+        token,
+        key: `gh:pr:${request.targetOwner}:${request.targetRepo}:${request.prNumber}`,
+        ttlMs: 30_000,
+        path: `/repos/${request.targetOwner}/${request.targetRepo}/pulls/${request.prNumber}`,
+        context: { route: "github/plan", correlationId: requestId },
+      })
       planHeadSha = prJson.head?.sha
     } catch {
       /* ignore */
     }
 
     try {
-      const runsRes = await gh(
+      const runsJson = await githubRequest<{ workflow_runs?: Array<{ id: number }> }>({
         token,
-        `/repos/${request.targetOwner}/${request.targetRepo}/actions/workflows/${env.GITHUB_PLAN_WORKFLOW_FILE}/runs?branch=${encodeURIComponent(
+        key: `gh:wf-runs:${request.targetOwner}:${request.targetRepo}:${env.GITHUB_PLAN_WORKFLOW_FILE}:${request.branchName}`,
+        ttlMs: 15_000,
+        path: `/repos/${request.targetOwner}/${request.targetRepo}/actions/workflows/${env.GITHUB_PLAN_WORKFLOW_FILE}/runs?branch=${encodeURIComponent(
           request.branchName
-        )}&per_page=1`
-      )
-      const runsJson = (await runsRes.json()) as { workflow_runs?: Array<{ id: number }> }
+        )}&per_page=1`,
+        context: { route: "github/plan", correlationId: requestId },
+      })
       workflowRunId = runsJson.workflow_runs?.[0]?.id
       if (workflowRunId) {
         workflowRunUrl = `https://github.com/${request.targetOwner}/${request.targetRepo}/actions/runs/${workflowRunId}`

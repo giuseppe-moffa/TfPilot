@@ -3,7 +3,7 @@ import { buildResourceName, validateResourceName } from "@/lib/requests/naming"
 
 function checkEntry(entry: any) {
   const issues: string[] = []
-  const fields = ["name", "bucket_name", "queue_name", "service_name"]
+  const fields = ["name"]
   for (const field of fields) {
     if (!entry[field]) continue
     const candidate = buildResourceName(String(entry[field]), "req_sample_abc123")
