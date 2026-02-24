@@ -10,10 +10,12 @@ import { archiveRequest, getRequest, updateRequest } from "@/lib/storage/request
 import { logLifecycleEvent } from "@/lib/logs/lifecycle"
 import { getUserRole } from "@/lib/auth/roles"
 import { getIdempotencyKey, assertIdempotentOrRecord, ConflictError } from "@/lib/requests/idempotency"
+import { acquireLock, releaseLock, LockConflictError, type RequestDocWithLock } from "@/lib/requests/lock"
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ requestId: string }> }) {
   const start = Date.now()
   const correlation = withCorrelation(req, {})
+  const holder = correlation.correlationId
   let requestId: string | undefined
   try {
     const p = await params
@@ -74,6 +76,25 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
 
     if (idemPatch) {
       await updateRequest(request.id, (current) => ({ ...current, ...idemPatch, updatedAt: now.toISOString() }))
+    }
+    try {
+      const lockResult = acquireLock({
+        requestDoc: request as { lock?: { holder: string; operation: string; acquiredAt: string; expiresAt: string } },
+        operation: "destroy",
+        holder,
+        now,
+      })
+      if (lockResult.patch) {
+        await updateRequest(request.id, (c) => ({ ...c, ...lockResult.patch, updatedAt: now.toISOString() }))
+      }
+    } catch (lockErr) {
+      if (lockErr instanceof LockConflictError) {
+        return NextResponse.json(
+          { error: "Locked", message: "Request is currently locked by another operation" },
+          { status: 409 }
+        )
+      }
+      throw lockErr
     }
 
     if (!request.targetOwner || !request.targetRepo || !request.targetEnvPath) {
@@ -171,6 +192,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
       cleanupPr: current.cleanupPr ?? { status: "pending" },
       updatedAt: nowIso,
     }))
+    const releasePatch = releaseLock(updated as RequestDocWithLock, holder)
+    if (releasePatch) {
+      await updateRequest(request.id, (c) => ({ ...c, ...releasePatch }))
+    }
 
     await logLifecycleEvent({
       requestId: request.id,
@@ -194,6 +219,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
     return NextResponse.json({ ok: true, destroyRunId, destroyRunUrl, request: updated })
   } catch (error) {
     logError("github.dispatch_failed", error, { ...correlation, requestId, duration_ms: Date.now() - start })
+    try {
+      if (requestId && holder) {
+        const current = await getRequest(requestId).catch(() => null)
+        if (current) {
+          const releasePatch = releaseLock(current as RequestDocWithLock, holder)
+          if (releasePatch) await updateRequest(requestId, (c) => ({ ...c, ...releasePatch }))
+        }
+      }
+    } catch {
+      /* best-effort release */
+    }
     return NextResponse.json({ error: "Failed to dispatch destroy" }, { status: 500 })
   }
 }

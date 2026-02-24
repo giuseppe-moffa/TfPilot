@@ -7,12 +7,16 @@ import { getSessionFromCookies } from "@/lib/auth/session"
 import { withCorrelation } from "@/lib/observability/correlation"
 import { logError, logInfo, logWarn } from "@/lib/observability/logger"
 import { getIdempotencyKey, assertIdempotentOrRecord, ConflictError } from "@/lib/requests/idempotency"
+import { acquireLock, releaseLock, LockConflictError, type RequestDocWithLock } from "@/lib/requests/lock"
 
 export async function POST(req: NextRequest) {
   const start = Date.now()
   const correlation = withCorrelation(req, {})
+  const holder = correlation.correlationId
+  let requestId: string | undefined
   try {
     const body = (await req.json()) as { requestId?: string }
+    requestId = body?.requestId
     if (!body?.requestId) {
       return NextResponse.json({ error: "requestId required" }, { status: 400 })
     }
@@ -66,6 +70,25 @@ export async function POST(req: NextRequest) {
       }
       throw err
     }
+    try {
+      const lockResult = acquireLock({
+        requestDoc: request as { lock?: { holder: string; operation: string; acquiredAt: string; expiresAt: string } },
+        operation: "plan",
+        holder,
+        now,
+      })
+      if (lockResult.patch) {
+        await updateRequest(request.id, (current) => ({ ...current, ...lockResult.patch, updatedAt: now.toISOString() }))
+      }
+    } catch (lockErr) {
+      if (lockErr instanceof LockConflictError) {
+        return NextResponse.json(
+          { error: "Locked", message: "Request is currently locked by another operation" },
+          { status: 409 }
+        )
+      }
+      throw lockErr
+    }
 
     const isProd = request.environment?.toLowerCase() === "prod"
     if (isProd && env.TFPILOT_PROD_ALLOWED_USERS.length > 0) {
@@ -113,7 +136,7 @@ export async function POST(req: NextRequest) {
       /* ignore */
     }
 
-    await updateRequest(request.id, (current) => ({
+    const afterPlan = await updateRequest(request.id, (current) => ({
       workflowRunId: workflowRunId ?? current.workflowRunId,
       planRunId: workflowRunId ?? current.planRunId,
       planRunUrl: workflowRunUrl ?? current.planRunUrl,
@@ -126,10 +149,25 @@ export async function POST(req: NextRequest) {
       },
       updatedAt: new Date().toISOString(),
     }))
+    const releasePatch = releaseLock(afterPlan as RequestDocWithLock, holder)
+    if (releasePatch) {
+      await updateRequest(request.id, (c) => ({ ...c, ...releasePatch }))
+    }
 
     return NextResponse.json({ ok: true, workflowRunId, workflowRunUrl })
   } catch (error) {
     logError("github.dispatch_failed", error, { ...correlation, duration_ms: Date.now() - start })
+    try {
+      if (requestId && holder) {
+        const current = await getRequest(requestId).catch(() => null)
+        if (current) {
+          const releasePatch = releaseLock(current as RequestDocWithLock, holder)
+          if (releasePatch) await updateRequest(requestId, (c) => ({ ...c, ...releasePatch }))
+        }
+      }
+    } catch {
+      /* best-effort release */
+    }
     return NextResponse.json({ error: "Failed to dispatch plan" }, { status: 500 })
   }
 }

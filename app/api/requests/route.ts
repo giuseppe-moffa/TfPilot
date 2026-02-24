@@ -77,6 +77,13 @@ type StoredRequest = {
   }
   /** Idempotency keys per operation (create, apply, destroy, etc.). Additive; optional. */
   idempotency?: Record<string, { key: string; at: string }>
+  /** Optional lock during mutations (holder, operation, acquiredAt, expiresAt). */
+  lock?: {
+    holder: string
+    operation: string
+    acquiredAt: string
+    expiresAt: string
+  }
 }
 
 const PLAN_WORKFLOW = env.GITHUB_PLAN_WORKFLOW_FILE

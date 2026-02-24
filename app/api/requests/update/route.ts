@@ -14,6 +14,7 @@ import { withCorrelation } from "@/lib/observability/correlation"
 import { logError, logInfo, logWarn } from "@/lib/observability/logger"
 import { logLifecycleEvent } from "@/lib/logs/lifecycle"
 import { getIdempotencyKey, assertIdempotentOrRecord, ConflictError } from "@/lib/requests/idempotency"
+import { acquireLock, releaseLock, LockConflictError, type RequestDocWithLock } from "@/lib/requests/lock"
 import { buildResourceName } from "@/lib/requests/naming"
 import { injectServerAuthoritativeTags, assertRequiredTagsPresent } from "@/lib/requests/tags"
 import { ensureAssistantState } from "@/lib/assistant/state"
@@ -449,8 +450,11 @@ function isApplyRunning(request: any) {
 export async function POST(req: NextRequest) {
   const start = Date.now()
   const correlation = withCorrelation(req, {})
+  const holder = correlation.correlationId
+  let requestId: string | undefined
   try {
     const body = (await req.json()) as { requestId?: string; patch?: Record<string, unknown> }
+    requestId = body.requestId
     if (!body.requestId || typeof body.requestId !== "string") {
       return NextResponse.json({ success: false, error: "requestId is required" }, { status: 400 })
     }
@@ -513,6 +517,27 @@ export async function POST(req: NextRequest) {
     }
 
     logInfo("request.update", { ...correlation, requestId: current.id, user: session.login })
+
+    try {
+      const lockResult = acquireLock({
+        requestDoc: current as { lock?: { holder: string; operation: string; acquiredAt: string; expiresAt: string } },
+        operation: "update",
+        holder,
+        now,
+      })
+      if (lockResult.patch) {
+        await updateRequest(current.id, (c) => ({ ...c, ...lockResult.patch, updatedAt: now.toISOString() }))
+      }
+    } catch (lockErr) {
+      if (lockErr instanceof LockConflictError) {
+        logWarn("lock.conflict", { ...correlation, requestId: current.id, operation: lockErr.operation })
+        return NextResponse.json(
+          { error: "Locked", message: "Request is currently locked by another operation" },
+          { status: 409 }
+        )
+      }
+      throw lockErr
+    }
 
     if (isApplyRunning(current)) {
       return NextResponse.json({ success: false, error: "Cannot update while apply in progress" }, { status: 409 })
@@ -655,6 +680,12 @@ export async function POST(req: NextRequest) {
       { expectedVersion: currentVersion }
     )
 
+    const afterSave = await getRequest(current.id)
+    if (afterSave) {
+      const releasePatch = releaseLock(afterSave as RequestDocWithLock, holder)
+      if (releasePatch) await updateRequest(current.id, (c) => ({ ...c, ...releasePatch }))
+    }
+
     await logLifecycleEvent({
       requestId: current.id,
       event: "configuration_updated",
@@ -678,6 +709,17 @@ export async function POST(req: NextRequest) {
     })
   } catch (error) {
     logError("request.update_failed", error, { ...correlation, duration_ms: Date.now() - start })
+    try {
+      if (requestId && holder) {
+        const currentDoc = await getRequest(requestId).catch(() => null)
+        if (currentDoc) {
+          const releasePatch = releaseLock(currentDoc as RequestDocWithLock, holder)
+          if (releasePatch) await updateRequest(requestId, (c) => ({ ...c, ...releasePatch }))
+        }
+      }
+    } catch {
+      /* best-effort release */
+    }
     const message = error instanceof Error ? error.message : "Unexpected error"
     return NextResponse.json({ success: false, error: message }, { status: 400 })
   }
