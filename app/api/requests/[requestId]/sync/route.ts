@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 
+import { requireSession } from "@/lib/auth/session"
 import { getGitHubAccessToken } from "@/lib/github/auth"
 import { gh } from "@/lib/github/client"
 async function ghWithRetry(token: string, url: string, attempts = 3, delayMs = 300) {
@@ -59,6 +60,8 @@ async function fetchJobLogs(token: string, owner: string, repo: string, runId: n
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ requestId: string }> }) {
   try {
+    const sessionOr401 = await requireSession()
+    if (sessionOr401 instanceof NextResponse) return sessionOr401
     const { requestId } = await params
     const token = await getGitHubAccessToken(req)
     if (!token) return NextResponse.json({ error: "GitHub not connected" }, { status: 401 })
@@ -414,6 +417,16 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
     return NextResponse.json({ ok: true, request: updated })
   } catch (error) {
     console.error("[api/requests/sync] error", error)
+    const status = (error as { status?: number })?.status
+    const isRateLimit =
+      status === 403 &&
+      (error instanceof Error && error.message.toLowerCase().includes("rate limit"))
+    if (isRateLimit) {
+      return NextResponse.json(
+        { error: "GitHub API rate limit exceeded", message: "Try again in a few minutes." },
+        { status: 429 }
+      )
+    }
     return NextResponse.json({ error: "Failed to sync request" }, { status: 500 })
   }
 }

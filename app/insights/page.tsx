@@ -1,12 +1,12 @@
 import { notFound } from "next/navigation"
 import { getSessionFromCookies } from "@/lib/auth/session"
 import { env } from "@/lib/config/env"
-import { OpsDashboard } from "./OpsDashboard"
+import { InsightsDashboard } from "./InsightsDashboard"
 
 /**
- * Ops dashboard: admin-only. Same gating as template admin (404 for non-admins).
+ * Insights dashboard: admin-only. Same gating as template admin (404 for non-admins).
  */
-export default async function OpsPage() {
+export default async function InsightsPage() {
   const session = await getSessionFromCookies()
   const email = session?.email ?? null
   if (
@@ -16,5 +16,5 @@ export default async function OpsPage() {
   ) {
     notFound()
   }
-  return <OpsDashboard />
+  return <InsightsDashboard />
 }

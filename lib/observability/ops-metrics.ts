@@ -1,6 +1,6 @@
 /**
  * Ops metrics builder: computes KPIs from a bounded list of request documents.
- * Data source: S3 request JSON only. No unbounded scans. Used by /api/metrics/ops.
+ * Data source: S3 request JSON only. No unbounded scans. Used by /api/metrics/insights.
  */
 
 import { deriveLifecycleStatus } from "@/lib/requests/deriveLifecycleStatus"

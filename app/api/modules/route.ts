@@ -1,3 +1,9 @@
+/**
+ * Public endpoint.
+ *
+ * Exposes module metadata only (no secrets, no runtime state).
+ * Safe to be unauthenticated.
+ */
 import { NextResponse } from "next/server"
 import { readdir, readFile, stat } from "node:fs/promises"
 import path from "node:path"

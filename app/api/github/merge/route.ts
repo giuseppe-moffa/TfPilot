@@ -7,6 +7,8 @@ import { getSessionFromCookies } from "@/lib/auth/session"
 import { env } from "@/lib/config/env"
 import { logLifecycleEvent } from "@/lib/logs/lifecycle"
 import { getUserRole } from "@/lib/auth/roles"
+import { getIdempotencyKey, assertIdempotentOrRecord, ConflictError } from "@/lib/requests/idempotency"
+import { logInfo, logWarn } from "@/lib/observability/logger"
 
 export async function POST(req: NextRequest) {
   try {
@@ -35,6 +37,34 @@ export async function POST(req: NextRequest) {
     }
     if (!request.targetOwner || !request.targetRepo || !request.prNumber) {
       return NextResponse.json({ error: "Missing target repo or PR info" }, { status: 400 })
+    }
+
+    const idemKey = getIdempotencyKey(req) ?? ""
+    const now = new Date()
+    try {
+      const idem = assertIdempotentOrRecord({
+        requestDoc: request as { idempotency?: Record<string, { key: string; at: string }> },
+        operation: "merge",
+        key: idemKey,
+        now,
+      })
+      if (idem.ok === false && idem.mode === "replay") {
+        logInfo("idempotency.replay", { requestId: request.id, operation: "merge" })
+        const mergedSha = (request as { mergedSha?: string }).mergedSha
+        return NextResponse.json({ ok: true, mergedSha: mergedSha ?? undefined })
+      }
+      if (idem.ok === true && idem.mode === "recorded") {
+        await updateRequest(request.id, (current) => ({ ...current, ...idem.patch, updatedAt: now.toISOString() }))
+      }
+    } catch (err) {
+      if (err instanceof ConflictError) {
+        logWarn("idempotency.conflict", { requestId: request.id, operation: err.operation })
+        return NextResponse.json(
+          { error: "Conflict", message: `Idempotency key mismatch for operation ${err.operation}` },
+          { status: 409 }
+        )
+      }
+      throw err
     }
 
     const isProd = request.environment?.toLowerCase() === "prod"

@@ -7,8 +7,10 @@ import { getGitHubAccessToken } from "@/lib/github/auth"
 import { gh } from "@/lib/github/client"
 import { logLifecycleEvent } from "@/lib/logs/lifecycle"
 import { getUserRole } from "@/lib/auth/roles"
+import { getIdempotencyKey, assertIdempotentOrRecord, ConflictError } from "@/lib/requests/idempotency"
+import { logInfo, logWarn } from "@/lib/observability/logger"
 
-export async function POST(_req: NextRequest, { params }: { params: Promise<{ requestId: string }> }) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ requestId: string }> }) {
   try {
     const { requestId } = await params
 
@@ -33,13 +35,41 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ re
       return NextResponse.json({ success: false, error: "Request not found" }, { status: 404 })
     }
 
-    const token = await getGitHubAccessToken(_req as any)
+    const token = await getGitHubAccessToken(req)
     if (!token) {
       return NextResponse.json({ success: false, error: "GitHub not connected" }, { status: 401 })
     }
 
     if (!existing.targetOwner || !existing.targetRepo || !(existing.prNumber ?? existing.pr?.number)) {
       return NextResponse.json({ success: false, error: "Request missing PR info" }, { status: 400 })
+    }
+
+    const idemKey = getIdempotencyKey(req) ?? ""
+    const now = new Date()
+    try {
+      const idem = assertIdempotentOrRecord({
+        requestDoc: existing as { idempotency?: Record<string, { key: string; at: string }> },
+        operation: "approve",
+        key: idemKey,
+        now,
+      })
+      if (idem.ok === false && idem.mode === "replay") {
+        logInfo("idempotency.replay", { requestId, operation: "approve" })
+        const updated = await getRequest(requestId)
+        return NextResponse.json({ success: true, request: updated ?? existing }, { status: 200 })
+      }
+      if (idem.ok === true && idem.mode === "recorded") {
+        await updateRequest(requestId, (current) => ({ ...current, ...idem.patch, updatedAt: now.toISOString() }))
+      }
+    } catch (err) {
+      if (err instanceof ConflictError) {
+        logWarn("idempotency.conflict", { requestId, operation: err.operation })
+        return NextResponse.json(
+          { error: "Conflict", message: `Idempotency key mismatch for operation ${err.operation}` },
+          { status: 409 }
+        )
+      }
+      throw err
     }
 
     const prNumber = existing.prNumber ?? existing.pr?.number
@@ -59,20 +89,20 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ re
       }
     }
 
-    const now = new Date().toISOString()
+    const nowIso = new Date().toISOString()
     const nextTimeline = Array.isArray(existing.timeline) ? [...existing.timeline] : []
     nextTimeline.push({
       step: "Approved",
       status: "Complete",
       message: "Request approved and ready for merge",
-      at: now,
+      at: nowIso,
     })
 
     const updated = await updateRequest(requestId, (current) => ({
       ...current,
       approval: { approved: true, approvers: current.approval?.approvers ?? [] },
-      statusDerivedAt: now,
-      updatedAt: now,
+      statusDerivedAt: nowIso,
+      updatedAt: nowIso,
       timeline: nextTimeline,
     }))
 

@@ -5,10 +5,11 @@ import { getGitHubAccessToken } from "@/lib/github/auth"
 import { gh } from "@/lib/github/client"
 import { env } from "@/lib/config/env"
 import { withCorrelation } from "@/lib/observability/correlation"
-import { logError } from "@/lib/observability/logger"
+import { logError, logInfo, logWarn } from "@/lib/observability/logger"
 import { archiveRequest, getRequest, updateRequest } from "@/lib/storage/requestsStore"
 import { logLifecycleEvent } from "@/lib/logs/lifecycle"
 import { getUserRole } from "@/lib/auth/roles"
+import { getIdempotencyKey, assertIdempotentOrRecord, ConflictError } from "@/lib/requests/idempotency"
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ requestId: string }> }) {
   const start = Date.now()
@@ -38,6 +39,41 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
     const request = await getRequest(requestId).catch(() => null)
     if (!request) {
       return NextResponse.json({ error: "Request not found" }, { status: 404 })
+    }
+
+    const idemKey = getIdempotencyKey(req) ?? ""
+    const now = new Date()
+    let idemPatch: { idempotency: Record<string, { key: string; at: string }> } | null = null
+    try {
+      const idem = assertIdempotentOrRecord({
+        requestDoc: request as { idempotency?: Record<string, { key: string; at: string }> },
+        operation: "destroy",
+        key: idemKey,
+        now,
+      })
+      if (idem.ok === false && idem.mode === "replay") {
+        logInfo("idempotency.replay", { ...correlation, requestId: request.id, operation: "destroy" })
+        return NextResponse.json({
+          ok: true,
+          destroyRunId: (request as { destroyRun?: { runId?: number } }).destroyRun?.runId,
+          destroyRunUrl: (request as { destroyRun?: { url?: string } }).destroyRun?.url,
+          request,
+        })
+      }
+      if (idem.ok === true && idem.mode === "recorded") idemPatch = idem.patch
+    } catch (err) {
+      if (err instanceof ConflictError) {
+        logWarn("idempotency.conflict", { ...correlation, requestId: request.id, operation: err.operation })
+        return NextResponse.json(
+          { error: "Conflict", message: `Idempotency key mismatch for operation ${err.operation}` },
+          { status: 409 }
+        )
+      }
+      throw err
+    }
+
+    if (idemPatch) {
+      await updateRequest(request.id, (current) => ({ ...current, ...idemPatch, updatedAt: now.toISOString() }))
     }
 
     if (!request.targetOwner || !request.targetRepo || !request.targetEnvPath) {
@@ -122,17 +158,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
       /* ignore run discovery failures */
     }
 
-    const now = new Date().toISOString()
+    const nowIso = new Date().toISOString()
     const updated = await updateRequest(request.id, (current) => ({
       ...current,
-      statusDerivedAt: now,
+      ...(idemPatch ?? {}),
+      statusDerivedAt: nowIso,
       destroyRun: {
         runId: destroyRunId ?? current.destroyRun?.runId,
         url: destroyRunUrl ?? current.destroyRun?.url,
         status: "in_progress",
       },
       cleanupPr: current.cleanupPr ?? { status: "pending" },
-      updatedAt: now,
+      updatedAt: nowIso,
     }))
 
     await logLifecycleEvent({

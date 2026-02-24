@@ -12,9 +12,15 @@ import { generateRequestId } from "@/lib/requests/id"
 import { deriveLifecycleStatus } from "@/lib/requests/deriveLifecycleStatus"
 import { buildResourceName } from "@/lib/requests/naming"
 import { injectServerAuthoritativeTags, assertRequiredTagsPresent } from "@/lib/requests/tags"
-import { getSessionFromCookies } from "@/lib/auth/session"
+import { getSessionFromCookies, requireSession } from "@/lib/auth/session"
 import { withCorrelation } from "@/lib/observability/correlation"
-import { logError, logInfo, timeAsync } from "@/lib/observability/logger"
+import { logError, logInfo, logWarn, timeAsync } from "@/lib/observability/logger"
+import {
+  getIdempotencyKey,
+  checkCreateIdempotency,
+  recordCreate,
+  ConflictError,
+} from "@/lib/requests/idempotency"
 import { logLifecycleEvent } from "@/lib/logs/lifecycle"
 import { getUserRole } from "@/lib/auth/roles"
 import { ensureAssistantState } from "@/lib/assistant/state"
@@ -69,6 +75,8 @@ type StoredRequest = {
     diffSummary?: string
     lastUpdated?: string
   }
+  /** Idempotency keys per operation (create, apply, destroy, etc.). Additive; optional. */
+  idempotency?: Record<string, { key: string; at: string }>
 }
 
 const PLAN_WORKFLOW = env.GITHUB_PLAN_WORKFLOW_FILE
@@ -602,6 +610,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: "GitHub not connected" }, { status: 401 })
     }
 
+    const idemKey = getIdempotencyKey(request)
+    const now = new Date()
+    const createCheck = checkCreateIdempotency(idemKey ?? "", now)
+    if (createCheck.ok === false && createCheck.mode === "replay") {
+      const replayId = (createCheck.requestDoc as { id?: string }).id
+      logInfo("idempotency.replay", { ...correlation, operation: "create", requestId: replayId })
+      return NextResponse.json(
+        { success: true, request: createCheck.requestDoc },
+        { status: 201 }
+      )
+    }
+
     const requestId = generateRequestId(body.environment!, body.module!)
     logInfo("request.create", { ...correlation, requestId, user: userLogin })
 
@@ -718,6 +738,7 @@ export async function POST(request: NextRequest) {
     const newRequestWithAssistant = ensureAssistantState(newRequest)
 
     await saveRequest(newRequestWithAssistant)
+    if (idemKey) recordCreate(idemKey, requestId, newRequestWithAssistant as Record<string, unknown>, now)
 
     await logLifecycleEvent({
       requestId,
@@ -771,6 +792,8 @@ export async function POST(request: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
+  const sessionOr401 = await requireSession()
+  if (sessionOr401 instanceof NextResponse) return sessionOr401
   const correlation = withCorrelation(req, {})
   try {
     return await timeAsync("request.list", correlation, async () => {

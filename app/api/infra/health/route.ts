@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
 import { resolveInfraRepo } from "@/config/infra-repos"
+import { requireSession } from "@/lib/auth/session"
 
 export async function GET(req: NextRequest) {
+  const sessionOr401 = await requireSession()
+  if (sessionOr401 instanceof NextResponse) return sessionOr401
   const project = req.nextUrl.searchParams.get("project") ?? ""
   const environment = req.nextUrl.searchParams.get("env") ?? ""
 

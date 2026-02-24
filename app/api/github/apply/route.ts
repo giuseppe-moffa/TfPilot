@@ -3,11 +3,12 @@ import { getGitHubAccessToken } from "@/lib/github/auth"
 import { gh } from "@/lib/github/client"
 import { env } from "@/lib/config/env"
 import { withCorrelation } from "@/lib/observability/correlation"
-import { logError } from "@/lib/observability/logger"
+import { logError, logInfo, logWarn } from "@/lib/observability/logger"
 import { getRequest, updateRequest } from "@/lib/storage/requestsStore"
 import { getSessionFromCookies } from "@/lib/auth/session"
 import { logLifecycleEvent } from "@/lib/logs/lifecycle"
 import { getUserRole } from "@/lib/auth/roles"
+import { getIdempotencyKey, assertIdempotentOrRecord, ConflictError } from "@/lib/requests/idempotency"
 
 export async function POST(req: NextRequest) {
   const start = Date.now()
@@ -35,6 +36,33 @@ export async function POST(req: NextRequest) {
     const request = await getRequest(body.requestId).catch(() => null)
     if (!request) {
       return NextResponse.json({ error: "Request not found" }, { status: 404 })
+    }
+
+    const idemKey = getIdempotencyKey(req) ?? ""
+    const now = new Date()
+    try {
+      const idem = assertIdempotentOrRecord({
+        requestDoc: request as { idempotency?: Record<string, { key: string; at: string }> },
+        operation: "apply",
+        key: idemKey,
+        now,
+      })
+      if (idem.ok === false && idem.mode === "replay") {
+        logInfo("idempotency.replay", { ...correlation, requestId: request.id, operation: "apply" })
+        return NextResponse.json({ ok: true })
+      }
+      if (idem.ok === true && idem.mode === "recorded") {
+        await updateRequest(request.id, (current) => ({ ...current, ...idem.patch, updatedAt: now.toISOString() }))
+      }
+    } catch (err) {
+      if (err instanceof ConflictError) {
+        logWarn("idempotency.conflict", { ...correlation, requestId: request.id, operation: err.operation })
+        return NextResponse.json(
+          { error: "Conflict", message: `Idempotency key mismatch for operation ${err.operation}` },
+          { status: 409 }
+        )
+      }
+      throw err
     }
     if (request.status !== "merged") {
       return NextResponse.json({ error: "Request must be merged before apply" }, { status: 400 })

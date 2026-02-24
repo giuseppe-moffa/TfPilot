@@ -5,7 +5,8 @@ import { env } from "@/lib/config/env"
 import { getRequest, updateRequest } from "@/lib/storage/requestsStore"
 import { getSessionFromCookies } from "@/lib/auth/session"
 import { withCorrelation } from "@/lib/observability/correlation"
-import { logError } from "@/lib/observability/logger"
+import { logError, logInfo, logWarn } from "@/lib/observability/logger"
+import { getIdempotencyKey, assertIdempotentOrRecord, ConflictError } from "@/lib/requests/idempotency"
 
 export async function POST(req: NextRequest) {
   const start = Date.now()
@@ -32,6 +33,38 @@ export async function POST(req: NextRequest) {
     }
     if (!request.branchName || !request.targetOwner || !request.targetRepo) {
       return NextResponse.json({ error: "Missing branch or repo info" }, { status: 400 })
+    }
+
+    const idemKey = getIdempotencyKey(req) ?? ""
+    const now = new Date()
+    try {
+      const idem = assertIdempotentOrRecord({
+        requestDoc: request as { idempotency?: Record<string, { key: string; at: string }> },
+        operation: "plan",
+        key: idemKey,
+        now,
+      })
+      if (idem.ok === false && idem.mode === "replay") {
+        logInfo("idempotency.replay", { ...correlation, requestId: request.id, operation: "plan" })
+        const planRun = (request as { planRun?: { runId?: number; url?: string } }).planRun
+        return NextResponse.json({
+          ok: true,
+          workflowRunId: planRun?.runId,
+          workflowRunUrl: planRun?.url,
+        })
+      }
+      if (idem.ok === true && idem.mode === "recorded") {
+        await updateRequest(request.id, (current) => ({ ...current, ...idem.patch, updatedAt: now.toISOString() }))
+      }
+    } catch (err) {
+      if (err instanceof ConflictError) {
+        logWarn("idempotency.conflict", { ...correlation, requestId: request.id, operation: err.operation })
+        return NextResponse.json(
+          { error: "Conflict", message: `Idempotency key mismatch for operation ${err.operation}` },
+          { status: 409 }
+        )
+      }
+      throw err
     }
 
     const isProd = request.environment?.toLowerCase() === "prod"

@@ -14,6 +14,7 @@ const navItems = [
   { label: "Requests", href: "/requests" },
   { label: "Catalogue", href: "/catalogue" },
   { label: "Environments", href: "/environments" },
+  { label: "Insights", href: "/insights" },
 ]
 
 export default function NavBar() {

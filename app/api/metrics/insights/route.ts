@@ -5,11 +5,11 @@ import { buildOpsMetrics, type OpsMetricsPayload } from "@/lib/observability/ops
 import { listRequests } from "@/lib/storage/requestsStore"
 
 /**
- * In-memory cache for ops metrics. TTL 60 seconds.
+ * In-memory cache for insights metrics. TTL 60 seconds.
  * Key: single key "default" (no project/env filter yet). Ensures cold-cache < 3s, warm < 1s.
  */
 const CACHE_TTL_MS = 60_000
-const OPS_LIST_CAP = 1000
+const INSIGHTS_LIST_CAP = 1000
 
 let cache: { payload: OpsMetricsPayload; cachedAt: number } | null = null
 
@@ -41,7 +41,7 @@ export async function GET() {
   }
 
   const generatedAt = new Date().toISOString()
-  const requests = (await listRequests(OPS_LIST_CAP)) ?? []
+  const requests = (await listRequests(INSIGHTS_LIST_CAP)) ?? []
   const metrics = buildOpsMetrics(requests as Parameters<typeof buildOpsMetrics>[0], generatedAt)
   setCache(metrics)
 

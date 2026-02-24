@@ -10,7 +10,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { useOpsMetrics } from "@/lib/observability/useOpsMetrics"
+import { useInsightsMetrics } from "@/lib/observability/useInsightsMetrics"
 import { cn } from "@/lib/utils"
 import type { OpsMetricsPayload } from "@/lib/observability/ops-metrics"
 
@@ -46,13 +46,13 @@ function StatCard({
   )
 }
 
-export function OpsDashboard() {
-  const { metrics, isLoading, error, isValidating } = useOpsMetrics()
+export function InsightsDashboard() {
+  const { metrics, isLoading, error, isValidating } = useInsightsMetrics()
 
   if (error) {
     return (
       <div className="container mx-auto max-w-5xl space-y-6 p-6">
-        <h1 className="text-2xl font-semibold">Ops</h1>
+        <h1 className="text-2xl font-semibold">Insights</h1>
         <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
           {error.message}
         </div>
@@ -63,7 +63,7 @@ export function OpsDashboard() {
   if (isLoading && !metrics) {
     return (
       <div className="container mx-auto max-w-5xl space-y-6 p-6">
-        <h1 className="text-2xl font-semibold">Ops</h1>
+        <h1 className="text-2xl font-semibold">Insights</h1>
         <p className="text-muted-foreground">Loading metrics…</p>
       </div>
     )
@@ -75,7 +75,7 @@ export function OpsDashboard() {
   return (
     <div className="container mx-auto max-w-5xl space-y-8 p-6">
       <header>
-        <h1 className="text-2xl font-semibold">Ops</h1>
+        <h1 className="text-2xl font-semibold">Insights</h1>
         <p className="text-sm text-muted-foreground">Platform metrics (cached ~60s)</p>
       </header>
 

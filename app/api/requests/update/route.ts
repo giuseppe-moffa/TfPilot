@@ -7,12 +7,13 @@ import { getEnvTargetFile, getModuleType } from "@/lib/infra/moduleType"
 import { resolveInfraRepo } from "@/config/infra-repos"
 import { env } from "@/lib/config/env"
 import { moduleRegistry, type ModuleRegistryEntry, type ModuleField } from "@/config/module-registry"
-import { getRequest, saveRequest } from "@/lib/storage/requestsStore"
+import { getRequest, saveRequest, updateRequest } from "@/lib/storage/requestsStore"
 import { getSessionFromCookies } from "@/lib/auth/session"
 import { getUserRole } from "@/lib/auth/roles"
 import { withCorrelation } from "@/lib/observability/correlation"
-import { logError, logInfo } from "@/lib/observability/logger"
+import { logError, logInfo, logWarn } from "@/lib/observability/logger"
 import { logLifecycleEvent } from "@/lib/logs/lifecycle"
+import { getIdempotencyKey, assertIdempotentOrRecord, ConflictError } from "@/lib/requests/idempotency"
 import { buildResourceName } from "@/lib/requests/naming"
 import { injectServerAuthoritativeTags, assertRequiredTagsPresent } from "@/lib/requests/tags"
 import { ensureAssistantState } from "@/lib/assistant/state"
@@ -475,6 +476,42 @@ export async function POST(req: NextRequest) {
     if (!current) {
       return NextResponse.json({ success: false, error: "Request not found" }, { status: 404 })
     }
+
+    const idemKey = getIdempotencyKey(req) ?? ""
+    const now = new Date()
+    let idemPatch: { idempotency: Record<string, { key: string; at: string }> } | null = null
+    try {
+      const idem = assertIdempotentOrRecord({
+        requestDoc: current as { idempotency?: Record<string, { key: string; at: string }> },
+        operation: "update",
+        key: idemKey,
+        now,
+      })
+      if (idem.ok === false && idem.mode === "replay") {
+        logInfo("idempotency.replay", { ...correlation, requestId: current.id, operation: "update" })
+        return NextResponse.json({
+          success: true,
+          requestId: current.id,
+          revision: typeof current.revision === "number" ? current.revision : 1,
+          prUrl: (current as { prUrl?: string }).prUrl,
+          planRunId: (current as { planRun?: { runId?: number } }).planRun?.runId,
+        })
+      }
+      if (idem.ok === true && idem.mode === "recorded") {
+        idemPatch = idem.patch
+        await updateRequest(current.id, (c) => ({ ...c, ...idem.patch, updatedAt: now.toISOString() }))
+      }
+    } catch (err) {
+      if (err instanceof ConflictError) {
+        logWarn("idempotency.conflict", { ...correlation, requestId: current.id, operation: err.operation })
+        return NextResponse.json(
+          { error: "Conflict", message: `Idempotency key mismatch for operation ${err.operation}` },
+          { status: 409 }
+        )
+      }
+      throw err
+    }
+
     logInfo("request.update", { ...correlation, requestId: current.id, user: session.login })
 
     if (isApplyRunning(current)) {
@@ -566,6 +603,7 @@ export async function POST(req: NextRequest) {
 
     const updatedRequest = {
       ...current,
+      ...(idemPatch ?? {}),
       config: finalConfig,
       revision: revisionNext,
       updatedAt: new Date().toISOString(),
