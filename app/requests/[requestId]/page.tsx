@@ -6,6 +6,8 @@ import useSWR from "swr"
 import { useParams } from "next/navigation"
 
 import { useRequestStatus } from "@/hooks/use-request-status"
+import { getSyncPollingInterval } from "@/lib/config/polling"
+import { deriveLifecycleStatus } from "@/lib/requests/deriveLifecycleStatus"
 import { normalizeRequestStatus, isActiveStatus } from "@/lib/status/status-config"
 import { getStatusColor, getStatusLabel } from "@/lib/status/status-config"
 import type { CanonicalStatus } from "@/lib/status/status-config"
@@ -72,6 +74,85 @@ const steps = [
   { key: "merged", label: "Merged" },
   { key: "applied", label: "Applied" },
 ] as const
+
+function RequestDetailSkeleton() {
+  return (
+    <div className="mx-auto max-w-7xl space-y-8">
+      <section className="rounded-xl bg-card p-6 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="h-6 w-40 animate-pulse rounded bg-muted" />
+              <div className="h-5 w-12 animate-pulse rounded bg-muted" />
+              <div className="h-5 w-20 animate-pulse rounded bg-muted" />
+            </div>
+            <div className="mt-1 h-4 w-56 animate-pulse rounded bg-muted" />
+          </div>
+          <div className="h-9 w-36 animate-pulse rounded-md bg-muted" />
+        </div>
+        <div className="mt-4 mb-6 border-t border-border/50 dark:border-slate-800/50" />
+        <div className="grid grid-cols-1 md:grid-cols-2 md:gap-0 items-stretch">
+          <div className="min-w-0 h-full">
+            <div className="px-5 pt-4 pb-4">
+              <div className="h-4 w-24 animate-pulse rounded bg-muted" />
+              <div className="mt-2 h-3 w-32 animate-pulse rounded bg-muted" />
+            </div>
+            <div className="px-5 pt-1 pb-4">
+              <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+                {[...Array(8)].map((_, i) => (
+                  <div key={i}>
+                    <div className="h-3 w-20 animate-pulse rounded bg-muted" />
+                    <div className="mt-1 h-4 w-28 animate-pulse rounded bg-muted" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div className="min-w-0 h-full border-t border-border/50 pt-4 md:border-t-0 md:border-l md:border-border/50 md:ml-6 md:pl-6 md:pt-0 dark:border-slate-800/50 flex flex-col">
+            <div className="px-5 pt-4 pb-4">
+              <div className="h-4 w-32 animate-pulse rounded bg-muted" />
+              <div className="mt-2 h-3 w-44 animate-pulse rounded bg-muted" />
+            </div>
+            <div className="px-5 pt-1 pb-4 flex flex-col flex-1 min-h-0">
+              <div className="relative flex flex-col gap-6">
+                <div
+                  className="absolute left-[7px] top-0 bottom-0 w-0.5 bg-muted-foreground/25 dark:bg-muted-foreground/40"
+                  aria-hidden
+                />
+                {steps.map((step) => (
+                  <div key={step.key} className="flex items-center gap-3">
+                    <div className="flex w-4 shrink-0 items-center justify-center">
+                      <div className="h-4 w-4 rounded-full bg-muted animate-pulse" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="h-4 w-28 animate-pulse rounded bg-muted" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+      <Card className="border-0 py-0 shadow-sm">
+        <CardHeader className="px-5 pt-4 pb-4">
+          <div className="h-4 w-48 animate-pulse rounded bg-muted" />
+          <div className="mt-2 flex gap-2">
+            <div className="h-5 w-12 animate-pulse rounded bg-muted" />
+            <div className="h-4 w-24 animate-pulse rounded bg-muted" />
+          </div>
+        </CardHeader>
+        <CardContent className="px-5 pt-2 pb-4 space-y-5">
+          <div className="flex flex-wrap items-center gap-2">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="h-9 w-20 animate-pulse rounded-md bg-muted" />
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
 
 function TimelineStep({
   displayLabel,
@@ -344,15 +425,23 @@ function RequestDetailPage() {
   const [mergeModalOpen, setMergeModalOpen] = React.useState(false)
   const [actionError, setActionError] = React.useState<string | null>(null)
   const [destroyModalOpen, setDestroyModalOpen] = React.useState(false)
-  const [actionProgress, setActionProgress] = React.useState<
-    null | "approve" | "merge" | "apply" | "destroy"
-  >(null)
-  const actionProgressTimerRef = React.useRef<number | null>(null)
+  type ActionProgressOp = "approve" | "merge" | "apply" | "destroy"
+  type ActionProgressValue =
+    | null
+    | { op: ActionProgressOp; state: "running" | "success" | "error"; error?: string }
+  const [actionProgress, setActionProgress] = React.useState<ActionProgressValue>(null)
+  const actionRetryRef = React.useRef<{
+    op: ActionProgressOp
+    fn: () => Promise<unknown>
+    closeDialog: () => void
+  } | null>(null)
+  const actionSuccessTimeoutRef = React.useRef<number | null>(null)
   const [destroyStatus, setDestroyStatus] = React.useState<
     "idle" | "pending" | "success" | "error"
   >("idle")
   const [destroyError, setDestroyError] = React.useState<string | null>(null)
   const [destroyConfirmation, setDestroyConfirmation] = React.useState("")
+  const [destroyInFlight, setDestroyInFlight] = React.useState(false)
   const [applyNote, setApplyNote] = React.useState("")
   const [showApplyOutput, setShowApplyOutput] = React.useState(false)
   const [planLogExpanded, setPlanLogExpanded] = React.useState(false)
@@ -410,7 +499,23 @@ function RequestDetailPage() {
     })()
   }, [])
 
-  const { request, mutate: mutateStatus } = useRequestStatus(requestId, initialRequest)
+  const { request, hasSyncedOnce, error: syncError, mutate: mutateStatus, forceSync, patchCurrentAndNextKey } = useRequestStatus(requestId, initialRequest)
+
+  // Temporary debug: log when rendered request has applyRun (remove after verifying apply fix)
+  React.useEffect(() => {
+    if (typeof console !== "undefined" && process.env.NODE_ENV === "development" && request?.applyRun) {
+      console.log("[apply] rendered request.applyRun:", request.applyRun, "lock:", (request as any)?.lock)
+    }
+  }, [request?.applyRun, (request as any)?.lock])
+
+  const [tabHidden, setTabHidden] = React.useState(
+    typeof document !== "undefined" ? document.hidden : false
+  )
+  React.useEffect(() => {
+    const handler = () => setTabHidden(document.hidden)
+    document.addEventListener("visibilitychange", handler)
+    return () => document.removeEventListener("visibilitychange", handler)
+  }, [])
 
   React.useEffect(() => {
     // Set panelAssistantState from request only if we don't have a more recent assistant state
@@ -461,7 +566,7 @@ function RequestDetailPage() {
     {
       keepPreviousData: true,
       revalidateOnFocus: true,
-      refreshInterval: 8000,
+      refreshInterval: () => getSyncPollingInterval(request ?? null, tabHidden),
       revalidateOnReconnect: true,
     }
   )
@@ -529,99 +634,76 @@ function RequestDetailPage() {
     return out
   }, [sortedEvents])
 
-  function startActionProgress(action: "approve" | "merge" | "apply" | "destroy") {
-    if (actionProgressTimerRef.current) {
-      clearTimeout(actionProgressTimerRef.current)
-      actionProgressTimerRef.current = null
-    }
-    if (action === "approve") {
-      setActionProgress("approve")
-      return
-    }
-    setActionProgress(null)
-    actionProgressTimerRef.current = window.setTimeout(() => setActionProgress(action), 400)
-  }
-  function clearActionProgress() {
-    if (actionProgressTimerRef.current) {
-      clearTimeout(actionProgressTimerRef.current)
-      actionProgressTimerRef.current = null
-    }
-    setActionProgress(null)
-  }
-
   React.useEffect(() => {
     return () => {
-      if (actionProgressTimerRef.current) clearTimeout(actionProgressTimerRef.current)
+      if (actionSuccessTimeoutRef.current) clearTimeout(actionSuccessTimeoutRef.current)
     }
   }, [])
 
+  type MutationAction = "approve" | "merge" | "apply" | "destroy"
+  async function runAction(
+    op: MutationAction,
+    fn: () => Promise<unknown>,
+    { closeDialog }: { closeDialog: () => void }
+  ): Promise<void> {
+    if (actionSuccessTimeoutRef.current) {
+      clearTimeout(actionSuccessTimeoutRef.current)
+      actionSuccessTimeoutRef.current = null
+    }
+    if (op === "approve") setIsApproving(true)
+    else if (op === "merge") setMergeStatus("pending")
+    else if (op === "apply") setIsApplying(true)
+    else if (op === "destroy") setDestroyInFlight(true)
+    setActionProgress({ op, state: "running" })
+    closeDialog()
+    actionRetryRef.current = { op, fn, closeDialog }
+    try {
+      await fn()
+      await forceSync()
+      if (op === "apply" || op === "destroy") {
+        setActionProgress(null)
+      } else {
+        setActionProgress({ op, state: "success" })
+        actionSuccessTimeoutRef.current = window.setTimeout(() => {
+          setActionProgress(null)
+          actionSuccessTimeoutRef.current = null
+        }, 1000)
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Something went wrong"
+      setActionProgress({ op, state: "error", error: message })
+    } finally {
+      if (op === "approve") setIsApproving(false)
+      else if (op === "merge") setMergeStatus((s) => (s === "pending" ? "idle" : s))
+      else if (op === "apply") setIsApplying(false)
+      else if (op === "destroy") setDestroyInFlight(false)
+    }
+  }
+
   async function handleApplyOnly() {
-    if (!requestId || !request || request.status !== "approved") return
-    setApplyModalOpen(false)
-    setIsApplying(true)
-    setApplyStatus("pending")
-    startActionProgress("apply")
-    try {
-      await fetch(`/api/requests/${requestId}/apply`, { method: "POST" })
-      await mutateStatus(undefined, true)
-      setApplyStatus("success")
-    } catch (err) {
-      console.error("[request apply] error", err)
-      setApplyStatus("error")
-    } finally {
-      clearActionProgress()
-      setIsApplying(false)
-    }
-  }
-
-  async function handleApplyDispatch(): Promise<boolean> {
-    if (!requestId || requestStatus !== "merged") {
-      return false
-    }
-    setIsApplying(true)
-    setActionError(null)
-    startActionProgress("apply")
-    try {
-      const res = await fetch("/api/github/apply", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ requestId }),
-      })
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        throw new Error(err?.error || "Failed to dispatch apply")
-      }
-      await mutateStatus(undefined, true)
-      return true
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Failed to dispatch apply")
-      return false
-    } finally {
-      clearActionProgress()
-      setTimeout(() => setIsApplying(false), 2000)
-    }
-  }
-
-  async function handleDestroy(): Promise<boolean> {
-    if (!requestId || isDestroying || isDestroyed) return false
-    setDestroyError(null)
-    startActionProgress("destroy")
-    try {
-      const res = await fetch(`/api/requests/${requestId}/destroy`, {
-        method: "POST",
-      })
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        throw new Error(err?.error || "Failed to dispatch destroy")
-      }
-      await mutateStatus(undefined, true)
-      return true
-    } catch (err: unknown) {
-      setDestroyError(err instanceof Error ? err.message : "Failed to dispatch destroy")
-      return false
-    } finally {
-      clearActionProgress()
-    }
+    if (!requestId || !request) return
+    // Apply is allowed when PR is merged (derived status); stored request.status may be undefined or "merged"
+    if (deriveLifecycleStatus(request) !== "merged") return
+    await runAction(
+      "apply",
+      async () => {
+        const res = await fetch("/api/github/apply", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ requestId }),
+        })
+        const data = (await res.json().catch(() => ({}))) as {
+          error?: string
+          request?: { applyRun?: { status?: string }; lock?: { operation?: string } }
+        }
+        if (!res.ok) throw new Error(data?.error ?? "Failed to dispatch apply")
+        if (data.request) {
+          // Patch current and next (nonce+1) SWR keys so after forceSync the UI keeps showing applyRun/lock
+          await patchCurrentAndNextKey?.(data.request as typeof request)
+        }
+      },
+      { closeDialog: () => setApplyModalOpen(false) }
+    )
   }
 
   async function handlePatchSubmit() {
@@ -659,36 +741,6 @@ function RequestDetailPage() {
     }
   }
 
-  async function handleMerge() {
-    if (!requestId || !request || request.status !== "approved") return
-    setMergeModalOpen(false)
-    setMergeStatus("pending")
-    startActionProgress("merge")
-    try {
-      const res = await fetch("/api/github/merge", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ requestId }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        throw new Error(data?.error || "Failed to merge PR")
-      }
-      if (data.branchUpdated) {
-        await mutateStatus(undefined, true)
-        setMergeError(null)
-      } else {
-        await mutateStatus(undefined, true)
-      }
-    } catch (err) {
-      console.error("[request merge] error", err)
-      setMergeStatus("error")
-      setMergeError(err instanceof Error ? err.message : "Merge failed")
-      setMergeModalOpen(true)
-    } finally {
-      clearActionProgress()
-    }
-  }
 
   async function handleUpdateBranch() {
     if (!requestId) return
@@ -720,29 +772,30 @@ function RequestDetailPage() {
     (mergeError.includes("dirty") || mergeError.includes("not mergeable"))
   )
 
-  async function handleApprove() {
-    if (!requestId || !request || request.status === "approved" || request.status === "applied") return
-    setIsApproving(true)
-    setApproveStatus("pending")
-    startActionProgress("approve")
-    try {
-      const res = await fetch(`/api/requests/${requestId}/approve`, {
-        method: "POST",
-      })
-      if (!res.ok) throw new Error("Approve failed")
-      await mutateStatus(undefined, true)
-      setApproveStatus("success")
-      setApproveModalOpen(false)
-    } catch (err) {
-      console.error("[request approve] error", err)
-      setApproveStatus("error")
+  function handleApproveConfirm() {
+    const derived = request ? deriveLifecycleStatus(request) : "request_created"
+    const guard =
+      !requestId ||
+      !request ||
+      request?.approval?.approved === true ||
+      derived === "approved" ||
+      derived === "applied"
+    if (guard) {
       setIsApproving(false)
-    } finally {
-      clearActionProgress()
+      setApproveStatus("idle")
+      return
     }
+    void runAction(
+      "approve",
+      () =>
+        fetch(`/api/requests/${requestId}/approve`, { method: "POST" }).then((r) => {
+          if (!r.ok) throw new Error("Approve failed")
+        }),
+      { closeDialog: () => setApproveModalOpen(false) }
+    )
   }
 
-  const requestStatus = request?.status ?? "created"
+  const requestStatus = request ? deriveLifecycleStatus(request) : "request_created"
   const planSucceeded =
     request?.planRun?.conclusion === "success" || request?.planRun?.status === "completed"
   const planFailed = request?.planRun?.conclusion === "failure"
@@ -753,10 +806,7 @@ function RequestDetailPage() {
     planRunStatus === "in_progress" ||
     planRunStatus === "queued" ||
     (!!planRunId &&
-      (requestStatus === "planning" ||
-        requestStatus === "pr_open" ||
-        requestStatus === "created" ||
-        requestStatus === "pending") &&
+      (requestStatus === "planning" || requestStatus === "request_created") &&
       !planRunConclusion)
   const hasPlanText = !!(
     planOutput?.planText ?? request?.plan?.output ?? request?.pullRequest?.planOutput
@@ -767,13 +817,12 @@ function RequestDetailPage() {
     !hasPlanText &&
     (planOutputLoading || (!!planKey && !planOutput?.planText))
   const prMerged =
-    request?.pr?.merged ??
-    request?.pullRequest?.merged ??
+    request?.pr?.merged === true ||
+    !!request?.mergedSha ||
+    request?.pullRequest?.merged === true ||
     request?.pullRequest?.open === false
   const applySucceeded =
-    request?.applyRun?.conclusion === "success" ||
-    requestStatus === "complete" ||
-    requestStatus === "applied"
+    request?.applyRun?.conclusion === "success" || requestStatus === "applied"
   const applyFailed = request?.applyRun?.conclusion === "failure"
 
   const applyRunning =
@@ -787,47 +836,107 @@ function RequestDetailPage() {
   const isPlanReady =
     planSucceeded ||
     requestStatus === "plan_ready" ||
-    requestStatus === "planned" ||
     requestStatus === "approved" ||
-    requestStatus === "awaiting_approval" ||
     isMerged ||
     isApplied
   const isApproved =
     request?.approval?.approved ||
     requestStatus === "approved" ||
-    requestStatus === "awaiting_approval" ||
     isMerged ||
     isApplied ||
     false
   const isPlanning =
-    requestStatus === "planning" || requestStatus === "pr_open" || requestStatus === "created" || requestStatus === "pending"
+    requestStatus === "planning" || requestStatus === "request_created"
   const isFailed = requestStatus === "failed" || applyFailed || planFailed
+
+  const hasLock = !!(request as any)?.lock
+  const applyRunActive =
+    request?.applyRun?.status === "queued" || request?.applyRun?.status === "in_progress"
+  const destroyRunActive =
+    request?.destroyRun?.status === "queued" || request?.destroyRun?.status === "in_progress"
+
+  function isActionDisabled(action: MutationAction): boolean {
+    if (hasLock) return true
+    if (actionProgress?.state === "running") return true
+    if (actionProgress?.op === action) return true
+    if (action === "approve") {
+      return (
+        !!isApproving ||
+        !request ||
+        !isPlanReady ||
+        request?.approval?.approved === true ||
+        requestStatus === "approved" ||
+        isMerged ||
+        isApplied ||
+        isDestroying ||
+        isDestroyed ||
+        isApplyingDerived ||
+        isFailed
+      )
+    }
+    if (action === "merge") {
+      return (
+        mergeStatus === "pending" ||
+        !request ||
+        requestStatus !== "approved" ||
+        isMerged ||
+        isDestroying ||
+        isDestroyed ||
+        isFailed
+      )
+    }
+    if (action === "apply") {
+      return (
+        !!isApplying ||
+        !isMerged ||
+        isApplied ||
+        requestStatus === "applying" ||
+        applyRunActive ||
+        isApplyingDerived ||
+        isDestroying ||
+        isDestroyed ||
+        isFailed
+      )
+    }
+    if (action === "destroy") {
+      return (
+        destroyInFlight ||
+        requestStatus === "destroying" ||
+        requestStatus === "destroyed" ||
+        destroyRunActive ||
+        isDestroying ||
+        isDestroyed ||
+        !isApplied ||
+        !canDestroy ||
+        !!isApplying
+      )
+    }
+    return false
+  }
 
   // Reset transient apply UI state once backend reflects completion or failure
   React.useEffect(() => {
-    if (applySucceeded || applyFailed || requestStatus === "applied" || requestStatus === "failed") {
+    if (applySucceeded || applyFailed || requestStatus === "failed") {
       setApplyStatus("idle")
       setIsApplying(false)
     }
   }, [applySucceeded, applyFailed, requestStatus])
 
-  // Clear approve loading state only when timeline shows approved (request data has updated)
+  // Clear approve loading state when approval fact is present (no stored status dependency)
   React.useEffect(() => {
-    if (
-      request &&
-      (request.status === "approved" || request.approval?.approved)
-    ) {
+    if (request?.approval?.approved) {
       setIsApproving(false)
     }
-  }, [request?.status, request?.approval?.approved])
+  }, [request?.approval?.approved])
 
   // Clear merge loading state only when timeline shows merged (request data has updated)
   const prMergedForEffect =
-    request?.pr?.merged ??
-    request?.pullRequest?.merged ??
+    request?.pr?.merged === true ||
+    !!request?.mergedSha ||
+    request?.pullRequest?.merged === true ||
     request?.pullRequest?.open === false
   React.useEffect(() => {
-    if (request && (prMergedForEffect || request.status === "merged")) {
+    if (request && prMergedForEffect) {
       setMergeStatus("idle")
       setMergeError(null)
     }
@@ -848,7 +957,7 @@ function RequestDetailPage() {
         subtitle: "Destroying resources",
       }
     }
-    if (actionProgress === "destroy" && isApplied && !isDestroyed) {
+    if (actionProgress?.op === "destroy" && isApplied && !isDestroyed) {
       return {
         key: "applied" as const,
         state: "pending" as const,
@@ -862,7 +971,7 @@ function RequestDetailPage() {
         subtitle: "Deployment Completed",
       }
     }
-    if (requestStatus === "applying" || requestStatus === "applying_changes") {
+    if (requestStatus === "applying") {
       return {
         key: "applied" as const,
         state: "pending" as const,
@@ -880,7 +989,7 @@ function RequestDetailPage() {
         key: "applied" as const,
         state: "pending" as const,
         subtitle:
-          isApplyingDerived || actionProgress === "apply"
+          applyRunActive || isApplyingDerived || actionProgress?.op === "apply"
             ? "Applying…"
             : "Waiting for apply",
       }
@@ -904,7 +1013,7 @@ function RequestDetailPage() {
         key: "merged" as const,
         state: "pending" as const,
         subtitle:
-          mergeStatus === "pending" || actionProgress === "merge"
+          mergeStatus === "pending" || actionProgress?.op === "merge"
             ? "Merging…"
             : "Waiting for PR merge",
       }
@@ -929,7 +1038,7 @@ function RequestDetailPage() {
         key: "approved" as const,
         state: "pending" as const,
         subtitle:
-          isApproving || actionProgress === "approve" ? "Approving…" : "Waiting for approval",
+          isApproving || actionProgress?.op === "approve" ? "Approving…" : "Waiting for approval",
       }
     }
     if (isPlanning) {
@@ -1006,11 +1115,11 @@ function RequestDetailPage() {
       case "applied":
         if (state === "done") {
           if (isDestroyed) return "destroyed"
-          if (isDestroying || actionProgress === "destroy") return "destroying"
+          if (isDestroying || actionProgress?.op === "destroy") return "destroying"
           if (applyFailed) return "failed"
           return "applied"
         }
-        if (requestStatus === "applying" || requestStatus === "applying_changes") return "applying"
+        if (requestStatus === "applying") return "applying"
         return "planning"
       default:
         return "request_created"
@@ -1033,22 +1142,22 @@ function RequestDetailPage() {
     if (state === "done" || stepKey === "submitted") {
       return getStatusLabel(getStepCanonicalStatus(stepKey, "done"))
     }
-    if (stepKey === "approved" && state === "current" && (actionProgress === "approve" || isApproving)) {
+    if (stepKey === "approved" && state === "current" && (actionProgress?.op === "approve" || isApproving)) {
       return "Approving…"
     }
     if (stepKey === "approved" && state === "current") {
       return "Waiting for approval"
     }
-    if (stepKey === "merged" && state === "current" && (mergeStatus === "pending" || actionProgress === "merge")) {
+    if (stepKey === "merged" && state === "current" && (mergeStatus === "pending" || actionProgress?.op === "merge")) {
       return "Merging…"
     }
     if (stepKey === "merged" && state === "current") {
       return "Waiting for PR merge"
     }
-    if (stepKey === "applied" && state === "current" && (isDestroying || actionProgress === "destroy")) {
+    if (stepKey === "applied" && state === "current" && (destroyRunActive || isDestroying || actionProgress?.op === "destroy")) {
       return "Destroying…"
     }
-    if (stepKey === "applied" && state === "current" && (isApplyingDerived || actionProgress === "apply")) {
+    if (stepKey === "applied" && state === "current" && (applyRunActive || isApplyingDerived || actionProgress?.op === "apply")) {
       return "Applying…"
     }
     if (stepKey === "applied" && state === "current") {
@@ -1074,6 +1183,10 @@ function RequestDetailPage() {
         Loading request...
       </div>
     )
+  }
+
+  if (!hasSyncedOnce) {
+    return <RequestDetailSkeleton />
   }
 
   const hasDrift = request.drift?.status === "detected"
@@ -1130,12 +1243,36 @@ function RequestDetailPage() {
       className="mx-auto max-w-7xl space-y-8 transition-[margin-right]"
       style={{ marginRight: assistantOpen ? drawerWidth : 0 }}
     >
+      {syncError && (
+        <div className="rounded-lg bg-amber-50 dark:bg-amber-900/20 px-4 py-3 flex items-center justify-between gap-3 text-sm text-amber-900 dark:text-amber-100">
+          <span>Status may be outdated. Retry in a moment.</span>
+          <Button
+            size="sm"
+            variant="outline"
+            className="shrink-0 border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-100 hover:bg-amber-100 dark:hover:bg-amber-800/40"
+            onClick={() => mutateStatus()}
+          >
+            Retry
+          </Button>
+        </div>
+      )}
       {actionProgress && (
         <ActionProgressDialog
           open
-          title={ACTION_PROGRESS_CONFIG[actionProgress].title}
-          body={ACTION_PROGRESS_CONFIG[actionProgress].body}
-          steps={ACTION_PROGRESS_CONFIG[actionProgress].steps}
+          title={ACTION_PROGRESS_CONFIG[actionProgress.op].title}
+          body={ACTION_PROGRESS_CONFIG[actionProgress.op].body}
+          steps={ACTION_PROGRESS_CONFIG[actionProgress.op].steps}
+          state={actionProgress.state}
+          errorMessage={actionProgress.error}
+          onDismiss={() => setActionProgress(null)}
+          onRetry={
+            actionRetryRef.current
+              ? () => {
+                  const { op, fn, closeDialog } = actionRetryRef.current!
+                  runAction(op, fn, { closeDialog })
+                }
+              : undefined
+          }
         />
       )}
       {hasDrift && (
@@ -1189,7 +1326,12 @@ function RequestDetailPage() {
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            <Button size="sm" variant="outline" onClick={() => setUpdateModalOpen(true)}>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={actionProgress?.state === "running"}
+              onClick={() => setUpdateModalOpen(true)}
+            >
               Update Configuration
             </Button>
           </div>
@@ -1287,17 +1429,17 @@ function RequestDetailPage() {
                     (step.key === "approved" &&
                       state === "current" &&
                       !isApproving &&
-                      actionProgress !== "approve") ||
+                      actionProgress?.op !== "approve") ||
                     (step.key === "merged" &&
                       state === "current" &&
                       mergeStatus !== "pending" &&
-                      actionProgress !== "merge") ||
+                      actionProgress?.op !== "merge") ||
                     (step.key === "applied" &&
                       state === "current" &&
                       !isApplyingDerived &&
-                      actionProgress !== "apply" &&
+                      actionProgress?.op !== "apply" &&
                       !isDestroying &&
-                      actionProgress !== "destroy")
+                      actionProgress?.op !== "destroy")
                   return (
                     <TimelineStep
                       key={step.key}
@@ -1362,34 +1504,12 @@ function RequestDetailPage() {
                       size="sm"
                       className={cn(
                         "h-9",
-                        (!request ||
-                          !isPlanReady ||
-                          request.status === "approved" ||
-                          request.status === "applied" ||
-                          isMerged ||
-                          isApplied ||
-                          isDestroying ||
-                          isDestroyed ||
-                          isApplyingDerived ||
-                          isFailed ||
-                          isApproving) &&
+                        isActionDisabled("approve") &&
                           "cursor-not-allowed bg-muted text-muted-foreground opacity-70"
                       )}
-                      disabled={
-                        !request ||
-                        !isPlanReady ||
-                        request.status === "approved" ||
-                        request.status === "applied" ||
-                        isMerged ||
-                        isApplied ||
-                        isDestroying ||
-                        isDestroyed ||
-                        isApplyingDerived ||
-                        isFailed ||
-                        isApproving
-                      }
+                      disabled={isActionDisabled("approve")}
                       onClick={() => {
-                        if (isApproving) return
+                        if (isActionDisabled("approve")) return
                         setApproveStatus("idle")
                         setApproveModalOpen(true)
                       }}
@@ -1404,11 +1524,18 @@ function RequestDetailPage() {
                       )}
                     </Button>
                   </TooltipTrigger>
-                  {(!isPlanReady || (requestStatus !== "pending" && requestStatus !== "planned" && requestStatus !== "approved")) && (
-                    <TooltipContent>
-                      {!isPlanReady ? "Wait for plan to be ready" : "Already approved, merged, applied, destroying, applying, or failed"}
-                    </TooltipContent>
-                  )}
+                  <TooltipContent>
+                    {hasLock
+                      ? "Another operation is in progress"
+                      : !isPlanReady
+                        ? "Wait for plan to be ready"
+                        : requestStatus !== "request_created" &&
+                            requestStatus !== "planning" &&
+                            requestStatus !== "plan_ready" &&
+                            requestStatus !== "approved"
+                          ? "Already approved, merged, applied, destroying, applying, or failed"
+                          : "Approve this request"}
+                  </TooltipContent>
                 </Tooltip>
 
                 <Tooltip>
@@ -1417,26 +1544,12 @@ function RequestDetailPage() {
                       size="sm"
                       className={cn(
                         "h-9",
-                        (!request ||
-                          request.status !== "approved" ||
-                          isMerged ||
-                          mergeStatus === "pending" ||
-                          isDestroying ||
-                          isDestroyed ||
-                          isFailed) &&
+                        isActionDisabled("merge") &&
                           "cursor-not-allowed bg-muted text-muted-foreground opacity-70"
                       )}
-                      disabled={
-                        !request ||
-                        request.status !== "approved" ||
-                        isMerged ||
-                        mergeStatus === "pending" ||
-                        isDestroying ||
-                        isDestroyed ||
-                        isFailed
-                      }
+                      disabled={isActionDisabled("merge")}
                       onClick={() => {
-                        if (mergeStatus === "pending") return
+                        if (isActionDisabled("merge")) return
                         setMergeStatus("idle")
                         setMergeError(null)
                         setMergeModalOpen(true)
@@ -1452,11 +1565,13 @@ function RequestDetailPage() {
                       )}
                     </Button>
                   </TooltipTrigger>
-                  {requestStatus !== "approved" && (
-                    <TooltipContent>
-                      Approve first to enable merge
-                    </TooltipContent>
-                  )}
+                  <TooltipContent>
+                    {hasLock
+                      ? "Another operation is in progress"
+                      : requestStatus !== "approved"
+                        ? "Approve first to enable merge"
+                        : "Merge the PR"}
+                  </TooltipContent>
                 </Tooltip>
 
                 <Tooltip>
@@ -1465,11 +1580,12 @@ function RequestDetailPage() {
                       size="sm"
                       className={cn(
                         "h-9",
-                        (!isMerged || isApplied || isApplyingDerived || isDestroying || isDestroyed || isFailed) &&
+                        isActionDisabled("apply") &&
                           "cursor-not-allowed bg-muted text-muted-foreground opacity-70"
                       )}
-                      disabled={!isMerged || isApplied || isApplyingDerived || isDestroying || isDestroyed || isFailed}
+                      disabled={isActionDisabled("apply")}
                       onClick={() => {
+                        if (isActionDisabled("apply")) return
                         setApplyStatus("idle")
                         setApplyModalOpen(true)
                       }}
@@ -1484,11 +1600,13 @@ function RequestDetailPage() {
                       )}
                     </Button>
                   </TooltipTrigger>
-                  {!isMerged && (
-                    <TooltipContent>
-                      Merge first to enable apply
-                    </TooltipContent>
-                  )}
+                  <TooltipContent>
+                    {hasLock
+                      ? "Another operation is in progress"
+                      : !isMerged
+                        ? "Merge first to enable apply"
+                        : "Run Terraform apply"}
+                  </TooltipContent>
                 </Tooltip>
 
                 <Tooltip>
@@ -1498,27 +1616,37 @@ function RequestDetailPage() {
                       variant="destructive"
                       className={cn(
                         "h-9",
-                        (isDestroying || isDestroyed || isApplying || !isApplied || !canDestroy) &&
+                        isActionDisabled("destroy") &&
                           "cursor-not-allowed bg-muted text-muted-foreground opacity-70"
                       )}
-                      disabled={isDestroying || isDestroyed || isApplying || !isApplied || !canDestroy}
+                      disabled={isActionDisabled("destroy")}
                       onClick={() => {
+                        if (isActionDisabled("destroy")) return
                         setDestroyStatus("idle")
                         setDestroyError(null)
                         setDestroyModalOpen(true)
                       }}
                     >
-                      Destroy
+                      {destroyInFlight ? (
+                        <span className="inline-flex items-center gap-2">
+                          <Loader2 className="size-4 animate-spin" />
+                          Destroying…
+                        </span>
+                      ) : (
+                        "Destroy"
+                      )}
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>
-                    {!canDestroy
-                      ? canDestroyData?.reason === "not_in_destroy_prod_allowlist"
-                        ? "You're not allowed to destroy prod requests"
-                        : canDestroyData?.reason === "requires_admin_role"
-                          ? "Destroy requires admin role"
-                          : "Destroy not permitted"
-                      : "Destroy the resources for this request"}
+                    {hasLock
+                      ? "Another operation is in progress"
+                      : !canDestroy
+                        ? canDestroyData?.reason === "not_in_destroy_prod_allowlist"
+                          ? "You're not allowed to destroy prod requests"
+                          : canDestroyData?.reason === "requires_admin_role"
+                            ? "Destroy requires admin role"
+                            : "Destroy not permitted"
+                        : "Destroy the resources for this request"}
                   </TooltipContent>
                 </Tooltip>
               </div>
@@ -2059,7 +2187,7 @@ function RequestDetailPage() {
       <Dialog
         open={mergeModalOpen}
         onOpenChange={(val: boolean) => {
-          if (!isApplying && !isApproving && !updatingBranch && !val) {
+          if (!val) {
             setMergeModalOpen(false)
             setMergeStatus("idle")
             setMergeError(null)
@@ -2070,99 +2198,44 @@ function RequestDetailPage() {
           <DialogHeader>
             <DialogTitle>Merge pull request</DialogTitle>
             <DialogDescription asChild>
-              <div className="space-y-1">
-                {mergeStatus === "idle" && (
-                  <div className="text-sm text-muted-foreground">
-                    Are you sure you want to merge this pull request?
-                  </div>
-                )}
-                {mergeStatus === "pending" && (
-                  <div className="text-sm text-muted-foreground">Merging...</div>
-                )}
-                {mergeStatus === "success" && (
-                  <div className="text-sm text-emerald-700">✅ Pull request merged</div>
-                )}
-                {mergeStatus === "error" && (
-                  <div className="space-y-2 text-sm">
-                    <p className="text-destructive">
-                      {mergeError ?? "Something went wrong. Please try again."}
-                    </p>
-                    {mergeNeedsUpdate && !mergeError?.includes("Merge conflict") && (
-                      <p className="text-muted-foreground">
-                        The branch is out of date with the base. Update it with the latest changes, then try merging again.
-                      </p>
-                    )}
-                    {mergeError?.includes("Merge conflict") &&
-                      (request.pullRequest?.url ?? request.pr?.url) && (
-                        <a
-                          href={request.pullRequest?.url ?? request.pr?.url ?? "#"}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center gap-1.5 text-primary hover:underline"
-                        >
-                          <LinkIcon className="size-3.5" />
-                          Open PR on GitHub to resolve conflicts
-                        </a>
-                      )}
-                  </div>
-                )}
+              <div className="text-sm text-muted-foreground">
+                Are you sure you want to merge this pull request?
               </div>
             </DialogDescription>
-            {mergeStatus === "idle" && (
-              <div className="mt-4 flex justify-end gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setMergeModalOpen(false)
-                    setMergeStatus("idle")
-                    setMergeError(null)
-                  }}
-                >
-                  No
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    void handleMerge()
-                  }}
-                >
-                  Yes, merge
-                </Button>
-              </div>
-            )}
-            {mergeStatus === "error" && (
-              <div className="mt-4 flex flex-wrap justify-end gap-2">
-                {mergeNeedsUpdate && (
-                  <Button
-                    size="sm"
-                    disabled={updatingBranch}
-                    onClick={() => void handleUpdateBranch()}
-                  >
-                    {updatingBranch ? (
-                      <>
-                        <Loader2 className="mr-2 size-4 animate-spin" />
-                        Updating branch…
-                      </>
-                    ) : (
-                      "Update branch"
-                    )}
-                  </Button>
-                )}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={updatingBranch}
-                  onClick={() => {
-                    setMergeModalOpen(false)
-                    setMergeStatus("idle")
-                    setMergeError(null)
-                  }}
-                >
-                  Dismiss
-                </Button>
-              </div>
-            )}
+            <div className="mt-4 flex justify-end gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setMergeModalOpen(false)
+                  setMergeStatus("idle")
+                  setMergeError(null)
+                }}
+              >
+                No
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => {
+                  if (!requestId || !request || deriveLifecycleStatus(request) !== "approved") return
+                  void runAction(
+                    "merge",
+                    async () => {
+                      const res = await fetch("/api/github/merge", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ requestId }),
+                      })
+                      const data = await res.json().catch(() => ({}))
+                      if (!res.ok) throw new Error(data?.error ?? "Failed to merge PR")
+                    },
+                    { closeDialog: () => setMergeModalOpen(false) }
+                  )
+                }}
+              >
+                Yes, merge
+              </Button>
+            </div>
           </DialogHeader>
         </DialogContent>
       </Dialog>
@@ -2170,7 +2243,7 @@ function RequestDetailPage() {
       <Dialog
         open={approveModalOpen}
         onOpenChange={(val: boolean) => {
-          if (!isApproving && !val) {
+          if (!val) {
             setApproveModalOpen(false)
             setApproveStatus("idle")
           }
@@ -2180,50 +2253,29 @@ function RequestDetailPage() {
           <DialogHeader>
             <DialogTitle>Approving request</DialogTitle>
             <DialogDescription asChild>
-              <div className="space-y-1">
-                {approveStatus === "idle" && (
-                  <div className="text-sm text-muted-foreground">
-                    Are you sure you want to approve this request?
-                  </div>
-                )}
-                {approveStatus === "pending" && (
-                  <div className="text-sm text-muted-foreground">Approving...</div>
-                )}
-                {approveStatus === "success" && (
-                  <div className="text-sm text-emerald-700">✅ Request approved</div>
-                )}
-                {approveStatus === "error" && (
-                  <div className="text-sm text-red-700">
-                    ❌ Something went wrong. Please try again.
-                  </div>
-                )}
+              <div className="text-sm text-muted-foreground">
+                Are you sure you want to approve this request?
               </div>
             </DialogDescription>
-            {approveStatus === "idle" && (
-              <div className="mt-4 flex justify-end gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setApproveModalOpen(false)
-                    setApproveStatus("idle")
-                  }}
-                >
-                  No
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    setApproveStatus("pending")
-                    setIsApproving(true)
-                    startActionProgress("approve")
-                    void handleApprove()
-                  }}
-                >
-                  Yes, approve
-                </Button>
-              </div>
-            )}
+            <div className="mt-4 flex justify-end gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setApproveModalOpen(false)
+                  setApproveStatus("idle")
+                }}
+              >
+                No
+              </Button>
+              <Button
+                size="sm"
+                disabled={isApproving}
+                onClick={() => void handleApproveConfirm()}
+              >
+                Yes, approve
+              </Button>
+            </div>
           </DialogHeader>
         </DialogContent>
       </Dialog>
@@ -2231,7 +2283,7 @@ function RequestDetailPage() {
       <Dialog
         open={applyModalOpen}
         onOpenChange={(val: boolean) => {
-          if (!isApplying && !val) {
+          if (!val) {
             setApplyModalOpen(false)
             setApplyStatus("idle")
             setActionError(null)
@@ -2242,69 +2294,28 @@ function RequestDetailPage() {
           <DialogHeader>
             <DialogTitle>Deploying resource</DialogTitle>
             <DialogDescription asChild>
-              <div className="space-y-1">
-                {applyStatus === "idle" && (
-                  <div className="text-sm text-muted-foreground">
-                    Are you sure you want to apply these changes? This will run Terraform apply for this request.
-                  </div>
-                )}
-                {applyStatus === "pending" && (
-                  <div className="text-sm text-muted-foreground">Applying...</div>
-                )}
-                {applyStatus === "success" && (
-                  <div className="text-sm text-emerald-700">✅ Apply dispatched</div>
-                )}
-                {applyStatus === "error" && (
-                  <div className="space-y-2 text-sm">
-                    <p className="text-destructive">
-                      {actionError ?? "Something went wrong. Please try again."}
-                    </p>
-                  </div>
-                )}
+              <div className="text-sm text-muted-foreground">
+                Are you sure you want to apply these changes? This will run Terraform apply for this request.
               </div>
             </DialogDescription>
-            {applyStatus === "idle" && (
-              <div className="mt-4 flex justify-end gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setApplyModalOpen(false)
-                    setApplyStatus("idle")
-                  }}
-                >
-                  No
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={async () => {
-                    setApplyStatus("pending")
-                    const ok = await handleApplyDispatch()
-                    setApplyStatus(ok ? "success" : "error")
-                    if (ok) {
-                      setTimeout(() => setApplyModalOpen(false), 2000)
-                    }
-                  }}
-                >
-                  Yes, apply
-                </Button>
-              </div>
-            )}
-            {applyStatus === "error" && (
-              <div className="mt-4 flex flex-wrap justify-end gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setApplyModalOpen(false)
-                    setApplyStatus("idle")
-                    setActionError(null)
-                  }}
-                >
-                  Dismiss
-                </Button>
-              </div>
-            )}
+            <div className="mt-4 flex justify-end gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setApplyModalOpen(false)
+                  setApplyStatus("idle")
+                }}
+              >
+                No
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => void handleApplyOnly()}
+              >
+                Yes, apply
+              </Button>
+            </div>
           </DialogHeader>
         </DialogContent>
       </Dialog>
@@ -2312,7 +2323,7 @@ function RequestDetailPage() {
       <Dialog
         open={destroyModalOpen}
         onOpenChange={(val: boolean) => {
-          if (destroyStatus !== "pending" && !isDestroying && !val) {
+          if (!val) {
             setDestroyModalOpen(false)
             setDestroyStatus("idle")
             setDestroyError(null)
@@ -2324,93 +2335,73 @@ function RequestDetailPage() {
           <DialogHeader>
             <DialogTitle>Destroy resources</DialogTitle>
             <DialogDescription asChild>
-              <div className="space-y-1">
-                {destroyStatus === "idle" && (
-                  <div className="space-y-3 text-sm text-muted-foreground">
-                    <p>
-                      This will permanently destroy all infrastructure created by this request.
-                      This action is irreversible and may cause downtime or data loss.
-                      Ensure backups and dependencies are handled before proceeding.
-                    </p>
-                    <div className="space-y-2">
-                      <p className="text-xs text-muted-foreground">
-                        Type <span className="font-mono text-foreground">destroy</span> to confirm.
-                      </p>
-                      <input
-                        className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
-                        value={destroyConfirmation}
-                        onChange={(e) => setDestroyConfirmation(e.target.value.toLowerCase())}
-                        placeholder="destroy"
-                      />
-                    </div>
-                  </div>
-                )}
-                {destroyStatus === "pending" && (
-                  <div className="text-sm text-muted-foreground">Destroying...</div>
-                )}
-                {destroyStatus === "success" && (
-                  <div className="text-sm text-emerald-700">✅ Destroy dispatched</div>
-                )}
-                {destroyStatus === "error" && (
-                  <div className="space-y-2 text-sm">
-                    <p className="text-destructive">
-                      {destroyError ?? "Something went wrong. Please try again."}
-                    </p>
-                  </div>
-                )}
+              <div className="space-y-3 text-sm text-muted-foreground">
+                <p>
+                  This will permanently destroy all infrastructure created by this request.
+                  This action is irreversible and may cause downtime or data loss.
+                  Ensure backups and dependencies are handled before proceeding.
+                </p>
+                <div className="space-y-2">
+                  <p className="text-xs text-muted-foreground">
+                    Type <span className="font-mono text-foreground">destroy</span> to confirm.
+                  </p>
+                  <input
+                    className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
+                    value={destroyConfirmation}
+                    onChange={(e) => setDestroyConfirmation(e.target.value.toLowerCase())}
+                    placeholder="destroy"
+                  />
+                </div>
               </div>
             </DialogDescription>
-            {destroyStatus === "idle" && (
-              <div className="mt-4 flex justify-end gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setDestroyModalOpen(false)
-                    setDestroyStatus("idle")
-                    setDestroyError(null)
-                    setDestroyConfirmation("")
-                  }}
-                >
-                  No
-                </Button>
-                <Button
-                  size="sm"
-                  variant="destructive"
-                  disabled={destroyConfirmation !== "destroy"}
-                  onClick={async () => {
-                    setDestroyStatus("pending")
-                    const ok = await handleDestroy()
-                    setDestroyStatus(ok ? "success" : "error")
-                    if (ok) {
-                      setTimeout(() => {
+            <div className="mt-4 flex justify-end gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setDestroyModalOpen(false)
+                  setDestroyStatus("idle")
+                  setDestroyError(null)
+                  setDestroyConfirmation("")
+                }}
+              >
+                No
+              </Button>
+              <Button
+                size="sm"
+                variant="destructive"
+                disabled={destroyConfirmation !== "destroy" || isDestroying}
+                onClick={() =>
+                  void runAction(
+                    "destroy",
+                    async () => {
+                      const res = await fetch(`/api/requests/${requestId}/destroy`, {
+                        method: "POST",
+                      })
+                      const data = (await res.json().catch(() => ({}))) as {
+                        error?: string
+                        request?: unknown
+                      }
+                      if (!res.ok)
+                        throw new Error(
+                          data?.error ?? "Failed to dispatch destroy"
+                        )
+                      if (data.request) mutateStatus(data.request as typeof request, false)
+                    },
+                    {
+                      closeDialog: () => {
                         setDestroyModalOpen(false)
                         setDestroyStatus("idle")
                         setDestroyConfirmation("")
-                      }, 2000)
+                        setDestroyError(null)
+                      },
                     }
-                  }}
-                >
-                  Yes, destroy
-                </Button>
-              </div>
-            )}
-            {destroyStatus === "error" && (
-              <div className="mt-4 flex flex-wrap justify-end gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setDestroyModalOpen(false)
-                    setDestroyStatus("idle")
-                    setDestroyError(null)
-                    setDestroyConfirmation("")
-                  }}
-                >
-                  Dismiss
-                </Button>
-              </div>
-            )}
+                  )
+                }
+              >
+                Yes, destroy
+              </Button>
+            </div>
           </DialogHeader>
         </DialogContent>
       </Dialog>

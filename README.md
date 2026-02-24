@@ -55,6 +55,7 @@ After that, go to [tfpilot.com](https://tfpilot.com) (or your instance URL), cli
 
 ### Environment (see `env.example`)
 - Buckets/region: `TFPILOT_REQUESTS_BUCKET`, `TFPILOT_CHAT_LOGS_BUCKET`, `TFPILOT_DEFAULT_REGION`
+- Polling (request detail): see [docs/POLLING.md](docs/POLLING.md) for `NEXT_PUBLIC_TFPILOT_SYNC_INTERVAL_*` and `NEXT_PUBLIC_TFPILOT_SYNC_RATE_LIMIT_BACKOFF_MS` (defaults: active 5s, idle 15s, hidden 60s, 429 backoff 60s).
 - Prod guardrails: `TFPILOT_PROD_ALLOWED_USERS` (comma-separated GitHub usernames for general prod access), `TFPILOT_DESTROY_PROD_ALLOWED_USERS` (comma-separated GitHub usernames for prod destroy - separate allowlist)
 - RBAC: `TFPILOT_ADMINS`, `TFPILOT_APPROVERS` (comma-separated GitHub usernames)
 - Policy (optional): `TFPILOT_ALLOWED_REGIONS` (comma-separated regions for module validation)

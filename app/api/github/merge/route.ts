@@ -206,18 +206,23 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: detail }, { status: 400 })
     }
 
+    const nowIso = new Date().toISOString()
+    const mergedSha = mergeJson.sha ?? undefined
     await updateRequest(request.id, (current) => ({
-      mergedSha: mergeJson.sha,
+      mergedSha,
       pr: {
         ...(current.pr ?? {}),
         number: current.pr?.number ?? request.prNumber,
         url: current.pr?.url ?? request.prUrl,
         merged: true,
         open: false,
+        state: "closed",
+        mergedAt: nowIso,
+        ...(mergedSha && { mergeCommitSha: mergedSha }),
       },
       prNumber: current.prNumber ?? request.prNumber,
       prUrl: current.prUrl ?? request.prUrl,
-      updatedAt: new Date().toISOString(),
+      updatedAt: nowIso,
     }))
 
     await logLifecycleEvent({

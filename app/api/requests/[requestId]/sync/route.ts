@@ -11,6 +11,44 @@ import { ensureAssistantState } from "@/lib/assistant/state"
 import { sendAdminNotification, formatRequestNotification } from "@/lib/notifications/email"
 import { stripPlanOutputToContent } from "@/lib/plan/strip-plan-output"
 
+type ApplyRunLike = {
+  runId?: number
+  status?: string
+  conclusion?: string
+  headSha?: string
+  url?: string
+} | null | undefined
+
+/**
+ * Single-writer reconciliation: never clear an active (queued/in_progress) applyRun until
+ * GitHub confirms completion or we have a positively correlated replacement.
+ */
+function reconcileApplyRun(
+  existing: ApplyRunLike,
+  incoming: ApplyRunLike,
+  candidateShas: Set<string>
+): ApplyRunLike {
+  const existingActive =
+    existing?.status === "queued" || existing?.status === "in_progress"
+  const incomingCorrelated = incoming?.headSha ? candidateShas.has(incoming.headSha) : false
+  const sameRun = existing?.runId && incoming?.runId && existing.runId === incoming.runId
+
+  if (existingActive) {
+    if (!incoming) return existing
+    if (sameRun) return { ...existing, ...incoming }
+    return existing
+  }
+  if (existing && !existingActive) {
+    if (!incoming) return existing
+    if (sameRun) return { ...existing, ...incoming }
+    if (incomingCorrelated && incoming.runId !== existing.runId) return existing
+    return existing
+  }
+  if (!existing && incoming && incomingCorrelated) return incoming
+  if (!existing && incoming && !incomingCorrelated) return undefined
+  return existing ?? incoming ?? undefined
+}
+
 function extractPlan(log: string) {
   const lower = log.toLowerCase()
   const planIdx = lower.indexOf("terraform plan")
@@ -67,6 +105,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
 
     const request = ensureAssistantState(await getRequest(requestId).catch(() => null))
     if (!request) return NextResponse.json({ error: "Request not found" }, { status: 404 })
+
+    // Single-writer: capture applyRun from DB and do not mutate until final reconciliation
+    const existingApplyRun: ApplyRunLike = request.applyRun
+      ? { ...request.applyRun }
+      : request.applyRun
 
     // Store previous state for email deduplication
     const previousPlanConclusion = request.planRun?.conclusion
@@ -219,17 +262,18 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
       }
     }
 
-    // Remember whether we had an apply run before discovery (so we don't keep a freshly-discovered run that doesn't belong to this request)
-    const hadApplyRunBeforeSync = !!request.applyRun?.runId
+    const candidateShas = new Set(
+      [request.mergedSha, request.commitSha, request.planRun?.headSha, request.pr?.headSha].filter(Boolean) as string[]
+    )
 
-    // Discover apply run if missing (try request branch first, then base branch)
-    if (!request.applyRun?.runId && env.GITHUB_APPLY_WORKFLOW_FILE) {
+    let discoveredApplyRun: ApplyRunLike = null
+    if (!existingApplyRun?.runId && env.GITHUB_APPLY_WORKFLOW_FILE) {
       try {
-        const candidates = [
+        const branchCandidates = [
           request.branchName,
           request.targetBase ?? env.GITHUB_DEFAULT_BASE_BRANCH ?? "main",
         ].filter(Boolean) as string[]
-        for (const branch of candidates) {
+        for (const branch of branchCandidates) {
           const runsJson = await githubRequest<{
             workflow_runs?: Array<{ id: number; status?: string; conclusion?: string; head_sha?: string; html_url?: string }>
           }>({
@@ -244,13 +288,13 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
           const firstRun =
             runsJson.workflow_runs?.find(
               (r) =>
-                r.head_sha === request.applyRun?.headSha ||
+                r.head_sha === existingApplyRun?.headSha ||
                 r.head_sha === request.mergedSha ||
                 r.head_sha === request.commitSha ||
                 r.head_sha === request.planRun?.headSha
             ) ?? runsJson.workflow_runs?.[0]
           if (firstRun?.id) {
-            request.applyRun = {
+            discoveredApplyRun = {
               runId: firstRun.id,
               status: firstRun.status,
               conclusion: firstRun.conclusion,
@@ -265,19 +309,68 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
       }
     }
 
-    // Validate applyRun head_sha matches this request; if not, discard to avoid cross-request contamination.
-    // Only keep a non-matching applyRun when we already had it before this sync (so we don't attach another request's successful run to a new request).
-    const applyHeadSha = request.applyRun?.headSha
-    const candidateShas = new Set(
-      [request.mergedSha, request.commitSha, request.planRun?.headSha, request.pr?.headSha].filter(Boolean) as string[]
-    )
-    const applyMatches = applyHeadSha ? candidateShas.has(applyHeadSha) : false
-    const keepApplyRunAnyway =
-      hadApplyRunBeforeSync && request.applyRun?.conclusion === "success"
-    if (request.applyRun && !applyMatches && !keepApplyRunAnyway) {
-      request.applyRun = undefined
+    let hydratedExisting: ApplyRunLike = null
+    if (existingApplyRun?.runId) {
+      try {
+        const runJson = await githubRequest<{ status?: string; conclusion?: string; html_url?: string }>({
+          token,
+          key: `gh:run:${request.targetOwner}:${request.targetRepo}:${existingApplyRun.runId}`,
+          ttlMs: 10_000,
+          path: `/repos/${request.targetOwner}/${request.targetRepo}/actions/runs/${existingApplyRun.runId}`,
+          context: { route: "requests/[requestId]/sync", correlationId: requestId },
+        })
+        hydratedExisting = {
+          ...existingApplyRun,
+          status: runJson.status ?? existingApplyRun.status,
+          conclusion: runJson.conclusion ?? existingApplyRun.conclusion,
+          url: runJson.html_url ?? existingApplyRun.url,
+        }
+      } catch {
+        hydratedExisting = existingApplyRun
+      }
+    }
+
+    let hydratedDiscovered: ApplyRunLike = null
+    if (
+      discoveredApplyRun?.runId &&
+      (!existingApplyRun?.runId || discoveredApplyRun.runId !== existingApplyRun.runId)
+    ) {
+      try {
+        const runJson = await githubRequest<{ status?: string; conclusion?: string; html_url?: string }>({
+          token,
+          key: `gh:run:${request.targetOwner}:${request.targetRepo}:${discoveredApplyRun.runId}`,
+          ttlMs: 10_000,
+          path: `/repos/${request.targetOwner}/${request.targetRepo}/actions/runs/${discoveredApplyRun.runId}`,
+          context: { route: "requests/[requestId]/sync", correlationId: requestId },
+        })
+        hydratedDiscovered = {
+          ...discoveredApplyRun,
+          status: runJson.status ?? discoveredApplyRun.status,
+          conclusion: runJson.conclusion ?? discoveredApplyRun.conclusion,
+          url: runJson.html_url ?? discoveredApplyRun.url,
+        }
+      } catch {
+        hydratedDiscovered = discoveredApplyRun
+      }
+    }
+
+    const incomingApplyRun: ApplyRunLike =
+      existingApplyRun?.runId
+        ? (hydratedExisting ?? existingApplyRun)
+        : (hydratedDiscovered ?? (discoveredApplyRun?.headSha && candidateShas.has(discoveredApplyRun.headSha) ? discoveredApplyRun : null))
+
+    const finalApplyRun = reconcileApplyRun(existingApplyRun, incomingApplyRun, candidateShas)
+    request.applyRun = finalApplyRun ?? undefined
+    if (finalApplyRun?.runId) {
+      request.applyRunId = finalApplyRun.runId
+      request.applyRunUrl = finalApplyRun.url
+    } else {
       request.applyRunId = undefined
       request.applyRunUrl = undefined
+    }
+
+    if (process.env.NODE_ENV === "development") {
+      console.log("[sync applyRun] existing:", existingApplyRun?.runId, existingApplyRun?.status, "incoming:", incomingApplyRun?.runId, incomingApplyRun?.status, "final:", finalApplyRun?.runId, finalApplyRun?.status, "finalActive:", finalApplyRun?.status === "queued" || finalApplyRun?.status === "in_progress", "candidateShas:", Array.from(candidateShas))
     }
 
     if (request.planRun?.runId) {
@@ -311,26 +404,6 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
       }
     }
 
-    if (request.applyRun?.runId) {
-      try {
-        const runJson = await githubRequest<{ status?: string; conclusion?: string; html_url?: string }>({
-          token,
-          key: `gh:run:${request.targetOwner}:${request.targetRepo}:${request.applyRun.runId}`,
-          ttlMs: 10_000,
-          path: `/repos/${request.targetOwner}/${request.targetRepo}/actions/runs/${request.applyRun.runId}`,
-          context: { route: "requests/[requestId]/sync", correlationId: requestId },
-        })
-        request.applyRun = {
-          ...request.applyRun,
-          status: runJson.status ?? request.applyRun.status,
-          conclusion: runJson.conclusion ?? request.applyRun.conclusion,
-          url: runJson.html_url ?? request.applyRun.url,
-        }
-      } catch {
-        /* ignore */
-      }
-    }
-
     if (request.destroyRun?.runId) {
       try {
         const runJson = await githubRequest<{
@@ -344,14 +417,23 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
           path: `/repos/${request.targetOwner}/${request.targetRepo}/actions/runs/${request.destroyRun.runId}`,
           context: { route: "requests/[requestId]/sync", correlationId: requestId },
         })
+        const ghStatus = runJson.status ?? request.destroyRun.status
         request.destroyRun = {
           ...request.destroyRun,
-          status: runJson.status ?? request.destroyRun.status,
-          conclusion: runJson.conclusion ?? request.destroyRun.conclusion,
+          status:
+            ghStatus === "queued" || ghStatus === "in_progress"
+              ? ghStatus
+              : ghStatus === "completed"
+                ? "completed"
+                : request.destroyRun.status,
+          conclusion:
+            ghStatus === "completed"
+              ? (runJson.conclusion ?? request.destroyRun.conclusion)
+              : undefined,
           url: runJson.html_url ?? request.destroyRun.url,
         }
-      } catch {
-        /* ignore */
+      } catch (err) {
+        console.warn("[api/requests/sync] destroy run fetch failed for runId:", request.destroyRun?.runId, err)
       }
     }
 
@@ -432,8 +514,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
       prUrl: request.prUrl ?? current.prUrl,
       pullRequest: request.pullRequest ?? current.pullRequest,
       planRun: request.planRun,
-      applyRun: request.applyRun,
-      approval: request.approval,
+      applyRun: finalApplyRun ?? undefined,
+      approval: current.approval?.approved ? current.approval : (request.approval ?? current.approval),
       cleanupPr: request.cleanupPr,
       status: request.status,
       statusDerivedAt: request.statusDerivedAt,

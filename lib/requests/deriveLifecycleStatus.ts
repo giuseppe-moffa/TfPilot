@@ -34,6 +34,8 @@ export type RequestLike = {
   applyRun?: RunInfo
   approval?: ApprovalInfo
   destroyRun?: RunInfo
+  /** Set by merge route when GitHub merge succeeds; ensures derived status is "merged" immediately. */
+  mergedSha?: string
 }
 
 const FAILED_CONCLUSIONS = [
@@ -54,15 +56,15 @@ export function deriveLifecycleStatus(request: RequestLike | null | undefined): 
 
   const { pr, planRun, applyRun, approval, destroyRun } = request
 
-  // 1. Destroy lifecycle (in progress → destroying; success → destroyed; failed → failed)
+  // 1. Destroy lifecycle: "destroyed" only when run is completed with success; never treat missing conclusion as success
   if (destroyRun?.status === "in_progress" || destroyRun?.status === "queued") {
     return "destroying"
   }
-  if (destroyRun?.conclusion === "success") {
-    return "destroyed"
-  }
-  if (destroyRun?.conclusion && FAILED_CONCLUSIONS.includes(destroyRun.conclusion as any)) {
-    return "failed"
+  if (destroyRun?.status === "completed") {
+    if (destroyRun.conclusion === "success") return "destroyed"
+    if (destroyRun.conclusion && FAILED_CONCLUSIONS.includes(destroyRun.conclusion as any)) {
+      return "failed"
+    }
   }
 
   // 2. Apply run failed
@@ -81,10 +83,9 @@ export function deriveLifecycleStatus(request: RequestLike | null | undefined): 
   if (applyRun?.conclusion === "success") {
     return "applied"
   }
-  // 6. PR merged
-  if (pr?.merged) {
-    return "merged"
-  }
+  // 6. PR merged (facts: pr.merged or mergedSha from merge route)
+  if (pr?.merged) return "merged"
+  if (request.mergedSha) return "merged"
   // 7. Approval approved
   if (approval?.approved) {
     return "approved"

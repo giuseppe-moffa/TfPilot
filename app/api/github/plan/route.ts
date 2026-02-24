@@ -154,6 +154,7 @@ export async function POST(req: NextRequest) {
         runId: workflowRunId ?? current.planRun?.runId,
         url: workflowRunUrl ?? current.planRun?.url,
         headSha: planHeadSha ?? current.planRun?.headSha,
+        status: "in_progress",
       },
       updatedAt: new Date().toISOString(),
     }))

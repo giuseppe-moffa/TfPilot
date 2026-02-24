@@ -6,6 +6,7 @@ import { timeAsync } from "@/lib/observability/logger"
 import { getRequest } from "@/lib/storage/requestsStore"
 import { ensureAssistantState } from "@/lib/assistant/state"
 import { getRequestCost } from "@/lib/services/cost-service"
+import { deriveLifecycleStatus } from "@/lib/requests/deriveLifecycleStatus"
 
 export async function GET(req: Request, { params }: { params: Promise<{ requestId: string }> }) {
   const correlation = withCorrelation(req, {})
@@ -30,6 +31,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ requestI
           }
           const cost = await getRequestCost(requestId)
           if (cost) request.cost = cost
+          // Derive status for response only (do not persist)
+          const nowIso = new Date().toISOString()
+          ;(request as { status?: string }).status = deriveLifecycleStatus(request)
+          ;(request as { statusDerivedAt?: string }).statusDerivedAt = nowIso
           return NextResponse.json({ request })
         } catch (err: unknown) {
           if (err && typeof err === "object" && ("$metadata" in err || "name" in err)) {

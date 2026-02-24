@@ -54,7 +54,8 @@ export async function POST(req: NextRequest) {
       })
       if (idem.ok === false && idem.mode === "replay") {
         logInfo("idempotency.replay", { ...correlation, requestId: request.id, operation: "apply" })
-        return NextResponse.json({ ok: true })
+        const current = await getRequest(request.id).catch(() => null)
+        return NextResponse.json({ ok: true, request: current ?? request })
       }
       if (idem.ok === true && idem.mode === "recorded") {
         await updateRequest(request.id, (current) => ({ ...current, ...idem.patch, updatedAt: now.toISOString() }))
@@ -88,7 +89,11 @@ export async function POST(req: NextRequest) {
       }
       throw lockErr
     }
-    if (request.status !== "merged") {
+    const isMerged =
+      request.status === "merged" ||
+      request.pr?.merged === true ||
+      !!(request as { mergedSha?: string }).mergedSha
+    if (!isMerged) {
       return NextResponse.json({ error: "Request must be merged before apply" }, { status: 400 })
     }
 
@@ -147,6 +152,7 @@ export async function POST(req: NextRequest) {
         ...(current.applyRun ?? {}),
         runId: applyRunId ?? current.applyRun?.runId,
         url: applyRunUrl ?? current.applyRun?.url,
+        status: "in_progress",
       },
       updatedAt: new Date().toISOString(),
     }))
@@ -167,7 +173,7 @@ export async function POST(req: NextRequest) {
       },
     })
 
-    return NextResponse.json({ ok: true })
+    return NextResponse.json({ ok: true, request: afterApply })
   } catch (error) {
     logError("github.dispatch_failed", error, { ...correlation, duration_ms: Date.now() - start })
     try {
