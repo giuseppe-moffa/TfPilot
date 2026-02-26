@@ -2,11 +2,13 @@
 
 ![Deploy Status](https://github.com/giuseppe-moffa/TfPilot/actions/workflows/deploy.yml/badge.svg)
 
-Terraform self-service platform (Next.js + API) with S3-backed state, GitHub Actions for plan/apply/destroy/cleanup, and an AI-powered assistant for request creation and updates.
+**What is TfPilot:** AI-assisted Terraform self-service platform. Users create requests (project + environment + module + config); the app persists to S3, generates bounded Terraform blocks in infra repos, opens PRs, and GitHub Actions run plan/apply/destroy/cleanup. Status is derived from facts; webhooks + optional SSE keep the UI updated.
 
-**Production URL:** [https://tfpilot.com](https://tfpilot.com)
+**Core invariants:** Terraform runs only in GitHub Actions. Requests live in S3. TfPilot edits only between `tfpilot:begin/<requestId>` and `tfpilot:end/<requestId>` markers. No local Terraform state in the app.
 
-**Tech stack:** Next.js 16, React 19, Tailwind CSS 4, shadcn/ui.
+**Production URL:** [https://tfpilot.com](https://tfpilot.com) · **Tech stack:** Next.js 16, React 19, Tailwind CSS 4, shadcn/ui.
+
+**Documentation:** [docs/DOCS_INDEX.md](docs/DOCS_INDEX.md) — index of canonical docs. Key: [System overview](docs/SYSTEM_OVERVIEW.md), [Request lifecycle](docs/REQUEST_LIFECYCLE.md), [GitHub workflows](docs/GITHUB_WORKFLOWS.md), [Webhooks & correlation](docs/WEBHOOKS_AND_CORRELATION.md), [Operations](docs/OPERATIONS.md), [Run index](docs/RUN_INDEX.md).
 
 ### For users: Sign-in and GitHub App
 
@@ -24,8 +26,8 @@ After that, go to [tfpilot.com](https://tfpilot.com) (or your instance URL), cli
 - **Hosting:** AWS ECS Fargate behind Application Load Balancer (ALB) with HTTPS, deployed via GitHub Actions CI/CD. Infrastructure managed in [tfpilot-terraform](https://github.com/giuseppe-moffa/tfpilot-terraform) repository.
 - **Storage:** Requests persisted in S3 (`requests/`), optimistic locking via `version`; destroyed requests archived to `history/`. Cost estimation JSONs (Infracost) stored under `cost/<requestId>/` in the same requests bucket. Assistant state (clarifications, suggestions, patches) stored in request JSON. Lifecycle events logged to S3. Chat logs stored in S3 bucket (e.g., `tfpilot-chat-logs`) with SSE-S3.
 - **Auth/RBAC:** Session cookie validation in middleware; prod actions (create/approve/merge/apply/destroy/cleanup dispatch) gated by `TFPILOT_PROD_ALLOWED_USERS` allow-list. Role-based access (viewer/developer/approver/admin) enforced on critical routes. GitHub OAuth for authentication.
-- **GitHub:** Workflows for plan/apply/destroy/cleanup dispatched with shared concurrency per project+env+request and OIDC. Cleanup strips only the TfPilot block before destroy. Updates create new PRs and supersede previous ones.
-- **UI:** Requests list (filters: status/env/module/project/search, dataset modes: active/drifted/destroyed/all), new request form (project/env/module + config with core/advanced fields), request detail (Overview with metadata and monthly cost estimate, timeline, PR/approve/merge/apply/destroy, suggestions panel, plan diff). Assistant drawer with chat and suggestion panel; design uses background colors only for separation (no borders). AWS Connect at `/aws/connect` for account setup. SWR polling and per-request sync for freshness.
+- **GitHub:** Workflows dispatched with concurrency (plan/cleanup per request; apply/destroy per env). Webhooks (`pull_request`, `pull_request_review`, `workflow_run`) patch request facts; run index gives O(1) correlation. See [docs/GITHUB_WORKFLOWS.md](docs/GITHUB_WORKFLOWS.md), [docs/WEBHOOKS_AND_CORRELATION.md](docs/WEBHOOKS_AND_CORRELATION.md).
+- **UI:** Requests list (filters, dataset modes), new request form, request detail (Overview, timeline, approve/merge/apply/destroy, plan diff, assistant). SWR + optional SSE; polling fallback — see [docs/POLLING.md](docs/POLLING.md).
 - **AI Assistant:** Schema-driven assistant that guides users through module inputs, provides suggestions (patches), asks clarifications (text/choice/boolean), and helps refine configurations. Assistant state persisted in requests with hash-based validation to prevent stale suggestions.
 
 ### Request lifecycle
@@ -34,18 +36,16 @@ After that, go to [tfpilot.com](https://tfpilot.com) (or your instance URL), cli
 3) **Plan**: GitHub Actions runs `terraform plan` → results recorded in request → status transitions to `plan_ready`.
 4) **Approve**: User/approver approves request → status transitions to `approved`.
 5) **Merge**: PR merged → status transitions to `merged`.
-6) **Apply**: User triggers apply → GitHub Actions runs `terraform apply` → status transitions to `applying` → `complete` on success or `failed` on error.
+6) **Apply**: User triggers apply → GitHub Actions runs `terraform apply` → status `applying` → `applied` on success or `failed` on error.
 7) **Destroy** (optional): User triggers destroy → cleanup PR created (strips TfPilot block) → destroy workflow runs → request archived to `history/`.
 
-**Status transitions** (canonical): `request_created` → `planning` → `plan_ready` → `approved` → `merged` → `applying` → `applied` (or `failed` at any stage). Destroy flow: `destroying` → `destroyed`. Backend may use variants (e.g. `pr_open`, `awaiting_approval`, `complete`); UI normalizes to these for display.
+**Status** (derived, not stored): `request_created` → `planning` → `plan_ready` → `approved` → `merged` → `applying` → `applied` (or `failed`). Destroy: `destroying` → `destroyed`. See [docs/REQUEST_LIFECYCLE.md](docs/REQUEST_LIFECYCLE.md), [docs/GLOSSARY.md](docs/GLOSSARY.md).
 
 ### Workflows (core/payments repos)
-- **Plan**: Uses project/env backend, shared concurrency per project+env+request. Runs on request creation and updates. Uploads plan output as artifact; records runId/url/status/conclusion back to request. **Infracost** runs after a successful plan (when Terraform files changed): produces cost and diff JSON, uploads them to S3 `cost/<requestId>/`, and optionally posts/updates a single PR comment with cost summary. Requires `INFRACOST_API_KEY` secret and (for S3 upload) workflow dispatch with `request_id` input; cost is shown in the request Overview in the UI.
-- **Apply**: Requires merged PR; prod-guarded; records runId/url/status/conclusion back to request. Uses same concurrency controls as plan.
-- **Destroy**: Runs cleanup PR workflow first, then destroy; prod-guarded. Archives request to `history/` after successful destroy.
-- **Cleanup**: Strips only the TfPilot module block; branch `cleanup/{requestId}`; can auto-merge in dev. Required before destroy to remove Terraform block.
-- **Drift-Plan**: Runs terraform plan on base branch to detect infrastructure drift (dev-only). Scheduled nightly via drift-check workflow. Reports drift status back to TfPilot API.
-- **Drift-Check**: Scheduled workflow (2 AM daily) that enumerates eligible dev requests and dispatches drift-plan workflows per request.
+- **Plan**: Concurrency per env+request; `-lock=false`. Uploads plan artifact; run index + webhook/sync patch request. Infracost (when TF files changed) uploads to S3 `cost/<requestId>/`; needs `INFRACOST_API_KEY` and `request_id` on dispatch.
+- **Apply / Destroy**: Serialized per env (state group); prod-guarded. Run index written on dispatch; webhook/sync patch run result. Destroy: cleanup workflow strips TfPilot block first; request archived to `history/` on success.
+- **Cleanup**: Branch `cleanup/<requestId>`; strips only TfPilot block; can auto-merge in dev.
+- **Drift-Plan**: Plan on base branch for drift (dev); nightly drift-check dispatches per request. See [docs/GITHUB_WORKFLOWS.md](docs/GITHUB_WORKFLOWS.md).
 
 ### Cost estimation
 - **Source:** [Infracost](https://www.infracost.io/) runs inside the Plan workflow in infra repos (core-terraform, payments-terraform) after a successful Terraform plan, only when Terraform files have changed.

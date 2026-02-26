@@ -13,6 +13,7 @@ import { getUserRole } from "@/lib/auth/roles"
 import { getIdempotencyKey, assertIdempotentOrRecord, ConflictError } from "@/lib/requests/idempotency"
 import { acquireLock, releaseLock, LockConflictError, type RequestDocWithLock } from "@/lib/requests/lock"
 import { getEnvTargetFile, getModuleType } from "@/lib/infra/moduleType"
+import { buildWorkflowDispatchPatch, persistWorkflowDispatchIndex } from "@/lib/requests/persistWorkflowDispatch"
 
 function isDestroyRunCorrelated(
   r: { head_sha?: string; name?: string },
@@ -224,18 +225,38 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
     }
 
     const nowIso = new Date().toISOString()
-    const updated = await updateRequest(request.id, (current) => ({
-      ...current,
-      ...(idemPatch ?? {}),
-      statusDerivedAt: nowIso,
-      destroyRun: {
-        runId: destroyRunId ?? current.destroyRun?.runId,
-        url: destroyRunUrl ?? current.destroyRun?.url,
-        status: "in_progress",
-      },
-      cleanupPr: current.cleanupPr ?? { status: "pending" },
-      updatedAt: nowIso,
-    }))
+    const [updated] = await updateRequest(request.id, (current) => {
+      const cur = current as { github?: Record<string, unknown>; destroyRun?: { runId?: number; url?: string }; cleanupPr?: unknown }
+      const runId = destroyRunId ?? cur.destroyRun?.runId
+      const patch =
+        runId != null
+          ? buildWorkflowDispatchPatch(current as Record<string, unknown>, "destroy", runId, destroyRunUrl ?? cur.destroyRun?.url)
+          : {}
+      const patchGithub = (patch as { github?: Record<string, unknown> }).github ?? {}
+      const destroyRunPayload = {
+        runId: destroyRunId ?? cur.destroyRun?.runId,
+        url: destroyRunUrl ?? cur.destroyRun?.url,
+        status: "in_progress" as const,
+      }
+      return {
+        ...current,
+        ...(idemPatch ?? {}),
+        ...patch,
+        statusDerivedAt: nowIso,
+        github: {
+          ...cur.github,
+          ...patchGithub,
+          workflows: {
+            ...(cur.github?.workflows ?? {}),
+            ...(patchGithub.workflows ?? {}),
+            destroy: { ...destroyRunPayload },
+          },
+        },
+        destroyRun: { ...destroyRunPayload },
+        cleanupPr: cur.cleanupPr ?? { status: "pending" },
+        updatedAt: nowIso,
+      }
+    })
     const releasePatch = releaseLock(updated as RequestDocWithLock, holder)
     if (releasePatch) {
       await updateRequest(request.id, (c) => ({ ...c, ...releasePatch }))
@@ -258,6 +279,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
       await archiveRequest(updated)
     } catch (archiveError) {
       console.error("[api/requests/destroy] archive failed", archiveError)
+    }
+
+    if (destroyRunId != null) {
+      persistWorkflowDispatchIndex(request.id, "destroy", destroyRunId)
     }
 
     return NextResponse.json({ ok: true, destroyRunId, destroyRunUrl, request: updated })

@@ -674,7 +674,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
     }
     request.timeline = timeline
 
-    const updated = await updateRequest(requestId, (current) => ({
+    const [updated] = await updateRequest(requestId, (current) => ({
       ...current,
       pr: request.pr,
       prNumber: request.prNumber ?? current.prNumber,

@@ -98,7 +98,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
       at: nowIso,
     })
 
-    const updated = await updateRequest(requestId, (current) => ({
+    const [updated] = await updateRequest(requestId, (current) => ({
       ...current,
       approval: { approved: true, approvers: current.approval?.approvers ?? [] },
       statusDerivedAt: nowIso,

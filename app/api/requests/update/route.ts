@@ -15,9 +15,11 @@ import { withCorrelation } from "@/lib/observability/correlation"
 import { logError, logInfo, logWarn } from "@/lib/observability/logger"
 import { logLifecycleEvent } from "@/lib/logs/lifecycle"
 import { putPrIndex } from "@/lib/requests/prIndex"
+import { buildWorkflowDispatchPatch, persistWorkflowDispatchIndex } from "@/lib/requests/persistWorkflowDispatch"
 import { getIdempotencyKey, assertIdempotentOrRecord, ConflictError } from "@/lib/requests/idempotency"
 import { acquireLock, releaseLock, LockConflictError, type RequestDocWithLock } from "@/lib/requests/lock"
 import { buildResourceName } from "@/lib/requests/naming"
+import { normalizeName, validateResourceName } from "@/lib/validation/resourceName"
 import { injectServerAuthoritativeTags, assertRequiredTagsPresent } from "@/lib/requests/tags"
 import { ensureAssistantState } from "@/lib/assistant/state"
 
@@ -59,15 +61,6 @@ function sha256(input: string) {
 }
 
 function validatePolicy(config: Record<string, unknown>) {
-  const name =
-    typeof config.name === "string" && config.name.trim()
-      ? (config.name as string).trim()
-      : undefined
-
-  if (name && !/^[a-z0-9-]{3,63}$/i.test(name)) {
-    throw new Error("Resource name must be 3-63 chars, alphanumeric and dashes only")
-  }
-
   if (env.TFPILOT_ALLOWED_REGIONS.length > 0) {
     const regionCandidate =
       (typeof config.aws_region === "string" && config.aws_region) ||
@@ -562,6 +555,9 @@ export async function POST(req: NextRequest) {
 
     const normalizedPatch = normalizeConfigKeys(body.patch)
     const mergedInputs = { ...(current.config ?? {}), ...normalizedPatch }
+    if (typeof mergedInputs.name === "string") {
+      mergedInputs.name = normalizeName(mergedInputs.name)
+    }
 
     const revisionPrev = typeof current.revision === "number" && current.revision >= 1 ? current.revision : 1
     const revisionNext = revisionPrev + 1
@@ -584,6 +580,13 @@ export async function POST(req: NextRequest) {
 
     appendRequestIdToNames(finalConfig, current.id)
 
+    const nameVal = typeof finalConfig.name === "string" ? finalConfig.name : ""
+    if (nameVal) {
+      const nameResult = validateResourceName(nameVal)
+      if (!nameResult.ok) {
+        return NextResponse.json({ fieldErrors: { name: nameResult.error } }, { status: 400 })
+      }
+    }
     // Server-authoritative tags: re-inject so required keys always present in stored/rendered config.
     injectServerAuthoritativeTags(finalConfig, current, session.login)
     assertRequiredTagsPresent(finalConfig, current)
@@ -667,6 +670,9 @@ export async function POST(req: NextRequest) {
         url: ghResult.planRunUrl,
         headSha: ghResult.planHeadSha,
       },
+      ...(ghResult.planRunId != null
+        ? buildWorkflowDispatchPatch(current as Record<string, unknown>, "plan", ghResult.planRunId, ghResult.planRunUrl)
+        : {}),
       moduleRef: current.moduleRef ?? {
         repo: `${targetOwner}/${targetRepo}`,
         path: `modules/${current.module}`,
@@ -693,6 +699,9 @@ export async function POST(req: NextRequest) {
     )
 
     await putPrIndex(targetOwner, targetRepo, ghResult.prNumber, current.id).catch(() => {})
+    if (ghResult.planRunId != null) {
+      persistWorkflowDispatchIndex(current.id, "plan", ghResult.planRunId)
+    }
 
     const afterSave = await getRequest(current.id)
     if (afterSave) {

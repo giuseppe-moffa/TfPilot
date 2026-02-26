@@ -66,14 +66,14 @@ const STATUS_CONFIG: Record<CanonicalStatus, Omit<StatusMeta, "key">> = {
     isActive: false,
   },
   applying: {
-    label: "Applying…",
+    label: "Deploying…",
     tone: "info",
     color: "#6366F1",
     isTerminal: false,
     isActive: true,
   },
   applied: {
-    label: "Deployment Completed",
+    label: "Deployed",
     tone: "success",
     color: "#10B981",
     isTerminal: true,

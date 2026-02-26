@@ -7,7 +7,7 @@ import { useParams } from "next/navigation"
 
 import { useRequest } from "@/hooks/use-request"
 import { getSyncPollingInterval } from "@/lib/config/polling"
-import { deriveLifecycleStatus } from "@/lib/requests/deriveLifecycleStatus"
+import { deriveLifecycleStatus, isDestroyRunFailed, isDestroyRunStale } from "@/lib/requests/deriveLifecycleStatus"
 import { normalizeRequestStatus, isActiveStatus } from "@/lib/status/status-config"
 import { getStatusColor, getStatusLabel } from "@/lib/status/status-config"
 import type { CanonicalStatus } from "@/lib/status/status-config"
@@ -72,7 +72,7 @@ const steps = [
   { key: "planned", label: "Plan Ready" },
   { key: "approved", label: "Approved" },
   { key: "merged", label: "Merged" },
-  { key: "applied", label: "Applied" },
+  { key: "applied", label: "Deployed" },
 ] as const
 
 function RequestDetailSkeleton() {
@@ -356,7 +356,7 @@ function formatEventName(event?: string) {
     plan_dispatched: "Plan Dispatched",
     request_approved: "Request Approved",
     pr_merged: "PR Merged",
-    apply_dispatched: "Apply Dispatched",
+    apply_dispatched: "Deploy Dispatched",
     destroy_dispatched: "Destroy Dispatched",
     configuration_updated: "Configuration Updated",
   }
@@ -442,6 +442,7 @@ function RequestDetailPage() {
   const [destroyError, setDestroyError] = React.useState<string | null>(null)
   const [destroyConfirmation, setDestroyConfirmation] = React.useState("")
   const [destroyInFlight, setDestroyInFlight] = React.useState(false)
+  const [repairInFlight, setRepairInFlight] = React.useState(false)
   const [applyNote, setApplyNote] = React.useState("")
   const [showApplyOutput, setShowApplyOutput] = React.useState(false)
   const [planLogExpanded, setPlanLogExpanded] = React.useState(false)
@@ -849,14 +850,18 @@ function RequestDetailPage() {
   const isPlanning =
     requestStatus === "planning" || requestStatus === "request_created"
   const isFailed = requestStatus === "failed" || applyFailed || planFailed
+  const destroyFailed = isDestroyRunFailed(request)
+  const destroyStale = isDestroyRunStale(request)
 
   const hasLock = !!(request as any)?.lock
   const applyRunActive =
     (request?.applyRun?.status === "queued" || request?.applyRun?.status === "in_progress") &&
     request?.applyRun?.conclusion == null
+  const destroyRun = request?.github?.workflows?.destroy ?? request?.destroyRun
   const destroyRunActive =
-    (request?.destroyRun?.status === "queued" || request?.destroyRun?.status === "in_progress") &&
-    request?.destroyRun?.conclusion == null
+    (destroyRun?.status === "queued" || destroyRun?.status === "in_progress") &&
+    destroyRun?.conclusion == null &&
+    !destroyStale
 
   const activeRunRevalidateInFlightRef = React.useRef(false)
   const ACTIVE_RUN_POLL_INTERVAL_MS = 4_000
@@ -981,6 +986,13 @@ function RequestDetailPage() {
         subtitle: "Destroying resources",
       }
     }
+    if (destroyFailed) {
+      return {
+        key: "applied" as const,
+        state: "completed" as const,
+        subtitle: "Destroy failed",
+      }
+    }
     if (actionProgress?.op === "destroy" && isApplied && !isDestroyed) {
       return {
         key: "applied" as const,
@@ -999,7 +1011,7 @@ function RequestDetailPage() {
       return {
         key: "applied" as const,
         state: "pending" as const,
-        subtitle: "Applying…",
+        subtitle: "Deploying…",
       }
     }
     if (
@@ -1014,8 +1026,8 @@ function RequestDetailPage() {
         state: "pending" as const,
         subtitle:
           applyRunActive || isApplyingDerived || actionProgress?.op === "apply"
-            ? "Applying…"
-            : "Waiting for apply",
+            ? "Deploying…"
+            : "Waiting for deploy",
       }
     }
     if (isMerged) {
@@ -1116,8 +1128,8 @@ function RequestDetailPage() {
       case "merged":
         return state === "done" ? "Pull request merged" : "Waiting for PR merge"
       case "applied":
-        if (applyFailed) return "Apply failed"
-        return state === "done" ? "Deployment Completed" : "Waiting for apply"
+        if (applyFailed) return "Deploy failed"
+        return state === "done" ? "Deployed" : "Waiting for deploy"
       default:
         return "Pending"
     }
@@ -1140,6 +1152,7 @@ function RequestDetailPage() {
         if (state === "done") {
           if (isDestroyed) return "destroyed"
           if (isDestroying || actionProgress?.op === "destroy") return "destroying"
+          if (destroyFailed) return "failed"
           if (applyFailed) return "failed"
           return "applied"
         }
@@ -1155,7 +1168,7 @@ function RequestDetailPage() {
     planned: "Waiting for plan",
     approved: "Waiting for approval",
     merged: "Waiting for PR merge",
-    applied: "Waiting for apply",
+    applied: "Waiting for deploy",
   }
 
   function getStepDisplayLabel(
@@ -1164,6 +1177,7 @@ function RequestDetailPage() {
     status?: CanonicalStatus
   ): string {
     if (state === "done" || stepKey === "submitted") {
+      if (stepKey === "applied" && destroyFailed) return "Destroy failed"
       return getStatusLabel(getStepCanonicalStatus(stepKey, "done"))
     }
     if (stepKey === "approved" && state === "current" && (actionProgress?.op === "approve" || isApproving)) {
@@ -1182,10 +1196,10 @@ function RequestDetailPage() {
       return "Destroying…"
     }
     if (stepKey === "applied" && state === "current" && (applyRunActive || isApplyingDerived || actionProgress?.op === "apply")) {
-      return "Applying…"
+      return "Deploying…"
     }
     if (stepKey === "applied" && state === "current") {
-      return "Waiting for apply"
+      return "Waiting for deploy"
     }
     if (state === "current" && status && isActiveStatus(status)) {
       return getStatusLabel(status)
@@ -1243,7 +1257,7 @@ function RequestDetailPage() {
       ],
     },
     apply: {
-      title: "Applying…",
+      title: "Deploying…",
       body: "Running Terraform apply workflow.",
       steps: [
         { label: "Dispatching workflow", status: "done" },
@@ -1557,7 +1571,7 @@ function RequestDetailPage() {
                             requestStatus !== "planning" &&
                             requestStatus !== "plan_ready" &&
                             requestStatus !== "approved"
-                          ? "Already approved, merged, applied, destroying, applying, or failed"
+                          ? "Already approved, merged, deployed, destroying, deploying, or failed"
                           : "Approve this request"}
                   </TooltipContent>
                 </Tooltip>
@@ -1602,6 +1616,7 @@ function RequestDetailPage() {
                   <TooltipTrigger asChild>
                     <Button
                       size="sm"
+                      variant="success"
                       className={cn(
                         "h-9",
                         isActionDisabled("apply") &&
@@ -1617,10 +1632,12 @@ function RequestDetailPage() {
                       {isApplyingDerived ? (
                         <span className="inline-flex items-center gap-2">
                           <Loader2 className="size-4 animate-spin" />
-                          Applying…
+                          Deploying…
                         </span>
+                      ) : applyFailed && !applyRunActive ? (
+                        "Retry deploy"
                       ) : (
-                        "Apply"
+                        "Deploy"
                       )}
                     </Button>
                   </TooltipTrigger>
@@ -1628,8 +1645,8 @@ function RequestDetailPage() {
                     {hasLock
                       ? "Another operation is in progress"
                       : !isMerged
-                        ? "Merge first to enable apply"
-                        : "Run Terraform apply"}
+                        ? "Merge first to enable deploy"
+                        : "Deploy the requested changes"}
                   </TooltipContent>
                 </Tooltip>
 
@@ -1656,9 +1673,9 @@ function RequestDetailPage() {
                           <Loader2 className="size-4 animate-spin" />
                           Destroying…
                         </span>
-                      ) : (
-                        "Destroy"
-                      )}
+                      ) : (destroyFailed || destroyStale) && !destroyRunActive
+                        ? "Retry destroy"
+                        : "Destroy"}
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>
@@ -1670,25 +1687,66 @@ function RequestDetailPage() {
                           : canDestroyData?.reason === "requires_admin_role"
                             ? "Destroy requires admin role"
                             : "Destroy not permitted"
-                        : "Destroy the resources for this request"}
+                        : (destroyFailed || destroyStale) && !destroyRunActive
+                          ? "Previous destroy failed or status unclear. Retry or repair to refresh."
+                          : "Destroy the resources for this request"}
                   </TooltipContent>
                 </Tooltip>
+                {destroyStale && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={repairInFlight}
+                    onClick={async () => {
+                      if (!requestId) return
+                      setRepairInFlight(true)
+                      try {
+                        const res = await fetch(`/api/requests/${requestId}/sync?repair=1`, { cache: "no-store" })
+                        const json = (await res.json().catch(() => ({}))) as { request?: unknown; sync?: Record<string, unknown> }
+                        if (res.ok && json.request) {
+                          await mutate({ success: true, request: json.request, sync: json.sync ?? {} } as { success: true; request: typeof request; sync: Record<string, unknown> }, false)
+                        } else {
+                          await revalidate()
+                        }
+                      } finally {
+                        setRepairInFlight(false)
+                      }
+                    }}
+                  >
+                    {repairInFlight ? (
+                      <span className="inline-flex items-center gap-2">
+                        <Loader2 className="size-4 animate-spin" />
+                        Repairing…
+                      </span>
+                    ) : (
+                      "Repair"
+                    )}
+                  </Button>
+                )}
               </div>
             </TooltipProvider>
 
-            {(isDestroying || isDestroyed || request.destroyRun) && (
+            {(isDestroying || isDestroyed || destroyFailed || destroyStale || destroyRun) && (
               <div className="rounded-md bg-muted/30 px-3 py-2 text-sm text-foreground">
                 <div className="flex items-center gap-2">
                   <Badge
                     variant={
-                      isDestroyed ? "success" : isDestroying ? "destroying" : "destructive"
+                      isDestroyed ? "success" : isDestroying || destroyRunActive ? "destroying" : "destructive"
                     }
                   >
-                    {isDestroyed ? "Destroyed" : isDestroying ? "Destroying" : "Destroy triggered"}
+                    {isDestroyed
+                      ? "Destroyed"
+                      : isDestroying || destroyRunActive
+                        ? "Destroying"
+                        : destroyStale
+                          ? "Status unclear (repair to refresh)"
+                          : destroyFailed
+                            ? "Destroy failed"
+                            : "Destroy triggered"}
                   </Badge>
-                  {request.destroyRun?.url && (
+                  {destroyRun?.url && (
                     <a
-                      href={request.destroyRun.url}
+                      href={destroyRun.url}
                       target="_blank"
                       rel="noreferrer"
                       className="inline-flex items-center gap-1 text-primary hover:underline"
@@ -1698,8 +1756,8 @@ function RequestDetailPage() {
                     </a>
                   )}
                 </div>
-                {request.destroyRun?.runId && (
-                  <p className="text-xs text-muted-foreground">Run ID: {request.destroyRun.runId}</p>
+                {destroyRun?.runId && (
+                  <p className="text-xs text-muted-foreground">Run ID: {destroyRun.runId}</p>
                 )}
               </div>
             )}
@@ -1931,7 +1989,7 @@ function RequestDetailPage() {
             </div>
             <div className="space-y-2">
               <div className="flex items-center gap-2">
-                <p className="text-sm font-medium text-muted-foreground">Apply Output</p>
+                <p className="text-sm font-medium text-muted-foreground">Deploy Output</p>
                 <Button size="sm" variant="outline" onClick={() => setShowApplyOutput((v) => !v)} disabled={!applyRunId}>
                   {showApplyOutput ? "Hide" : "Load"}
                 </Button>
@@ -1942,7 +2000,7 @@ function RequestDetailPage() {
                   </p>
                 )}
                 {applyOutput?.conclusion === "failure" && (
-                  <p className="text-xs text-destructive">Apply failed. See excerpt below or open full logs.</p>
+                  <p className="text-xs text-destructive">Deploy failed. See excerpt below or open full logs.</p>
                 )}
               </div>
             {showApplyOutput ? (
@@ -1951,10 +2009,10 @@ function RequestDetailPage() {
                   {applyOutput?.applyText ?? request?.apply?.output ?? ""}
                 </pre>
               ) : (
-                <p className="text-sm text-muted-foreground">No apply output yet.</p>
+                <p className="text-sm text-muted-foreground">No deploy output yet.</p>
               )
             ) : (
-              <p className="text-sm text-muted-foreground">Click Load to fetch apply output</p>
+              <p className="text-sm text-muted-foreground">Click Load to fetch deploy output</p>
             )}
               {applyOutput?.rawLogUrl && (
                 <a className="text-sm text-primary hover:underline" href={applyOutput.rawLogUrl} target="_blank" rel="noreferrer">
@@ -2324,7 +2382,7 @@ function RequestDetailPage() {
             <DialogTitle>Deploying resource</DialogTitle>
             <DialogDescription asChild>
               <div className="text-sm text-muted-foreground">
-                Are you sure you want to apply these changes? This will run Terraform apply for this request.
+                Are you sure you want to deploy these changes? This will run the deploy workflow for this request.
               </div>
             </DialogDescription>
             <div className="mt-4 flex justify-end gap-2">
@@ -2340,9 +2398,10 @@ function RequestDetailPage() {
               </Button>
               <Button
                 size="sm"
+                variant="success"
                 onClick={() => void handleApplyOnly()}
               >
-                Yes, apply
+                Yes, deploy
               </Button>
             </div>
           </DialogHeader>

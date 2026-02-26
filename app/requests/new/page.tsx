@@ -20,6 +20,7 @@ import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { listEnvironments, listProjects } from "@/config/infra-repos"
 import { getRequestTemplate, type RequestTemplate } from "@/config/request-templates"
+import { normalizeName, validateBaseResourceName, validateResourceName } from "@/lib/validation/resourceName"
 
 /** Client-safe 6-char suffix for generatedName (name + shortId). Lowercase for AWS-friendly names. */
 function randomShortId(): string {
@@ -306,6 +307,9 @@ function NewRequestPageContent() {
   )
 
   const handleFieldChange = (key: string, value: any) => {
+    if (key === "name" && typeof value === "string") {
+      value = normalizeName(value)
+    }
     setFormValues((prev) => ({ ...prev, [key]: value }))
   }
 
@@ -431,26 +435,18 @@ function NewRequestPageContent() {
       return
     }
     
-    // Validate that 'name' will be available in the config
     const cfg = buildConfig()
     const nameValue = cfg.name
-    if (!nameValue || typeof nameValue !== 'string' || !nameValue.trim()) {
+    if (!nameValue || typeof nameValue !== "string") {
       setError("Name is required.")
       return
     }
-    
-    // Validate AWS resource name format: lowercase alphanumeric and hyphens only, max 63 chars
-    const trimmedName = nameValue.trim()
-    const awsNameRegex = /^[a-z0-9-]+$/
-    if (!awsNameRegex.test(trimmedName)) {
-      setError("Name must contain only lowercase letters, numbers, and hyphens (no spaces or uppercase letters).")
+    const nameResult = validateResourceName(String(nameValue).trim())
+    if (!nameResult.ok) {
+      setError(nameResult.error)
       return
     }
-    if (trimmedName.length > 63) {
-      setError("Name must be 63 characters or less.")
-      return
-    }
-    
+
     setLoadingSubmit(true)
     setShowCreateDialog(false)
     createDialogTimerRef.current = window.setTimeout(() => setShowCreateDialog(true), 400)
@@ -470,7 +466,8 @@ function NewRequestPageContent() {
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        throw new Error(data?.error || "Failed to create request")
+        const msg = data?.fieldErrors?.name || data?.error || "Failed to create request"
+        throw new Error(msg)
       }
       if (data?.requestId) {
         window.location.href = `/requests/${data.requestId}`
@@ -605,7 +602,14 @@ function NewRequestPageContent() {
             />
           </FieldCard>
         )
-      default:
+      default: {
+        const isNameField = field.name === "name" || field.name === primaryKey
+        const nameValidation = isNameField
+          ? isNameFromStep2
+            ? validateResourceName(String(value ?? ""))
+            : validateBaseResourceName(String(value ?? ""))
+          : null
+        const nameError = nameValidation && !nameValidation.ok ? nameValidation.error : null
         return (
           <FieldCard
             key={field.name}
@@ -615,18 +619,26 @@ function NewRequestPageContent() {
             required={showRequired}
             fullWidth={fullWidth}
           >
-            <Input
-              key={`input-${field.name}`}
-              className={isNameFromStep2 ? "mt-1 bg-muted" : "mt-1"}
-              value={String(value ?? "")}
-              readOnly={isNameFromStep2}
-              disabled={isNameFromStep2}
-              onFocus={() => setActiveField(field.name)}
-              onChange={(e) => handleFieldChange(field.name, e.target.value)}
-              placeholder="Enter value"
-            />
+            <div className="space-y-1">
+              <Input
+                key={`input-${field.name}`}
+                className={isNameFromStep2 ? "mt-1 bg-muted" : "mt-1"}
+                value={String(value ?? "")}
+                readOnly={isNameFromStep2}
+                disabled={isNameFromStep2}
+                onFocus={() => setActiveField(field.name)}
+                onChange={(e) => handleFieldChange(field.name, e.target.value)}
+                placeholder="Enter value"
+              />
+              {nameError ? (
+                <p className="text-xs text-destructive" role="alert">
+                  {nameError}
+                </p>
+              ) : null}
+            </div>
           </FieldCard>
         )
+      }
     }
   }
 
@@ -642,6 +654,13 @@ function NewRequestPageContent() {
     }
     return items
   }, [selectedModule, configObject])
+
+  const isNameInvalid = React.useMemo(() => {
+    const nameVal = configObject.name
+    if (nameVal == null || typeof nameVal !== "string" || !String(nameVal).trim()) return true
+    const result = validateResourceName(String(nameVal).trim())
+    return !result.ok
+  }, [configObject.name])
 
   return (
     <div
@@ -760,26 +779,36 @@ function NewRequestPageContent() {
                   }
                   const templateProject = "project" in t ? String((t as { project?: string }).project ?? "").trim() : ""
                   const showProjectSelector = t.allowCustomProjectEnv === true || !templateProject
-                  const nameValid = environmentName.trim().length > 0
+                  const step2NameValidation = validateBaseResourceName(environmentName)
+                  const nameValid = environmentName.trim().length > 0 && step2NameValidation.ok
+                  const step2NameError = environmentName.trim().length > 0 && !step2NameValidation.ok ? step2NameValidation.error : null
+                  const normalizedStep2 = environmentName.trim().toLowerCase()
+                  const step2SuggestHyphens = step2NameError && /\s/.test(normalizedStep2)
+                    ? normalizedStep2.replace(/\s+/g, "-").replace(/-+/g, "-").replace(/^-+|-+$/g, "") || ""
+                    : ""
                   return (
                     <>
                       <div className="space-y-2">
                         <Label className="text-sm font-medium">Name *</Label>
                         <Input
                           value={environmentName}
-                          onChange={(e) => setEnvironmentName(e.target.value)}
+                          onChange={(e) => setEnvironmentName(e.target.value.toLowerCase())}
                           placeholder="e.g. my-app"
                           className="mt-1"
                         />
                         <p className="text-xs text-muted-foreground">
                           Logical name for this resource. A unique suffix is automatically appended.
                         </p>
-                        {!nameValid && environmentName.length > 0 && (
-                          <p className="text-xs text-destructive">Name is required.</p>
-                        )}
-                        {environmentName.length === 0 && (
+                        {step2NameError ? (
+                          <>
+                            <p className="text-xs text-destructive" role="alert">{step2NameError}</p>
+                            {step2SuggestHyphens ? (
+                              <p className="text-xs text-muted-foreground">Try: {step2SuggestHyphens}</p>
+                            ) : null}
+                          </>
+                        ) : environmentName.length === 0 ? (
                           <p className="text-xs text-muted-foreground">Enter a name to continue.</p>
-                        )}
+                        ) : null}
                       </div>
                       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                         {showProjectSelector ? (
@@ -902,7 +931,7 @@ function NewRequestPageContent() {
                         <Button
                         type="button"
                         disabled={
-                            environmentName.trim().length === 0 ||
+                            !nameValid ||
                             !project ||
                             (showProjectSelector ? !environment || (!t.moduleKey && !moduleName) : false)
                           }
@@ -1039,7 +1068,7 @@ function NewRequestPageContent() {
                 {error && <div className="text-xs text-destructive">{error}</div>}
                 <div className="flex justify-end pt-2">
                   <Button
-                    disabled={loadingSubmit || !project || !environment || !moduleName}
+                    disabled={loadingSubmit || !project || !environment || !moduleName || isNameInvalid}
                     onClick={handleSubmit}
                   >
                     {loadingSubmit ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}

@@ -106,7 +106,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
     }
 
     // Update request with drift block
-    const updated = await updateRequest(requestId, (current) => ({
+    const [updated] = await updateRequest(requestId, (current) => ({
       ...current,
       drift: {
         status: newStatus,

@@ -1,5 +1,6 @@
+import { validateResourceName as validateResourceNameStrict } from "@/lib/validation/resourceName"
+
 const MAX_LEN = 63
-const NAME_REGEX = /^[a-zA-Z0-9-]{3,63}$/
 
 function slugify(value: string) {
   return value
@@ -34,8 +35,9 @@ export function buildResourceName(base: string, requestId: string) {
   return candidate.toLowerCase()
 }
 
-export function validateResourceName(name: string) {
-  return NAME_REGEX.test(name)
+/** Boolean check using shared resource-name rules (3–63 chars, no leading/trailing hyphen, no "--"). */
+export function validateResourceName(name: string): boolean {
+  return validateResourceNameStrict(name).ok
 }
 
 export function effectiveName(base: string, requestId: string | null | undefined) {

@@ -12,6 +12,7 @@ import { moduleRegistry, type ModuleRegistryEntry, type ModuleField } from "@/co
 import { generateRequestId } from "@/lib/requests/id"
 import { deriveLifecycleStatus } from "@/lib/requests/deriveLifecycleStatus"
 import { buildResourceName } from "@/lib/requests/naming"
+import { normalizeName, validateResourceName } from "@/lib/validation/resourceName"
 import { injectServerAuthoritativeTags, assertRequiredTagsPresent } from "@/lib/requests/tags"
 import { getSessionFromCookies, requireSession } from "@/lib/auth/session"
 import { withCorrelation } from "@/lib/observability/correlation"
@@ -24,6 +25,7 @@ import {
 } from "@/lib/requests/idempotency"
 import { logLifecycleEvent } from "@/lib/logs/lifecycle"
 import { putPrIndex } from "@/lib/requests/prIndex"
+import { buildWorkflowDispatchPatch, persistWorkflowDispatchIndex } from "@/lib/requests/persistWorkflowDispatch"
 import { getUserRole } from "@/lib/auth/roles"
 import { ensureAssistantState } from "@/lib/assistant/state"
 
@@ -187,15 +189,6 @@ function normalizeConfigKeys(raw: Record<string, unknown>): Record<string, unkno
 }
 
 function validatePolicy(config: Record<string, unknown>) {
-  const name =
-    typeof config.name === "string" && config.name.trim()
-      ? (config.name as string).trim()
-      : undefined
-
-  if (name && !/^[a-z0-9-]{3,63}$/i.test(name)) {
-    throw new Error("Resource name must be 3-63 chars, alphanumeric and dashes only")
-  }
-
   if (env.TFPILOT_ALLOWED_REGIONS.length > 0) {
     const regionCandidate =
       (typeof config.aws_region === "string" && config.aws_region) ||
@@ -642,6 +635,9 @@ export async function POST(request: NextRequest) {
     }
 
     const normalizedConfig = normalizeConfigKeys(body.config as Record<string, unknown>)
+    if (typeof normalizedConfig.name === "string") {
+      normalizedConfig.name = normalizeName(normalizedConfig.name)
+    }
 
     const newRequest: StoredRequest = {
       id: requestId,
@@ -671,7 +667,13 @@ export async function POST(request: NextRequest) {
     injectServerAuthoritativeTags(newRequest.config, newRequest, session.login)
     assertRequiredTagsPresent(newRequest.config, newRequest)
 
-    // Policy checks (naming, region allowlist)
+    const nameVal = typeof newRequest.config.name === "string" ? newRequest.config.name : ""
+    if (nameVal) {
+      const nameResult = validateResourceName(nameVal)
+      if (!nameResult.ok) {
+        return NextResponse.json({ fieldErrors: { name: nameResult.error } }, { status: 400 })
+      }
+    }
     validatePolicy(newRequest.config)
 
     const generated = await generateTerraformFiles(
@@ -733,6 +735,21 @@ export async function POST(request: NextRequest) {
       url: ghResult.planRunUrl,
       headSha: ghResult.planHeadSha,
     }
+    if (ghResult.planRunId != null) {
+      const planPatch = buildWorkflowDispatchPatch(
+        newRequest as Record<string, unknown>,
+        "plan",
+        ghResult.planRunId,
+        ghResult.planRunUrl
+      )
+      Object.assign(newRequest as Record<string, unknown>, planPatch)
+      ;(newRequest as Record<string, unknown>).planRun = {
+        runId: ghResult.planRunId,
+        url: ghResult.planRunUrl,
+        headSha: ghResult.planHeadSha,
+        status: "in_progress",
+      }
+    }
 
     const newRequestWithAssistant = ensureAssistantState(newRequest)
 
@@ -740,6 +757,9 @@ export async function POST(request: NextRequest) {
     if (idemKey) recordCreate(idemKey, requestId, newRequestWithAssistant as Record<string, unknown>, now)
 
     await putPrIndex(targetRepo.owner, targetRepo.repo, ghResult.prNumber, requestId).catch(() => {})
+    if (ghResult.planRunId != null) {
+      persistWorkflowDispatchIndex(requestId, "plan", ghResult.planRunId)
+    }
 
     await logLifecycleEvent({
       requestId,

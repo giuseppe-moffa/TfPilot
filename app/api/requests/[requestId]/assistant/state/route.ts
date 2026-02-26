@@ -49,7 +49,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
       return NextResponse.json({ success: true, request: baseRequest }, { status: 200 })
     }
 
-    const updated = await updateRequest(requestId, (current) => {
+    const [updated] = await updateRequest(requestId, (current) => {
       const withAssistant = ensureAssistantState(current)
       return {
         ...withAssistant,

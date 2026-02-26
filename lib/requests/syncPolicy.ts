@@ -3,6 +3,8 @@
  * Conservative: only true when UI would be blocked without fresh facts.
  */
 
+import { isDestroyRunStale, type RequestLike as DeriveRequestLike } from "@/lib/requests/deriveLifecycleStatus"
+
 type RequestLike = {
   targetOwner?: string
   targetRepo?: string
@@ -16,6 +18,7 @@ type RequestLike = {
       apply?: { runId?: number; status?: string; conclusion?: string }
       destroy?: { runId?: number; status?: string; conclusion?: string }
     }
+    destroyTriggeredAt?: string
   }
   planRun?: { runId?: number; status?: string; conclusion?: string }
   applyRun?: { runId?: number; status?: string; conclusion?: string }
@@ -47,6 +50,9 @@ function hasDestroyRun(request: RequestLike): boolean {
  */
 export function needsRepair(request: RequestLike | null | undefined): boolean {
   if (!request?.targetOwner || !request?.targetRepo) return false
+
+  // Destroy stuck in "destroying" (webhook missed completion) -> repair can refresh run status
+  if (isDestroyRunStale(request as DeriveRequestLike)) return true
 
   // PR missing but we have a branch (request was created with branch) -> need PR metadata
   if (!hasPr(request) && request.branchName) return true

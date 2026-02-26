@@ -11,6 +11,7 @@ import { logLifecycleEvent } from "@/lib/logs/lifecycle"
 import { getUserRole } from "@/lib/auth/roles"
 import { getIdempotencyKey, assertIdempotentOrRecord, ConflictError } from "@/lib/requests/idempotency"
 import { acquireLock, releaseLock, LockConflictError, type RequestDocWithLock } from "@/lib/requests/lock"
+import { buildWorkflowDispatchPatch, persistWorkflowDispatchIndex } from "@/lib/requests/persistWorkflowDispatch"
 
 export async function POST(req: NextRequest) {
   const start = Date.now()
@@ -144,21 +145,31 @@ export async function POST(req: NextRequest) {
       /* ignore */
     }
 
-    const afterApply = await updateRequest(request.id, (current) => ({
-      applyTriggeredAt: new Date().toISOString(),
-      applyRunId: applyRunId ?? current.applyRunId,
-      applyRunUrl: applyRunUrl ?? current.applyRunUrl,
-      applyRun: {
-        ...(current.applyRun ?? {}),
-        runId: applyRunId ?? current.applyRun?.runId,
-        url: applyRunUrl ?? current.applyRun?.url,
-        status: "in_progress",
-      },
-      updatedAt: new Date().toISOString(),
-    }))
+    const [afterApply] = await updateRequest(request.id, (current) => {
+      const cur = current as { github?: Record<string, unknown>; applyRun?: { runId?: number; url?: string } }
+      const runId = applyRunId ?? cur.applyRun?.runId
+      const patch = runId != null ? buildWorkflowDispatchPatch(current as Record<string, unknown>, "apply", runId, applyRunUrl ?? cur.applyRun?.url) : {}
+      const applyPayload = {
+        runId: applyRunId ?? cur.applyRun?.runId,
+        url: applyRunUrl ?? cur.applyRun?.url,
+        status: "in_progress" as const,
+      }
+      const nowIso = (patch as { updatedAt?: string }).updatedAt ?? new Date().toISOString()
+      return {
+        ...current,
+        ...patch,
+        applyTriggeredAt: nowIso,
+        applyRunId: applyRunId ?? (current as { applyRunId?: number }).applyRunId,
+        applyRunUrl: applyRunUrl ?? (current as { applyRunUrl?: string }).applyRunUrl,
+        applyRun: { ...(cur.applyRun ?? {}), ...applyPayload },
+      }
+    })
     const releasePatch = releaseLock(afterApply as RequestDocWithLock, holder)
     if (releasePatch) {
       await updateRequest(request.id, (c) => ({ ...c, ...releasePatch }))
+    }
+    if (applyRunId != null) {
+      persistWorkflowDispatchIndex(request.id, "apply", applyRunId)
     }
 
     await logLifecycleEvent({

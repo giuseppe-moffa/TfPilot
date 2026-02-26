@@ -17,7 +17,8 @@ import {
   type PullRequestReviewWebhookPayload,
   type WorkflowRunWebhookPayload,
 } from "@/lib/requests/patchRequestFacts"
-import { updateRequest } from "@/lib/storage/requestsStore"
+import { getRequestIdByDestroyRunId, updateRequest } from "@/lib/storage/requestsStore"
+import { getRequestIdByRunId, getRequestIdByDestroyRunIdIndexed } from "@/lib/requests/runIndex"
 import { appendStreamEvent } from "@/lib/github/streamState"
 import { env } from "@/lib/config/env"
 
@@ -80,26 +81,58 @@ export async function POST(req: NextRequest) {
       }
     }
   } else if (event === "workflow_run") {
-    const correlated = correlateWorkflowRun(payload as WorkflowRunCorrelationPayload)
+    const kind = classifyWorkflowRun(payload as WorkflowRunWebhookPayload)
+    const wr = (payload as WorkflowRunWebhookPayload).workflow_run
+    // Prefer runId-based correlation for all kinds (O(1) index first, then fallbacks)
+    let correlated: { requestId?: string }
+    if (kind != null && wr?.id != null) {
+      const requestIdIndexed = await getRequestIdByRunId(kind, wr.id)
+      if (requestIdIndexed != null && process.env.DEBUG_WEBHOOKS === "1") {
+        console.log(
+          "event=webhook.resolve scope=index kind=%s runId=%s requestId=%s",
+          kind,
+          String(wr.id),
+          requestIdIndexed
+        )
+      }
+      let requestIdByRunId: string | null = requestIdIndexed
+      if (requestIdByRunId == null && kind === "destroy") {
+        requestIdByRunId = await getRequestIdByDestroyRunId(wr.id)
+      }
+      correlated = requestIdByRunId
+        ? { requestId: requestIdByRunId }
+        : correlateWorkflowRun(payload as WorkflowRunCorrelationPayload)
+    } else {
+      correlated = correlateWorkflowRun(payload as WorkflowRunCorrelationPayload)
+    }
     if (!correlated.requestId) {
       await recordDelivery(deliveryId, event ?? "unknown")
       return NextResponse.json({ ok: true })
     }
-    const kind = classifyWorkflowRun(payload as WorkflowRunWebhookPayload)
     if (kind == null) {
+      if (process.env.DEBUG_WEBHOOKS === "1") {
+        console.log(
+          "event=webhook.workflow_run.unknown runId=%s name=%s displayTitle=%s",
+          String(wr?.id ?? ""),
+          wr?.name ?? "",
+          wr?.display_title ?? ""
+        )
+      }
       await recordDelivery(deliveryId, event ?? "unknown")
       return NextResponse.json({ ok: true })
     }
     try {
-      await updateRequest(correlated.requestId, (current) =>
-        patchWorkflowRun(current, kind, payload as WorkflowRunWebhookPayload)
-      )
-      await appendStreamEvent({
-        requestId: correlated.requestId,
-        updatedAt: new Date().toISOString(),
-        type: event ?? "workflow_run",
-      }).catch(() => {})
-      const wr = (payload as WorkflowRunWebhookPayload).workflow_run
+      const [, saved] = await updateRequest(correlated.requestId, (current) => {
+        const patch = patchWorkflowRun(current, kind, payload as WorkflowRunWebhookPayload)
+        return Object.keys(patch).length === 0 ? current : { ...current, ...patch }
+      })
+      if (saved) {
+        await appendStreamEvent({
+          requestId: correlated.requestId,
+          updatedAt: new Date().toISOString(),
+          type: event ?? "workflow_run",
+        }).catch(() => {})
+      }
       if (
         kind === "destroy" &&
         wr?.status === "completed" &&
@@ -107,7 +140,7 @@ export async function POST(req: NextRequest) {
         wr?.id != null
       ) {
         const runId = wr.id
-        const updated = await updateRequest(correlated.requestId, (current) => {
+        const [updated] = await updateRequest(correlated.requestId, (current) => {
           if (
             current.github?.cleanupTriggeredForDestroyRunId === runId &&
             current.github?.cleanupDispatchStatus === "dispatched"

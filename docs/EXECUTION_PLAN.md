@@ -1,5 +1,7 @@
 # TfPilot EXECUTION PLAN
 
+**Doc index:** [docs/DOCS_INDEX.md](DOCS_INDEX.md). This file is the roadmap (referenced by .cursor rules).
+
 ## Mission
 
 TfPilot is an AI-driven Terraform orchestration platform that provides safe, deterministic infrastructure workflows through a GitHub-native lifecycle.

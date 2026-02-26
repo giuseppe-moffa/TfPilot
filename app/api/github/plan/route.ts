@@ -9,6 +9,7 @@ import { withCorrelation } from "@/lib/observability/correlation"
 import { logError, logInfo, logWarn } from "@/lib/observability/logger"
 import { getIdempotencyKey, assertIdempotentOrRecord, ConflictError } from "@/lib/requests/idempotency"
 import { acquireLock, releaseLock, LockConflictError, type RequestDocWithLock } from "@/lib/requests/lock"
+import { buildWorkflowDispatchPatch, persistWorkflowDispatchIndex } from "@/lib/requests/persistWorkflowDispatch"
 
 export async function POST(req: NextRequest) {
   const start = Date.now()
@@ -144,23 +145,32 @@ export async function POST(req: NextRequest) {
       /* ignore */
     }
 
-    const afterPlan = await updateRequest(request.id, (current) => ({
-      workflowRunId: workflowRunId ?? current.workflowRunId,
-      planRunId: workflowRunId ?? current.planRunId,
-      planRunUrl: workflowRunUrl ?? current.planRunUrl,
-      planHeadSha: planHeadSha ?? current.planHeadSha,
-      planRun: {
-        ...(current.planRun ?? {}),
-        runId: workflowRunId ?? current.planRun?.runId,
-        url: workflowRunUrl ?? current.planRun?.url,
-        headSha: planHeadSha ?? current.planRun?.headSha,
-        status: "in_progress",
-      },
-      updatedAt: new Date().toISOString(),
-    }))
+    const [afterPlan] = await updateRequest(request.id, (current) => {
+      const cur = current as { github?: Record<string, unknown>; planRun?: { runId?: number; url?: string; headSha?: string } }
+      const runId = workflowRunId ?? cur.planRun?.runId
+      const patch = runId != null ? buildWorkflowDispatchPatch(current as Record<string, unknown>, "plan", runId, workflowRunUrl ?? cur.planRun?.url) : {}
+      const planPayload = {
+        runId: workflowRunId ?? cur.planRun?.runId,
+        url: workflowRunUrl ?? cur.planRun?.url,
+        headSha: planHeadSha ?? cur.planRun?.headSha,
+        status: "in_progress" as const,
+      }
+      return {
+        ...current,
+        ...patch,
+        workflowRunId: workflowRunId ?? (current as { workflowRunId?: number }).workflowRunId,
+        planRunId: workflowRunId ?? (current as { planRunId?: number }).planRunId,
+        planRunUrl: workflowRunUrl ?? (current as { planRunUrl?: string }).planRunUrl,
+        planHeadSha: planHeadSha ?? (current as { planHeadSha?: string }).planHeadSha,
+        planRun: { ...(cur.planRun ?? {}), ...planPayload },
+      }
+    })
     const releasePatch = releaseLock(afterPlan as RequestDocWithLock, holder)
     if (releasePatch) {
       await updateRequest(request.id, (c) => ({ ...c, ...releasePatch }))
+    }
+    if (workflowRunId != null) {
+      persistWorkflowDispatchIndex(request.id, "plan", workflowRunId)
     }
 
     return NextResponse.json({ ok: true, workflowRunId, workflowRunUrl })

@@ -40,6 +40,8 @@ export type RequestLike = {
       destroy?: RunInfo
       cleanup?: RunInfo
     }
+    /** Set when destroy workflow is dispatched; used to timeout stuck "destroying" state. */
+    destroyTriggeredAt?: string
   }
   planRun?: RunInfo
   applyRun?: RunInfo
@@ -48,6 +50,9 @@ export type RequestLike = {
   /** Set by merge route when GitHub merge succeeds; ensures derived status is "merged" immediately. */
   mergedSha?: string
 }
+
+/** Minutes after destroyTriggeredAt with no conclusion → treat as failed (avoid stuck "destroying"). */
+export const DESTROY_STALE_MINUTES = 15
 
 const FAILED_CONCLUSIONS = [
   "failure",
@@ -71,15 +76,25 @@ export function deriveLifecycleStatus(request: RequestLike | null | undefined): 
   const destroyRun = request.github?.workflows?.destroy ?? request.destroyRun
   const { approval } = request
 
-  // 1. Destroy lifecycle: "destroyed" only when run is completed with success; never treat missing conclusion as success
-  if (destroyRun?.status === "in_progress" || destroyRun?.status === "queued") {
-    return "destroying"
+  // 1. Destroy lifecycle: conclusion overrides status; only "destroying" when runId matches and not stale
+  if (destroyRun?.conclusion && FAILED_CONCLUSIONS.includes(destroyRun.conclusion as any)) {
+    return "failed"
   }
-  if (destroyRun?.status === "completed") {
-    if (destroyRun.conclusion === "success") return "destroyed"
-    if (destroyRun.conclusion && FAILED_CONCLUSIONS.includes(destroyRun.conclusion as any)) {
-      return "failed"
+  if (destroyRun?.conclusion === "success") {
+    return "destroyed"
+  }
+  // In-progress/queued with no conclusion: only "destroying" if tracked runId and not timed out
+  const destroyTriggeredAt = request.github?.destroyTriggeredAt
+  const trackedRunId = destroyRun?.runId
+  const statusActive = destroyRun?.status === "in_progress" || destroyRun?.status === "queued"
+  if (statusActive && destroyRun?.conclusion == null) {
+    if (destroyTriggeredAt && trackedRunId != null) {
+      const triggeredMs = new Date(destroyTriggeredAt).getTime()
+      if (!isNaN(triggeredMs) && Date.now() - triggeredMs > DESTROY_STALE_MINUTES * 60 * 1000) {
+        return "failed"
+      }
     }
+    return "destroying"
   }
 
   // 2. Apply run failed
@@ -119,4 +134,32 @@ export function deriveLifecycleStatus(request: RequestLike | null | undefined): 
   }
 
   return "request_created"
+}
+
+/**
+ * True when the destroy run has a failed conclusion (same source and set as deriveLifecycleStatus).
+ * Use in UI for "Destroy failed" state and Retry destroy button.
+ */
+export function isDestroyRunFailed(request: RequestLike | null | undefined): boolean {
+  if (!request) return false
+  const destroyRun = request.github?.workflows?.destroy ?? request.destroyRun
+  const conclusion = destroyRun?.conclusion
+  if (!conclusion) return false
+  return (FAILED_CONCLUSIONS as readonly string[]).includes(conclusion)
+}
+
+/**
+ * True when destroy was triggered (destroyTriggeredAt set), run is still in_progress/queued with no conclusion,
+ * and more than DESTROY_STALE_MINUTES have passed. Use in UI to show "Repair" CTA and treat as not actively destroying.
+ */
+export function isDestroyRunStale(request: RequestLike | null | undefined): boolean {
+  if (!request) return false
+  const destroyRun = request.github?.workflows?.destroy ?? request.destroyRun
+  const destroyTriggeredAt = request.github?.destroyTriggeredAt
+  if (!destroyTriggeredAt || destroyRun?.conclusion != null) return false
+  const statusActive = destroyRun?.status === "in_progress" || destroyRun?.status === "queued"
+  if (!statusActive || destroyRun?.runId == null) return false
+  const triggeredMs = new Date(destroyTriggeredAt).getTime()
+  if (isNaN(triggeredMs)) return false
+  return Date.now() - triggeredMs > DESTROY_STALE_MINUTES * 60 * 1000
 }

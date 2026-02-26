@@ -1,6 +1,8 @@
-# TfPilot SYSTEM OVERVIEW
+# TfPilot system overview
 
-## What TfPilot Is
+**Doc index:** [docs/DOCS_INDEX.md](DOCS_INDEX.md).
+
+## What TfPilot is
 
 TfPilot is a Terraform self-service platform that turns guided user requests into deterministic Terraform changes delivered through GitHub pull requests and executed via GitHub Actions.
 
@@ -8,170 +10,79 @@ TfPilot is a Terraform self-service platform that turns guided user requests int
 
 ---
 
-## High-Level Flow
+## Architecture (ASCII)
 
-1. User selects **project + environment + module** in the UI.
-2. Chat agent gathers module inputs and produces **structured config JSON**.
-3. TfPilot persists the request to **S3** (`requests/<requestId>.json`) using optimistic versioning.
-4. TfPilot generates a bounded Terraform block into the target infra repo file(s) and opens a **PR**.
-5. GitHub Actions runs **plan** and publishes output.
-6. User (or approver) approves → merge → apply.
-7. Optional: destroy triggers a cleanup PR, then destroy. Request is archived to `history/`.
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     TfPilot (Next.js)                             │
+│  ┌────────────┐  ┌─────────────┐  ┌────────────┐  ┌─────────────┐  │
+│  │ App Router │  │ API Routes │  │ Auth       │  │ SSE stream  │  │
+│  │ (pages)    │  │ (requests, │  │ (session,  │  │ (updates)   │  │
+│  │            │  │  github,   │  │  roles)    │  │             │  │
+│  │            │  │  sync)     │  │            │  │             │  │
+│  └─────┬──────┘  └─────┬─────┘  └─────┬──────┘  └──────┬──────┘  │
+│        │                │              │                │         │
+│        └────────────────┼──────────────┼────────────────┘         │
+│                          │              │                          │
+│  ┌───────────────────────┴──────────────┴───────────────────────┐│
+│  │  S3 (requests bucket)                                         ││
+│  │  requests/<id>.json  history/<id>.json  logs/  run-index/     ││
+│  └───────────────────────────────┬──────────────────────────────┘│
+└──────────────────────────────────┼─────────────────────────────────┘
+                                   │
+        ┌──────────────────────────┼──────────────────────────┐
+        │  GitHub                  │                         │
+        │  PRs, branches, workflow_run / pull_request       │
+        │  webhooks → POST /api/github/webhook              │
+        │  Actions: plan, apply, destroy, cleanup, drift_plan│
+        └──────────────────────────────────────────────────┘
+```
+
+---
+
+## Components
+
+| Component | Role |
+|-----------|------|
+| **Next.js UI** | Request list (filters, dataset modes), request detail (timeline, actions, plan diff), new request form, assistant. SWR + optional SSE for freshness. |
+| **API routes** | Request CRUD, sync (repair/hydrate), approve, merge, apply, destroy, webhook receiver, drift-eligible/drift-result, assistant state, logs. |
+| **S3 request storage** | `requests/<requestId>.json` (optimistic `version`). Destroyed → `history/<requestId>.json`. Lifecycle logs `logs/<requestId>/<ts>.json`. Run index under `webhooks/github/run-index/<kind>/`. |
+| **GitHub workflows** | Plan, apply, destroy, cleanup, drift_plan (infra repos). Dispatched by TfPilot; concurrency per env/state group. |
+| **Webhooks** | `pull_request`, `pull_request_review`, `workflow_run` → correlate to request, patch facts only, push SSE event. |
+| **SSE** | Server pushes `{ requestId, updatedAt }` on webhook patches so UI can revalidate without polling. |
+
+---
+
+## Data model (request shape)
+
+- **Identity:** `id`, `version` (optimistic lock).
+- **Target:** `targetOwner`, `targetRepo`, `branchName`, `targetFiles`, env/module/project.
+- **PR:** `pr` or `github.pr` (number, url, merged, headSha, open).
+- **Workflow runs:** `github.workflows.plan | apply | destroy | cleanup` (and legacy top-level `planRun`, `applyRun`, `destroyRun`): `runId`, `status`, `conclusion`, `headSha`, `url`, etc. `destroyTriggeredAt` for stale-destroy handling.
+- **Approval:** `approval.approved`, `approval.approvers`.
+- **Merge:** `mergedSha` (set by merge route).
+- **Cleanup:** `cleanupPr`, `timeline` (steps including Cleanup PR opened/merged).
+- **Status:** Not stored authoritatively; derived by `deriveLifecycleStatus(request)` (see REQUEST_LIFECYCLE.md).
 
 ---
 
 ## Repositories
 
-### 1) Platform Repo (TfPilot App)
-- **Next.js (App Router)** UI + API routes
-- Responsible for:
-  - auth/session validation
-  - request orchestration
-  - S3 request + chat log storage
-  - GitHub PR creation + workflow dispatch
-  - UI timeline and actions
-
-### 2) Infra Repos (Per Project)
-Examples: `core-terraform`, `payments-terraform`
-
-- Contain:
-  - `envs/dev|prod` root configurations
-  - `modules/` catalogue (module source used by request blocks)
-  - `.github/workflows` plan/apply/destroy/cleanup
-
-TfPilot writes only bounded blocks into files like:
-- `tfpilot.s3.tf`
-- `tfpilot.sqs.tf`
-- `tfpilot.ecs.tf`
-- `tfpilot.misc.tf`
-
-Each request is enclosed by:
-- `# --- tfpilot:begin:<requestId> ---`
-- `# --- tfpilot:end:<requestId> ---`
+- **Platform repo (TfPilot):** This app. Next.js, API, S3, GitHub API, webhooks, SSE.
+- **Infra repos (per project):** e.g. `core-terraform`, `payments-terraform`. Contain `envs/dev|prod`, `modules/`, `.github/workflows` (plan, apply, destroy, cleanup, drift-plan). TfPilot writes only bounded blocks between `# --- tfpilot:begin:<requestId> ---` and `# --- tfpilot:end:<requestId> ---`.
 
 ---
 
-## Storage Model
+## Invariants
 
-### Requests Bucket
-- `s3://<TFPILOT_REQUESTS_BUCKET>/requests/<requestId>.json`
-- Destroyed requests archived to:
-  - `history/<requestId>.json`
-- Uses **optimistic locking** via a `version` field (increment-on-write semantics).
-
-### Chat Logs Bucket
-- `s3://<TFPILOT_CHAT_LOGS_BUCKET>/...`
-- Enforced encryption (SSE-S3).
+- Terraform runs **only** in GitHub Actions.
+- Requests are persisted in S3; no hidden local state.
+- TfPilot edits only content between tfpilot markers.
+- Status is **derived** from facts (PR, runs, approval); webhooks and sync patch **facts**, not status.
+- GitHub is the execution boundary and source of truth for runs.
 
 ---
 
-## Auth & Guardrails
+## Glossary
 
-### Session/Auth
-- Session cookie validated in middleware
-- API routes require valid session
-
-### Prod Guardrail
-- Production actions gated by:
-  - `TFPILOT_PROD_ALLOWED_USERS` (GitHub usernames allow-list)
-- Applies to: approve/merge/apply/destroy/cleanup dispatch
-
----
-
-## Module Catalogue
-
-### moduleRegistry (Single Source of Truth)
-- Defines module types, UI display, required inputs and defaults
-- Should drive:
-  - UI module list/buttons
-  - backend validation
-  - config normalization schema (required/optional/defaults/strip/compute)
-
-### Terraform Modules
-- Stored in infra repos under:
-  - `modules/<module-type>`
-- Referenced from env roots with:
-  - `source = "../../modules/<module-type>"` (from `envs/<env>`)
-
----
-
-## GitHub Integration
-
-### PR Automation
-- Creates branch: `request/<requestId>`
-- Commits Terraform file updates
-- Opens PR against base branch (usually `main`)
-
-### Workflow Dispatch
-- Dispatches workflows via GitHub API:
-  - Plan
-  - Apply
-  - Destroy
-  - Cleanup
-
-### Concurrency
-- Shared concurrency per **project + env + request** to prevent overlapping runs and state locks.
-
----
-
-## Workflows
-
-### Plan
-- `terraform init` with S3 backend + DynamoDB locking
-- `terraform plan -no-color | tee plan.txt`
-- Upload `plan.txt` as artifact
-- Record run metadata back to request (runId/url/status/conclusion)
-
-### Apply
-- Requires merged PR
-- Prod guarded
-- Records run metadata back to request
-
-### Cleanup
-- Creates `cleanup/<requestId>` branch
-- Removes only the TfPilot bounded block(s)
-- Opens PR; can auto-merge in dev
-
-### Destroy
-- Runs cleanup first, then destroys resources
-- Prod guarded
-- Archives request to `history/`
-
----
-
-## UI
-
-### Main Views
-- Requests table with filters: status/env/module/project/search
-- Request detail page:
-  - timeline
-  - actions (approve/merge/apply/destroy/cleanup)
-  - plan output (from artifact / PR run)
-  - run links (Actions URLs)
-
-### Polling
-- SWR used for list and per-request refresh
-- Requirement: avoid flicker by only updating a small status slice when fields change
-
----
-
-## Observability
-
-### Current
-- UI polling for freshness
-- Status surfaced for plan/apply/destroy and cleanup PR
-
-### Gaps / Next
-- Structured lifecycle event logs (JSON)
-- Notifications (Slack/email)
-- Health endpoint + metrics endpoint
-- Drift detection
-
----
-
-## Key Invariants
-
-- Terraform is executed only in GitHub Actions (no local state in app).
-- Requests are persisted in S3; UI derives state from request JSON + GitHub run status.
-- TfPilot only edits bounded sections of infra files.
-- Modules are deterministic; AI only collects inputs.
+See **docs/GLOSSARY.md** for workflow kinds, canonical statuses, and Repair.

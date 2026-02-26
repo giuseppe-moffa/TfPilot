@@ -87,23 +87,29 @@ export async function getRequest(requestId: string) {
 /**
  * Read, mutate, and persist a request with optimistic locking based on the
  * stored version. If the request does not exist, an error is thrown.
+ * When mutate returns the same reference as current, no write is performed (idempotent no-op).
+ * @returns [request, saved] — saved is false when no write was performed.
  */
 export async function updateRequest(
   requestId: string,
   mutate: (request: any) => any
-) {
+): Promise<[request: any, saved: boolean]> {
   const current = await getRequest(requestId)
   if (!current) {
     throw new Error("Request not found")
   }
 
-  const currentVersion = typeof current.version === "number" ? current.version : 0
   const next = mutate(current)
+  if (next === current) {
+    return [current, false]
+  }
+
+  const currentVersion = typeof current.version === "number" ? current.version : 0
   const nextVersion = (next?.version ?? currentVersion) + 1
   const payload = { ...current, ...next, version: nextVersion }
 
   await saveRequest(payload, { expectedVersion: currentVersion })
-  return payload
+  return [payload, true]
 }
 
 export async function archiveRequest(request: any) {
@@ -128,4 +134,22 @@ export async function listRequests(limit = 50) {
     results.push(JSON.parse(body))
   }
   return results
+}
+
+/** Max requests to scan when resolving by destroy runId (webhook correlation). */
+const LIST_LIMIT_FOR_RUN_ID_LOOKUP = 500
+
+/**
+ * Find request id that has the given destroy run id (github.workflows.destroy.runId or destroyRun.runId).
+ * Used by workflow_run webhook to prefer runId-based correlation for destroy completions.
+ */
+export async function getRequestIdByDestroyRunId(runId: number): Promise<string | null> {
+  const requests = await listRequests(LIST_LIMIT_FOR_RUN_ID_LOOKUP)
+  for (const r of requests) {
+    const destroyRunId =
+      (r as { github?: { workflows?: { destroy?: { runId?: number } } } }).github?.workflows?.destroy?.runId ??
+      (r as { destroyRun?: { runId?: number } }).destroyRun?.runId
+    if (destroyRunId === runId) return (r as { id: string }).id
+  }
+  return null
 }

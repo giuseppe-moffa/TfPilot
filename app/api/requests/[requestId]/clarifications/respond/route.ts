@@ -6,6 +6,7 @@ import { getSessionFromCookies } from "@/lib/auth/session"
 import { getRequest, updateRequest } from "@/lib/storage/requestsStore"
 import { buildResourceName } from "@/lib/requests/naming"
 import { env } from "@/lib/config/env"
+import { normalizeName, validateResourceName } from "@/lib/validation/resourceName"
 
 type PatchOp = { op: "set" | "unset"; path: string; value?: unknown }
 
@@ -117,15 +118,6 @@ function appendRequestIdToNames(config: Record<string, unknown>, requestId: stri
 }
 
 function validatePolicy(config: Record<string, unknown>) {
-  const name =
-    typeof config.name === "string" && config.name.trim()
-      ? (config.name as string).trim()
-      : undefined
-
-  if (name && !/^[a-z0-9-]{3,63}$/i.test(name)) {
-    throw new Error("Resource name must be 3-63 chars, alphanumeric and dashes only")
-  }
-
   if (env.TFPILOT_ALLOWED_REGIONS.length > 0) {
     const regionCandidate =
       (typeof config.aws_region === "string" && config.aws_region) ||
@@ -313,6 +305,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
     for (const op of patchOps) {
       applyPatchToConfig(nextConfig, op)
     }
+    if (typeof nextConfig.name === "string") {
+      nextConfig.name = normalizeName(nextConfig.name)
+    }
 
     const finalConfig = buildModuleConfig(regEntry, nextConfig, {
       requestId: baseRequest.id,
@@ -321,9 +316,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
     })
 
     appendRequestIdToNames(finalConfig, baseRequest.id)
+    const nameVal = typeof finalConfig.name === "string" ? finalConfig.name : ""
+    if (nameVal) {
+      const nameResult = validateResourceName(nameVal)
+      if (!nameResult.ok) {
+        return NextResponse.json({ fieldErrors: { name: nameResult.error } }, { status: 400 })
+      }
+    }
     validatePolicy(finalConfig)
 
-    const updated = await updateRequest(requestId, (current) => {
+    const [updated] = await updateRequest(requestId, (current) => {
       const withAssistant = ensureAssistantState(current)
       const appliedLog = {
         ts: new Date().toISOString(),

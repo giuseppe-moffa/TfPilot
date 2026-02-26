@@ -157,6 +157,7 @@ export type WorkflowRunWebhookPayload = {
   workflow_run?: {
     id?: number
     name?: string
+    display_title?: string
     status?: string
     conclusion?: string | null
     head_sha?: string
@@ -167,11 +168,10 @@ export type WorkflowRunWebhookPayload = {
   }
 }
 
-/** Partial request update: github.workflows[kind] + updatedAt. Merge as-is. */
-export type PatchWorkflowRunResult = {
-  github: { workflows: Partial<Record<WorkflowKind, RunFact>> }
-  updatedAt: string
-}
+/** Partial request update: github.workflows[kind] + updatedAt. Merge as-is. Empty object = no-op (idempotent). */
+export type PatchWorkflowRunResult =
+  | { github: { workflows: Partial<Record<WorkflowKind, RunFact>> }; updatedAt: string }
+  | Record<string, never>
 
 function parseIso(iso: string | undefined): number {
   if (!iso) return 0
@@ -181,8 +181,11 @@ function parseIso(iso: string | undefined): number {
 
 /**
  * Returns a partial update with github.workflows[kind] set from payload.
- * Monotonic: (1) if existing same kind is in_progress/queued and incoming is older -> keep existing;
- * (2) if existing is completed and incoming is in_progress for same runId -> keep existing.
+ * Monotonic guards (no regression from out-of-order webhooks):
+ * - If existing.conclusion != null: ignore incoming event where conclusion == null.
+ * - If existing.status === "completed": ignore incoming status in_progress or queued.
+ * - If existing in_progress/queued and incoming is older (by updated_at): keep existing.
+ * Always allowed: null → in_progress, null → completed, in_progress → completed.
  */
 export function patchWorkflowRun(
   current: CurrentRequest,
@@ -192,6 +195,23 @@ export function patchWorkflowRun(
   const run = payload?.workflow_run
   const updatedAt = nowIso()
   const existing = current.github?.workflows?.[kind]
+
+  // Only write onto the request when runId matches tracked run (prevents cross-request pollution for all kinds)
+  const cur = current as {
+    github?: { workflows?: Partial<Record<WorkflowKind, RunFact>> }
+    planRun?: { runId?: number }
+    applyRun?: { runId?: number }
+    destroyRun?: { runId?: number }
+  }
+  const trackedRunId =
+    cur.github?.workflows?.[kind]?.runId ??
+    (kind === "plan" ? cur.planRun?.runId : kind === "apply" ? cur.applyRun?.runId : kind === "destroy" ? cur.destroyRun?.runId : undefined)
+  if (run?.id != null && trackedRunId != null && trackedRunId !== run.id) {
+    return {
+      github: { ...current.github, workflows: { ...current.github?.workflows } },
+      updatedAt,
+    }
+  }
 
   const runFact: RunFact = {
     runId: run?.id ?? existing?.runId,
@@ -204,12 +224,29 @@ export function patchWorkflowRun(
     attempt: run?.run_attempt ?? existing?.attempt,
   }
 
+  const incomingActive =
+    runFact.status === "in_progress" || runFact.status === "queued"
+
+  // Monotonic: never overwrite a concluded run with an event that has no conclusion (out-of-order)
+  if (existing?.conclusion != null && run?.conclusion == null) {
+    return {
+      github: { ...current.github, workflows: { ...current.github?.workflows } },
+      updatedAt,
+    }
+  }
+
+  // Monotonic: never overwrite completed with in_progress or queued (out-of-order webhook)
+  if (existing?.status === "completed" && incomingActive) {
+    return {
+      github: { ...current.github, workflows: { ...current.github?.workflows } },
+      updatedAt,
+    }
+  }
+
   const incomingUpdated = parseIso(run?.updated_at)
   const existingUpdated = parseIso(existing?.updatedAt)
   const existingActive =
     existing?.status === "in_progress" || existing?.status === "queued"
-  const incomingActive =
-    runFact.status === "in_progress" || runFact.status === "queued"
   const existingCompleted = existing?.status === "completed"
   const sameRunId = existing?.runId != null && run?.id != null && existing.runId === run.id
 
@@ -230,6 +267,15 @@ export function patchWorkflowRun(
       github: { ...current.github, workflows: { ...current.github?.workflows } },
       updatedAt,
     }
+  }
+
+  // Idempotency: skip write when status, conclusion, runId already match (duplicate webhook delivery)
+  if (
+    existing?.status === runFact.status &&
+    existing?.conclusion === runFact.conclusion &&
+    existing?.runId === runFact.runId
+  ) {
+    return {}
   }
 
   const workflows = { ...current.github?.workflows, [kind]: runFact }
