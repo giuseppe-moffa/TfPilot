@@ -46,7 +46,7 @@ TfPilot is a Terraform self-service platform that turns guided user requests int
 |-----------|------|
 | **Next.js UI** | Request list (filters, dataset modes), request detail (timeline, actions, plan diff), new request form, assistant. SWR + optional SSE for freshness. |
 | **API routes** | Request CRUD, sync (repair/hydrate), approve, merge, apply, destroy, webhook receiver, drift-eligible/drift-result, assistant state, logs. |
-| **S3 request storage** | `requests/<requestId>.json` (optimistic `version`). Destroyed → `history/<requestId>.json`. Lifecycle logs `logs/<requestId>/<ts>.json`. Run index under `webhooks/github/run-index/<kind>/`. |
+| **S3 request storage** | `requests/<requestId>.json` (optimistic `version`). Destroyed → `history/<requestId>.json`. Lifecycle logs `logs/<requestId>/<ts>.json`. Run index: `webhooks/github/run-index/<kind>/` (see **docs/RUN_INDEX.md**). |
 | **GitHub workflows** | Plan, apply, destroy, cleanup, drift_plan (infra repos). Dispatched by TfPilot; concurrency per env/state group. |
 | **Webhooks** | `pull_request`, `pull_request_review`, `workflow_run` → correlate to request, patch facts only, push SSE event. |
 | **SSE** | Server pushes `{ requestId, updatedAt }` on webhook patches so UI can revalidate without polling. |
