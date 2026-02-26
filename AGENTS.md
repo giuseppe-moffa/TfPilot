@@ -28,6 +28,8 @@ The app starts at `http://localhost:3000`. A `.env.local` file is required (copy
 
 - **No database**: All data is stored in AWS S3. There is no migration step.
 - **Lint errors are pre-existing**: `npm run lint` exits with code 1 due to ~143 `@typescript-eslint/no-explicit-any` errors and ~49 warnings already in the codebase. This is expected.
-- **Auth requires real GitHub OAuth**: The login flow redirects to GitHub. With placeholder credentials, the "Continue with GitHub" button will fail at GitHub's OAuth endpoint. To test authenticated flows, real `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` must be provided.
+- **Auth requires real GitHub OAuth**: The login flow redirects to GitHub. With placeholder credentials, the "Continue with GitHub" button will fail at GitHub's OAuth endpoint. To test authenticated flows, real `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` must be provided as environment variables (they get written into `.env.local`). The OAuth app name shown at GitHub is "TfPilotProd".
+- **Secrets go in `.env.local`**: Next.js `.env.local` does not support shell-style `${VAR}` expansion. Values must be written literally. When secrets are injected as environment variables, generate `.env.local` by echoing each `KEY=value` line.
 - **Next.js 16 uses Turbopack** by default for `next dev`.
 - **Package manager is npm** (lockfile: `package-lock.json`). Do not use pnpm or yarn.
+- **No automated test suite**: The codebase has no jest/vitest/playwright config. Validation is limited to `npm run lint`, `npm run build`, and manual testing.
