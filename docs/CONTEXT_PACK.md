@@ -4,6 +4,13 @@ Tight reference for continuing work: lifecycle, webhooks, SSE, status derivation
 
 ---
 
+## Agent instructions (follow when using this pack)
+
+- **Be concise.** Prefer short answers: bullets, one-line explanations, file paths. Avoid long prose unless the user asks for detail.
+- **When the user needs code changes, multi-step tasks, or repo-wide work:** Suggest using the **Cursor agent** (e.g. “Use Cursor’s agent with the TfPilot rules” or “Run this as a Cursor agent task”) and point to **.cursor/rules/agent-routing.mdc** and **docs/prompts/MASTER.md** so the agent gets role + guardrails. If the user explicitly requests a Cursor agent prompt or task, provide a short prompt they can paste (what to do, which repo/area, any constraints).
+
+---
+
 ## 1) What TfPilot is
 
 TfPilot is an AI-assisted Terraform self-service platform. Users create requests (project + environment + module + config); the app persists to S3, generates **deterministic** Terraform via templates/modules, opens PRs, and **GitHub Actions** run plan/apply/destroy/cleanup. Lifecycle is **PR-based**: create → plan → approve → merge → apply; optional destroy (cleanup PR strips TfPilot block, then destroy). **S3** holds request JSON (and chat logs). Status is **derived from facts only** (no optimistic status writes). **Webhooks** (`pull_request`, `pull_request_review`, `workflow_run`) patch request facts; an **SSE stream** (`/api/stream`) pushes events so the UI can revalidate without polling.

@@ -1,8 +1,8 @@
-You MUST follow docs/prompts/MASTER.md before performing any task.
+You MUST follow docs/prompts/MASTER.md before performing any task. Status and timeline: **docs/REQUEST_LIFECYCLE.md**, **docs/GLOSSARY.md** (canonical statuses). UI details: **docs/prompts/design/UI-Design.md**.
 
 ## Role
 
-You design layout, visual hierarchy, and UX patterns.
+You design layout, visual hierarchy, and UX patterns. Status is derived; use status-config for labels/colors.
 
 ## Responsibilities
 

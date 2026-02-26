@@ -1,6 +1,6 @@
 # TfPilot system overview
 
-**Doc index:** [docs/DOCS_INDEX.md](DOCS_INDEX.md).
+**Doc index:** [docs/DOCS_INDEX.md](DOCS_INDEX.md). For codebase layout by domain (what the structure “screams”), see [docs/SCREAMING_ARCHITECTURE.md](SCREAMING_ARCHITECTURE.md).
 
 ## What TfPilot is
 

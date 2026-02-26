@@ -1,60 +1,44 @@
-# tfplan — Internal Design Document
+# TfPilot — Internal Design
 
-## System Overview
+## System overview
 
-tfplan is an agentic infrastructure automation platform where multiple AI agents collaborate under a central controller. The architecture follows a **supervisor-first** pattern: a Master Superprompt (acting as a supervisor agent) receives user goals and delegates tasks to specialized agents. The Terraform Generator Agent handles creating new infrastructure code, the Terraform Modules Agent manages reusable component libraries, and the GitHub Worker Agent automates code repository tasks. Agents operate with awareness of the real infrastructure state (Terraform state, cloud environment) so that changes are applied consistently. This design resembles a distributed engineering team, where each agent has a domain expertise, and the Master enforces a research-first, safety-first doctrine.
+TfPilot is an AI-assisted Terraform self-service platform. **AI collects inputs; templates generate Terraform.** Terraform runs only in GitHub Actions; the app orchestrates request lifecycle, S3 storage, and GitHub (PRs, workflow dispatch, webhooks). No AI-generated raw Terraform; no hidden state. Canonical docs: **docs/SYSTEM_OVERVIEW.md**, **docs/REQUEST_LIFECYCLE.md**, **docs/GITHUB_WORKFLOWS.md**, **docs/WEBHOOKS_AND_CORRELATION.md**, **docs/DOCS_INDEX.md**.
 
-## Terraform Generation Workflow
+## Request lifecycle (high level)
 
-The Terraform Generator Agent follows a structured workflow to produce infrastructure code:
+1. **Create** — User selects project, environment, module; fills config (form or assistant). App persists request to S3, creates branch `request/<requestId>`, opens PR, dispatches plan. Run index written (runId → requestId).
+2. **Plan** — Workflow runs `terraform plan -lock=false`; webhook/sync patch workflow facts. Status derived → planning → plan_ready.
+3. **Approve / Merge** — Approval and merge recorded via API and/or webhooks; facts (`approval`, `mergedSha`, `pr`) updated.
+4. **Apply** — User triggers apply; workflow runs; run index + webhook/sync update apply run. Status → applying → applied (or failed).
+5. **Destroy** (optional) — Cleanup workflow strips tfpilot blocks; destroy workflow runs. Request archived to `history/` on success.
 
-1. **Receive request:** The agent gets a high-level goal for infrastructure changes (e.g., “provision a VPC”).
-2. **Context gathering:** Retrieve the current Terraform state and environment (e.g. AWS account, region) to understand existing resources.
-3. **Plan:** Determine what new resources or changes are needed.
-4. **Code generation:** Write Terraform `.tf` files (including `variables.tf` and `outputs.tf`) implementing the plan. Use existing modules or call the Modules Agent if available.
-5. **Validation:** Run `terraform fmt` and `terraform validate` to check syntax.
-6. **Plan execution:** Execute `terraform plan` via the Terraform CLI to generate a change plan.
-7. **Output:** Provide the generated Terraform code and the plan diff to the controller or user. Abort if errors occur.
+**Status is derived only** (single entrypoint: `deriveLifecycleStatus`). Stored fields are facts (e.g. `github.workflows.plan|apply|destroy`, `pr`, `approval`). Webhooks and sync patch facts; they do not write status.
 
-This ensures the agent always plans with real context and verifies its output before proceeding.
+## Sync and webhooks
 
-## GitHub PR and CI Workflow
+- **Webhook-first:** GitHub sends pull_request, pull_request_review, workflow_run to `/api/github/webhook`. Handler correlates (run index first, then fallbacks), patches request via `patchRequestFacts`, appends to SSE stream. RunId guard: only patch when workflow_run.id matches tracked run.
+- **Run index:** S3 `webhooks/github/run-index/<kind>/run-<runId>.json` for O(1) runId→requestId. Written on plan/apply/destroy dispatch.
+- **Sync/repair:** GET `/api/requests/:id/sync` (optional `?repair=1`) fetches from GitHub when `needsRepair(request)` or forced; patches facts. No optimistic status.
+- **SSE:** Server pushes events when a request doc is written; UI subscribes and revalidates SWR. Polling is fallback (see docs/POLLING.md).
 
-The GitHub integration follows these steps:
+## GitHub workflows
 
-1. **Feature branch:** The GitHub Worker creates a new branch and commits the Terraform code to it.
-2. **Pull request:** The agent opens a PR against `main`, including a title, description, and context (e.g. request ID).
-3. **CI on PR:** The CI/CD pipeline (e.g. GitHub Actions) runs automatically on each commit to the PR. Typically it performs `terraform plan` and any tests.
-4. **Review and feedback:** Results (plan or test output) are posted as PR comments. Human reviews and approvals are required.
-5. **Merge & apply:** After all checks pass and approvals, merging the PR triggers `terraform apply` (via CI) to enact the changes.
-6. **Post-merge:** The agent verifies deployment success and updates the PR status or comments with final results.
+- **Concurrency:** Apply/destroy serialized per environment (state group); plan/cleanup per request. Plan and drift-plan use `-lock=false`.
+- **Workflow kinds:** plan, apply, destroy, cleanup, drift_plan. Classification in lib/github/workflowClassification.ts (drift_plan before plan).
+- **Inputs:** request_id, environment, ref, dry_run as applicable. Backend config (bucket, key, dynamodb_table) must match env backend.tf.
 
-Using GitOps practices ensures every infrastructure change is reviewed and automated.
+## Storage and invariants
 
-## STS AssumeRole Model
+- **S3:** Requests `requests/<id>.json`; history `history/<id>.json`; run index; stream state; lifecycle logs.
+- **Invariants:** RunId guard; monotonic workflow facts (no regression of concluded runs); status derived; SSE only on write; apply/destroy serialized per env.
 
-tfplan employs AWS STS AssumeRole for secure, ephemeral credentials. For example, GitHub Actions workflows use OIDC to obtain tokens and assume IAM roles with branch-specific scopes. AWS IAM trust policies are configured to allow only this mechanism: they define GitHub’s OIDC provider as a trusted source and restrict role assumption by repository and branch. Similarly, any service running as an agent can assume a pre-defined role to perform actions. This model ensures credentials are short-lived and constrained by policy.
+## Security and RBAC
 
-## Multi-Tenant and RBAC Design
+- Session-based auth; prod allowlists (TFPILOT_PROD_ALLOWED_USERS, TFPILOT_DESTROY_PROD_ALLOWED_USERS). RBAC: viewer, developer, approver, admin. Webhook: signature verification and delivery idempotency.
 
-tfplan supports multiple tenants or projects with strict access controls. Each tenant’s resources are isolated (e.g. by AWS account, VPC, or workspace). User identities (via SSO or GitHub accounts) are mapped to IAM or Vault roles; agents enforce these roles so that actions are scoped per-user/project. The OIDC trust policy ensures only authorized repos/branches can assume tenant-specific roles. All agent actions are logged and auditable, maintaining a clear RBAC model.
+## Best practices
 
-## Security Model
-
-tfplan’s security model is “zero trust” and audit-driven. Agents authenticate via OIDC or Vault-issued tokens; no static credentials are used. All secrets (API keys, database passwords) are stored in Vault or GitHub Secrets, and never embedded in prompts or code. Agent actions are authorized according to corporate policies: for example, policy engines may enforce “no public S3 buckets” or least-privilege IAM before any change. Every action is logged. HashiCorp’s secure AI framework also prescribes using Vault and JWT tokens for agent identity.
-
-## Best Practices
-
-- **Research-First:** Always gather information about existing infrastructure and requirements before making changes.
-- **Plan with context:** Use the real Terraform state and environment to guide code generation.
-- **Automate validation:** Run `terraform fmt`, `terraform validate`, and CI checks on every change to enforce quality.
-- **Modular design:** Use and contribute to reusable Terraform modules, designing each module for single responsibility and reusability.
-- **CI/GitOps workflow:** Follow a GitOps pattern (plan on PR, apply on merge) with automated testing.
-- **Security-first:** Enforce policies via IAM/Vault and audit everything.
-- **Continuous improvement:** After each cycle, perform a retrospective and update agent rules and modules accordingly.
-
-## Design Rationale and Constraints
-
-We adopted a multi-agent architecture because it mirrors real-world engineering teams: distributed yet coordinated. Each agent specializes in one aspect (code gen, modules, SCM), allowing concurrent progress and modular updates. Centralizing rules in the Master Superprompt ensures consistency and safety. Using Terraform as the language provides transparency and control, but imposes structure on generated code. Agents must incorporate Terraform’s idempotence and planning; this helps mitigate AI hallucinations by cross-checking with `terraform plan`. We designed for extensibility: new agents (e.g. for Kubernetes or Helm) can be added under the same orchestration framework.
-
-Key constraints include ensuring **context-awareness** (agents cannot assume an empty environment) and **auditability** (every change must be reviewed). Handling multiple tenants increases IAM complexity, but Vault and OIDC address that. Agents are also constrained by infrastructure limits (large state size, API rate limits), so caching and incremental strategies are employed. Finally, all design choices are biased toward safety and traceability, accepting additional complexity to ensure trust and compliance.
+- **Facts only:** Patch only facts; never write optimistic status.
+- **Single derivation:** Use `deriveLifecycleStatus(request)` everywhere for status.
+- **Run index:** Write on dispatch so webhooks can correlate; preserve runId guard in patches.
+- **Docs:** Prefer canonical docs (DOCS_INDEX) over ad-hoc descriptions. Keep agent prompts and design docs aligned with SYSTEM_OVERVIEW and REQUEST_LIFECYCLE.

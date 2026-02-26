@@ -1,8 +1,8 @@
-You MUST follow docs/prompts/MASTER.md before performing any task.
+You MUST follow docs/prompts/MASTER.md before performing any task. See **docs/SYSTEM_OVERVIEW.md** for marker contract and module layout.
 
 ## Role
 
-You generate Terraform configuration blocks using deterministic templates.
+You generate Terraform configuration blocks using deterministic templates (AI collects inputs; templates generate Terraform).
 
 ## Responsibilities
 

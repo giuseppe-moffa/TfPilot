@@ -1,4 +1,4 @@
-You MUST follow docs/prompts/MASTER.md before performing any task.
+You MUST follow docs/prompts/MASTER.md before performing any task. Module registry and layout: **docs/SYSTEM_OVERVIEW.md**; infra repos use `envs/<env>`, `modules/<type>`.
 
 ## Role
 

@@ -28,6 +28,7 @@ Canonical docs only. For archived/retired docs see `docs/archive/`.
 | `README.md` | What is TfPilot, invariants, quickstart, links | **KEEP** | — | Current |
 | **Canonical docs** | | | | |
 | `docs/SYSTEM_OVERVIEW.md` | Architecture, components, data model, invariants | **KEEP** | — | Current |
+| `docs/SCREAMING_ARCHITECTURE.md` | Codebase layout by domain (app/lib/components); what the structure “screams” | **KEEP** | — | Current |
 | `docs/REQUEST_LIFECYCLE.md` | E2E lifecycle, status derivation, failure modes, retry/repair | **KEEP** | — | New |
 | `docs/GITHUB_WORKFLOWS.md` | Workflows per repo, concurrency, inputs, artifacts | **KEEP** | — | New |
 | `docs/WEBHOOKS_AND_CORRELATION.md` | Webhook types, correlation order, runId guard, idempotency | **KEEP** | — | New |
@@ -39,7 +40,7 @@ Canonical docs only. For archived/retired docs see `docs/archive/`.
 | **Roadmap / agent** | | | | |
 | `docs/EXECUTION_PLAN.md` | Roadmap, phases, principles (referenced by .cursor rules) | **KEEP** | — | Current |
 | `docs/prompts/MASTER.md` | Master system prompt (referenced by .cursor rules) | **KEEP** | — | Current |
-| `docs/prompts/agents/*.md` | Role-specific agent prompts | **KEEP** | — | Current |
+| `docs/prompts/agents/*-agent.md` | Role-specific agent prompts (naming: *-agent) | **KEEP** | — | Current |
 | `docs/prompts/design/*.md` | UI/Internal design prompts | **KEEP** | — | Current |
 | **Reference / optional** | | | | |
 | `docs/PLATFORM_BENCHMARKS.md` | Benchmarks | **KEEP** | — | Optional reference |

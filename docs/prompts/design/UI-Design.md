@@ -1,10 +1,10 @@
 Overview
 
-tfplan provides an internal platform for managing infrastructure requests. The design adopts a minimal, Vercel-like aesthetic with neutral tones and clear spacing. All pages use a centered container (max-w-4xl or max-w-7xl) for content. **Use background colors to separate sections, inputs, table rows/columns, and cards—not border colors.** This applies in both light and dark modes: rely on `bg-muted`, `bg-card`, `bg-muted/50`, etc. for visual separation. Use shadcn/ui components (Cards, Forms, Tables, etc.) to build layouts.
+**TfPilot** is an internal platform for managing infrastructure requests (project + environment + module + config). The design adopts a minimal, Vercel-like aesthetic with neutral tones and clear spacing. All pages use a centered container (max-w-4xl or max-w-7xl) for content. **Use background colors to separate sections, inputs, table rows/columns, and cards—not border colors.** This applies in both light and dark modes: rely on `bg-muted`, `bg-card`, `bg-muted/50`, etc. Use shadcn/ui components (Cards, Forms, Tables, etc.). **Status is derived only** (deriveLifecycleStatus); use lib/status/status-config for labels and colors. See docs/REQUEST_LIFECYCLE.md, docs/GLOSSARY.md.
 
 Navigation & Layout
 
-Main Nav: A simple top navigation bar with the tfplan logo on the left and key links (e.g. Environments, Requests, Modules, AWS Connect) on the right. Use a <nav> with horizontal <Button> or <Link> items. Use the same background as cards for consistency: `bg-card` with optional `backdrop-blur`—no border or box shadow.
+Main Nav: A simple top navigation bar with the TfPilot logo on the left and key links (e.g. Requests, New Request, AWS Connect) on the right. Use a <nav> with horizontal <Button> or <Link> items. Use the same background as cards: `bg-card` with optional `backdrop-blur`—no border or box shadow.
 
 Global Container: All pages use <main class="min-h-screen p-8"> and a centered inner <div class="max-w-4xl mx-auto"> (or max-w-7xl for wider views) for content.
 
@@ -38,7 +38,7 @@ Header: Display key request details in a <CardHeader>: e.g. Request ID, status b
 
 Configuration Summary: Show the chosen project, environment, and module with config values in a read-only form or table. Use a <Card> with <CardContent> listing these details in text or a key-value table.
 
-Status Timeline: A vertical timeline showing stages: Requested → Planning → (Awaiting Approval →) Applying → Done. Each step is a row with an icon on the left (e.g. clock or checkmark) and a description on the right.
+Status Timeline: A vertical timeline showing **canonical lifecycle steps** (from deriveLifecycleStatus): request_created → planning → plan_ready → approved → merged → applying → applied (or failed); destroy: destroying → destroyed. Use lib/status/status-config for labels. Each step: icon and description; timestamps from lifecycle logs.
 
 Use background or spacing to separate steps (e.g. each step in a subtle bg-muted/30 block), not borders.
 
@@ -48,11 +48,7 @@ Include timestamp and brief notes (e.g. “Plan succeeded”).
 
 Example (ASCII wireframe):
 
-● Submitted              2023-07-01 10:00 UTC
-─────────────────────────────────────────
-✔ Plan Complete          2023-07-01 10:05 UTC
-─────────────────────────────────────────
-◌ Awaiting Approval     (No timestamp yet)
+● Request created → ✔ Plan ready → ◌ Approved → ◌ Merged → ✔ Applied (or Failed / Destroying / Destroyed). Use status-config for labels.
 
 
 Callouts: For steps like “Awaiting Approval”, show a highlight (yellow background) to draw attention.
@@ -109,8 +105,8 @@ Responsive Behavior: On small screens, collapse multi-column layouts into single
 
 Empty & Error States: Provide illustrative icons or subtle illustrations for empty states. Error messages should use a red alert banner (e.g. bg-red-50 dark:bg-red-950/40, no borders).
 
-Example Project Structure (for reference)
-infraforge-ui/
+Example Project Structure (for reference). TfPilot uses Next.js App Router; adjust paths to app/, components/, lib/ as in repo.
+tfpilot-ui/
 ├── app/
 │   ├── layout.tsx             # Root layout (nav, footer)
 │   ├── page.tsx               # Dashboard or redirect

@@ -21,7 +21,7 @@ Before performing any task you MUST read:
 - docs/SYSTEM_OVERVIEW.md
 - docs/EXECUTION_PLAN.md
 
-These documents are the single source of truth for architecture and roadmap.
+Canonical doc list: **docs/DOCS_INDEX.md**. For lifecycle, workflows, webhooks: **docs/REQUEST_LIFECYCLE.md**, **docs/GITHUB_WORKFLOWS.md**, **docs/WEBHOOKS_AND_CORRELATION.md**, **docs/RUN_INDEX.md**.
 
 ---
 
@@ -48,26 +48,13 @@ GitHub is the source of truth for:
 
 Create → Plan → Approve → Merge → Apply → Destroy → Cleanup
 
-Requests are immutable lifecycle records.
-
-Status must always be derived from:
-
-- GitHub workflow runs
-- PR state
-- stored metadata
-- approval flags
-
-Never derive state purely from UI assumptions.
+Requests are immutable lifecycle records. **Status is derived only** (single entrypoint: `deriveLifecycleStatus`). Stored fields are **facts** (e.g. `github.workflows.plan|apply|destroy`, `pr`, `approval`, `mergedSha`); never write optimistic status. Webhooks and sync patch facts only. Run index (S3) gives O(1) runId→requestId for webhooks; correlation order: index → destroy fallback → branch/title. Monotonic guards in `patchWorkflowRun`: concluded runs never regress; runId must match tracked run. See **docs/REQUEST_LIFECYCLE.md**, **docs/WEBHOOKS_AND_CORRELATION.md**.
 
 ---
 
 ## Storage model
 
-Requests and chat logs are stored in S3.
-
-There is no hidden state.
-
-All lifecycle transitions must be persisted.
+Requests in S3 (`requests/<id>.json`); destroyed → `history/`. Run index: `webhooks/github/run-index/<kind>/run-<runId>.json`. SSE stream state: `webhooks/github/stream.json`. No hidden state. Optimistic locking via `version`.
 
 ---
 
@@ -133,13 +120,7 @@ Wait for approval before large changes.
 
 # UI Stability Principles
 
-UI must be:
-
-- Stable with no flicker
-- Deterministic rendering
-- Minimal polling impact
-- Status derived not guessed
-- Optimistic updates only when safe
+UI must be: stable (no flicker), deterministic rendering. **Status from `deriveLifecycleStatus(request)` only**; never trust stored `status` for display. Webhook-first updates via SSE; polling is fallback (see **docs/POLLING.md**). Optimistic updates only when safe.
 
 ---
 
