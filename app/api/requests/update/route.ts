@@ -21,6 +21,7 @@ import { acquireLock, releaseLock, LockConflictError, type RequestDocWithLock } 
 import { buildResourceName } from "@/lib/requests/naming"
 import { normalizeName, validateResourceName } from "@/lib/validation/resourceName"
 import { injectServerAuthoritativeTags, assertRequiredTagsPresent } from "@/lib/requests/tags"
+import { deriveLifecycleStatus } from "@/lib/requests/deriveLifecycleStatus"
 import { ensureAssistantState } from "@/lib/assistant/state"
 
 const PLAN_WORKFLOW = env.GITHUB_PLAN_WORKFLOW_FILE
@@ -447,9 +448,10 @@ async function closeSupersededPr(params: {
 }
 
 function isApplyRunning(request: any) {
-  const status = request?.status
-  const applyRunStatus = request?.applyRun?.status
-  return status === "applying" || status === "applying_changes" || applyRunStatus === "in_progress"
+  const status = deriveLifecycleStatus(request)
+  const applyRun = request?.github?.workflows?.apply ?? request?.applyRun
+  const applyRunStatus = applyRun?.status
+  return status === "applying" || applyRunStatus === "in_progress" || applyRunStatus === "queued"
 }
 
 export async function POST(req: NextRequest) {

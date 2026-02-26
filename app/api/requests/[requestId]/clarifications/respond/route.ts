@@ -4,6 +4,7 @@ import { moduleRegistry, type ModuleField, type ModuleRegistryEntry } from "@/co
 import { ensureAssistantState, isAllowedPatchPath } from "@/lib/assistant/state"
 import { getSessionFromCookies } from "@/lib/auth/session"
 import { getRequest, updateRequest } from "@/lib/storage/requestsStore"
+import { deriveLifecycleStatus } from "@/lib/requests/deriveLifecycleStatus"
 import { buildResourceName } from "@/lib/requests/naming"
 import { env } from "@/lib/config/env"
 import { normalizeName, validateResourceName } from "@/lib/validation/resourceName"
@@ -178,9 +179,10 @@ function buildModuleConfig(entry: ModuleRegistryEntry, rawConfig: Record<string,
 
 function isLocked(request: any) {
   if (request?.locked_reason) return true
-  const status = request?.status
-  const applyRunStatus = request?.applyRun?.status
-  return status === "applying" || status === "applying_changes" || status === "planning" || applyRunStatus === "in_progress"
+  const status = deriveLifecycleStatus(request)
+  const applyRun = request?.github?.workflows?.apply ?? request?.applyRun
+  const applyRunStatus = applyRun?.status
+  return status === "applying" || status === "planning" || applyRunStatus === "in_progress" || applyRunStatus === "queued"
 }
 
 function applyPatchToConfig(target: Record<string, unknown>, op: PatchOp) {

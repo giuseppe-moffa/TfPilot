@@ -1,17 +1,19 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getGitHubAccessToken } from "@/lib/github/auth"
 import { gh } from "@/lib/github/client"
-import { githubRequest } from "@/lib/github/rateAware"
 import { env } from "@/lib/config/env"
 import { withCorrelation } from "@/lib/observability/correlation"
 import { logError, logInfo, logWarn } from "@/lib/observability/logger"
 import { getRequest, updateRequest } from "@/lib/storage/requestsStore"
+import { deriveLifecycleStatus } from "@/lib/requests/deriveLifecycleStatus"
 import { getSessionFromCookies } from "@/lib/auth/session"
 import { logLifecycleEvent } from "@/lib/logs/lifecycle"
 import { getUserRole } from "@/lib/auth/roles"
 import { getIdempotencyKey, assertIdempotentOrRecord, ConflictError } from "@/lib/requests/idempotency"
 import { acquireLock, releaseLock, LockConflictError, type RequestDocWithLock } from "@/lib/requests/lock"
-import { buildWorkflowDispatchPatch, persistWorkflowDispatchIndex } from "@/lib/requests/persistWorkflowDispatch"
+import { buildWorkflowDispatchPatch } from "@/lib/requests/persistWorkflowDispatch"
+import { putRunIndex } from "@/lib/requests/runIndex"
+import { resolveApplyRunId } from "@/lib/requests/resolveApplyRunId"
 
 export async function POST(req: NextRequest) {
   const start = Date.now()
@@ -91,7 +93,7 @@ export async function POST(req: NextRequest) {
       throw lockErr
     }
     const isMerged =
-      request.status === "merged" ||
+      deriveLifecycleStatus(request) === "merged" ||
       request.pr?.merged === true ||
       !!(request as { mergedSha?: string }).mergedSha
     if (!isMerged) {
@@ -112,6 +114,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Request missing target repo info" }, { status: 400 })
     }
 
+    const dispatchTime = new Date()
     const dispatchBody = {
       ref: applyRef,
       inputs: {
@@ -125,51 +128,104 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify(dispatchBody),
     })
 
+    const candidateShas = new Set(
+      [
+        (request as { mergedSha?: string }).mergedSha,
+        (request as { commitSha?: string }).commitSha,
+      ].filter(Boolean) as string[]
+    )
+
+    const RESOLVE_ATTEMPTS = 12
+    const BACKOFF_MS = [500, 500, 1000, 1000, 1500, 1500, 2000, 2000, 2000, 2000, 2000, 2000]
     let applyRunId: number | undefined
     let applyRunUrl: string | undefined
-    try {
-      const runsJson = await githubRequest<{ workflow_runs?: Array<{ id: number }> }>({
-        token,
-        key: `gh:wf-runs:${owner}:${repo}:${env.GITHUB_APPLY_WORKFLOW_FILE}:${applyRef}`,
-        ttlMs: 15_000,
-        path: `/repos/${owner}/${repo}/actions/workflows/${env.GITHUB_APPLY_WORKFLOW_FILE}/runs?branch=${encodeURIComponent(
-          applyRef
-        )}&per_page=1`,
-        context: { route: "github/apply", correlationId: requestId },
-      })
-      applyRunId = runsJson.workflow_runs?.[0]?.id
-      if (applyRunId) {
-        applyRunUrl = `https://github.com/${owner}/${repo}/actions/runs/${applyRunId}`
+
+    for (let attempt = 0; attempt < RESOLVE_ATTEMPTS; attempt++) {
+      if (attempt > 0) {
+        await new Promise((r) => setTimeout(r, BACKOFF_MS[Math.min(attempt - 1, BACKOFF_MS.length - 1)]))
       }
-    } catch {
-      /* ignore */
+      try {
+        const result = await resolveApplyRunId({
+          token,
+          owner,
+          repo,
+          workflowFile: env.GITHUB_APPLY_WORKFLOW_FILE,
+          branch: applyRef,
+          requestId: request.id,
+          dispatchTime,
+          candidateShas,
+          logContext: { route: "github/apply", correlationId: correlation.correlationId ?? request.id },
+        })
+        if (result) {
+          applyRunId = result.runId
+          applyRunUrl = result.url
+          break
+        }
+      } catch (err) {
+        if (attempt === RESOLVE_ATTEMPTS - 1) {
+          logWarn("apply.resolve_run_failed", {
+            ...correlation,
+            requestId: request.id,
+            attempt: attempt + 1,
+            err: String(err),
+          })
+        }
+      }
     }
 
+    if (applyRunId != null) {
+      try {
+        await putRunIndex("apply", applyRunId, request.id)
+      } catch (err) {
+        logWarn("apply.run_index_write_failed", {
+          ...correlation,
+          requestId: request.id,
+          runId: applyRunId,
+          err: String(err),
+        })
+      }
+    }
+
+    const nowIso = new Date().toISOString()
     const [afterApply] = await updateRequest(request.id, (current) => {
       const cur = current as { github?: Record<string, unknown>; applyRun?: { runId?: number; url?: string } }
-      const runId = applyRunId ?? cur.applyRun?.runId
-      const patch = runId != null ? buildWorkflowDispatchPatch(current as Record<string, unknown>, "apply", runId, applyRunUrl ?? cur.applyRun?.url) : {}
-      const applyPayload = {
-        runId: applyRunId ?? cur.applyRun?.runId,
-        url: applyRunUrl ?? cur.applyRun?.url,
-        status: "in_progress" as const,
-      }
-      const nowIso = (patch as { updatedAt?: string }).updatedAt ?? new Date().toISOString()
+      const runId = applyRunId ?? undefined
+      const runUrl = applyRunUrl ?? undefined
+      const patch =
+        runId != null
+          ? buildWorkflowDispatchPatch(current as Record<string, unknown>, "apply", runId, runUrl)
+          : {}
+      const patchGithub = (patch as { github?: Record<string, unknown> }).github ?? {}
+      const applyPayload =
+        runId != null
+          ? { runId, url: runUrl, status: "in_progress" as const }
+          : { status: "queued" as const }
       return {
         ...current,
         ...patch,
-        applyTriggeredAt: nowIso,
-        applyRunId: applyRunId ?? (current as { applyRunId?: number }).applyRunId,
-        applyRunUrl: applyRunUrl ?? (current as { applyRunUrl?: string }).applyRunUrl,
-        applyRun: { ...(cur.applyRun ?? {}), ...applyPayload },
+        applyTriggeredAt: (patchGithub.applyTriggeredAt as string) ?? nowIso,
+        applyRunId: runId ?? undefined,
+        applyRunUrl: runUrl ?? undefined,
+        github: {
+          ...cur.github,
+          ...patchGithub,
+          applyTriggeredAt: (patchGithub.applyTriggeredAt as string) ?? nowIso,
+          workflows: {
+            ...(cur.github?.workflows ?? {}),
+            ...(patchGithub.workflows ?? {}),
+            apply:
+              runId != null
+                ? { runId, url: runUrl, status: "in_progress" }
+                : { status: "queued" },
+          },
+        },
+        applyRun: { ...applyPayload },
+        updatedAt: nowIso,
       }
     })
     const releasePatch = releaseLock(afterApply as RequestDocWithLock, holder)
     if (releasePatch) {
       await updateRequest(request.id, (c) => ({ ...c, ...releasePatch }))
-    }
-    if (applyRunId != null) {
-      persistWorkflowDispatchIndex(request.id, "apply", applyRunId)
     }
 
     await logLifecycleEvent({

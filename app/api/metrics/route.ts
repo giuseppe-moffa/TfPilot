@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 
 import { getSessionFromCookies } from "@/lib/auth/session"
+import { deriveLifecycleStatus } from "@/lib/requests/deriveLifecycleStatus"
 import { listRequests } from "@/lib/storage/requestsStore"
 
 type MetricsResponse = {
@@ -31,10 +32,10 @@ export async function GET() {
   let destroyedCount = 0
 
   for (const req of requests) {
-    const status = req.status ?? "unknown"
+    const status = deriveLifecycleStatus(req)
     statusCounts[status] = (statusCounts[status] ?? 0) + 1
 
-    if (status === "complete" || status === "applied") successCount += 1
+    if (status === "applied") successCount += 1
     if (status === "failed") failureCount += 1
     if (status === "destroyed") destroyedCount += 1
 

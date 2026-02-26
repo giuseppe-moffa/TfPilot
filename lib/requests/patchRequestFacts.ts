@@ -38,6 +38,8 @@ export type RunFact = {
   updatedAt?: string
   htmlUrl?: string
   attempt?: number
+  /** Optional: e.g. display_title from webhook when run is cancelled (for concurrency tooltip). */
+  message?: string
 }
 
 /** Cleanup dispatch state (retry-safe). */
@@ -222,6 +224,7 @@ export function patchWorkflowRun(
     updatedAt: run?.updated_at ?? existing?.updatedAt,
     htmlUrl: run?.html_url ?? existing?.htmlUrl,
     attempt: run?.run_attempt ?? existing?.attempt,
+    message: run?.display_title ?? (existing as RunFact)?.message,
   }
 
   const incomingActive =

@@ -47,6 +47,10 @@ Until you add a lifecycle rule, **expiresAt is metadata only**; objects are not 
 - Add a bucket lifecycle rule that expires objects under prefix `webhooks/github/run-index/` (or each sub-prefix `plan/`, `apply/`, `destroy/`, `cleanup/`, `drift_plan/`) after 90 days (or 95 to be safe).
 - This is optional; app behavior is unchanged if the rule is not added.
 
+## Destroy and workflow_dispatch
+
+GitHub’s `workflow_dispatch` API does **not** return the new run’s `runId`; the caller only gets a 204. So for destroy (and any workflow we trigger by dispatch), we must **correlate after the fact**: list workflow runs for the repo/workflow, filter by the ref we dispatched and by `created_at >= dispatchTime`, then pick the earliest matching run. Because runs can appear with a short delay and back-to-back destroys in the same env would otherwise both claim “the latest run”, we **enforce uniqueness via the run index**: before assigning a runId to a request we check `getRequestIdByRunId("destroy", runId)`. If that runId is already mapped to another request we skip it and try the next candidate, so no two requests ever get the same destroy runId.
+
 ## Implementation
 
 - **Write:** `putRunIndex(kind, runId, requestId)` in `lib/requests/runIndex.ts`, called from plan/apply/destroy (and drift_plan when runId is available) dispatch via `lib/requests/persistWorkflowDispatch.ts` (fire-and-forget). Cleanup is not indexed on dispatch (GitHub dispatch API does not return runId). Drift-plan is often dispatched externally; index is written only when TfPilot has runId.

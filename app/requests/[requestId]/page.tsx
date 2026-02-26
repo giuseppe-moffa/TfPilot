@@ -1,13 +1,13 @@
 "use client"
 
 import * as React from "react"
-import { ChevronDown, ChevronUp, Copy, Github, Loader2, Link as LinkIcon, Download } from "lucide-react"
+import { ChevronDown, ChevronUp, Copy, Github, Info, Loader2, Link as LinkIcon, Download } from "lucide-react"
 import useSWR from "swr"
 import { useParams } from "next/navigation"
 
 import { useRequest } from "@/hooks/use-request"
 import { getSyncPollingInterval } from "@/lib/config/polling"
-import { deriveLifecycleStatus, isDestroyRunFailed, isDestroyRunStale } from "@/lib/requests/deriveLifecycleStatus"
+import { deriveLifecycleStatus, isDestroyRunStale } from "@/lib/requests/deriveLifecycleStatus"
 import { normalizeRequestStatus, isActiveStatus } from "@/lib/status/status-config"
 import { getStatusColor, getStatusLabel } from "@/lib/status/status-config"
 import type { CanonicalStatus } from "@/lib/status/status-config"
@@ -67,13 +67,15 @@ type ModuleSchema = {
   fields: FieldMeta[]
 }
 
-const steps = [
+const baseSteps = [
   { key: "submitted", label: "Submitted" },
   { key: "planned", label: "Plan Ready" },
   { key: "approved", label: "Approved" },
   { key: "merged", label: "Merged" },
   { key: "applied", label: "Deployed" },
 ] as const
+
+type BaseStepKey = (typeof baseSteps)[number]["key"]
 
 function RequestDetailSkeleton() {
   return (
@@ -119,7 +121,7 @@ function RequestDetailSkeleton() {
                   className="absolute left-[7px] top-0 bottom-0 w-0.5 bg-muted-foreground/25 dark:bg-muted-foreground/40"
                   aria-hidden
                 />
-                {steps.map((step) => (
+                {baseSteps.map((step) => (
                   <div key={step.key} className="flex items-center gap-3">
                     <div className="flex w-4 shrink-0 items-center justify-center">
                       <div className="h-4 w-4 rounded-full bg-muted animate-pulse" />
@@ -160,34 +162,52 @@ function TimelineStep({
   state,
   timestamp,
   hidePulse,
+  stepTooltip,
 }: {
   displayLabel: string
   status: CanonicalStatus
-  state: "pending" | "done" | "current"
+  state: "pending" | "done" | "current" | "error"
   timestamp?: string
   hidePulse?: boolean
+  /** Optional hover tooltip (e.g. "Reason: Cancelled by newer run") */
+  stepTooltip?: string
 }) {
   const isDone = state === "done"
+  const isError = state === "error"
   const isCurrent = state === "current"
-  const isActive = isDone || isCurrent
+  const isPending = state === "pending"
   const showPulse = !hidePulse && isCurrent && isActiveStatus(status)
-  const color = isActive ? getStatusColor(status) : undefined
-  const borderTint = color ? `${color}40` : undefined
-  const glowTint = isCurrent && color ? `${color}26` : undefined
+  const strongColor = isCurrent ? getStatusColor(status) : undefined
+  const errorColor = isError ? getStatusColor("failed") : undefined
+  const borderTint = strongColor ? `${strongColor}40` : undefined
+  const errorBorderTint = errorColor ? `${errorColor}40` : undefined
+  const glowTint = isCurrent && strongColor ? `${strongColor}26` : undefined
+  const completedMuted = isDone && !isError
+  const dotBg = isCurrent
+    ? strongColor
+    : isError
+      ? errorColor
+      : completedMuted
+        ? "var(--muted-foreground)"
+        : undefined
+  const dotOpacity = completedMuted ? 0.65 : 1
+  const dotBorder =
+    (isCurrent && borderTint) ? borderTint : (isError && errorBorderTint) ? errorBorderTint : "var(--border)"
   return (
     <div className="flex items-center gap-3">
       <div className="flex w-4 shrink-0 items-center justify-center">
         <div
           className={cn(
             "relative z-10 shrink-0 rounded-full border-2 box-border",
-            !isActive && "border-muted-foreground/25 dark:border-border"
+            isPending && "border-muted-foreground/25 dark:border-border"
           )}
           style={{
             width: 12,
             height: 12,
             boxSizing: "border-box",
-            backgroundColor: isActive ? color : "var(--card)",
-            ...(isActive ? { borderColor: borderTint } : {}),
+            backgroundColor: dotBg ?? "var(--card)",
+            opacity: dotBg ? dotOpacity : 1,
+            borderColor: dotBorder,
             boxShadow: glowTint ? `0 0 0 2px ${glowTint}` : undefined,
           }}
           aria-hidden
@@ -198,16 +218,43 @@ function TimelineStep({
           <p
             className={cn(
               "text-sm font-medium",
-              isActive ? "text-foreground" : "text-muted-foreground opacity-95"
+              isCurrent && "text-foreground",
+              completedMuted && "text-muted-foreground opacity-70",
+              isPending && "text-muted-foreground opacity-95"
             )}
-            style={color ? { color } : undefined}
+            style={
+              isCurrent && strongColor
+                ? { color: strongColor }
+                : isError && errorColor
+                  ? { color: errorColor }
+                  : undefined
+            }
           >
             {displayLabel}
           </p>
-        {showPulse && color && (
+          {stepTooltip && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span
+                  className="inline-flex shrink-0 text-muted-foreground opacity-70 hover:opacity-100 cursor-default"
+                  aria-label={stepTooltip}
+                >
+                  <Info className="size-3.5" />
+                </span>
+              </TooltipTrigger>
+              <TooltipContent
+                side="top"
+                sideOffset={6}
+                className="max-w-xs border border-border bg-popover text-popover-foreground"
+              >
+                {stepTooltip}
+              </TooltipContent>
+            </Tooltip>
+          )}
+        {showPulse && strongColor && (
           <Loader2
             className="size-3.5 shrink-0 animate-spin opacity-80"
-            style={{ color }}
+            style={{ color: strongColor }}
             aria-hidden
           />
         )}
@@ -527,7 +574,8 @@ function RequestDetailPage() {
   }, [request, panelAssistantState, assistantStateOverride])
 
   const planRunId = request?.planRun?.runId ?? request?.planRunId
-  const applyRunId = request?.applyRun?.runId ?? request?.applyRunId
+  const applyRunId =
+    request?.github?.workflows?.apply?.runId ?? request?.applyRun?.runId ?? request?.applyRunId
   const prNumber = request?.pr?.number ?? request?.pullRequest?.number ?? request?.pr?.number
 
   const planKey = planRunId && !(request?.plan?.output) ? [`plan-output`, requestId, planRunId] : null
@@ -615,15 +663,16 @@ function RequestDetailPage() {
     })
   }, [logsData?.events])
 
-  const eventToStep: Record<string, (typeof steps)[number]["key"]> = {
+  const eventToStep: Record<string, BaseStepKey | "destroy"> = {
     request_created: "submitted",
     plan_dispatched: "planned",
     request_approved: "approved",
     pr_merged: "merged",
     apply_dispatched: "applied",
+    destroy_dispatched: "destroy",
   }
   const stepTimestamps = React.useMemo(() => {
-    const out: Partial<Record<(typeof steps)[number]["key"], string>> = {}
+    const out: Partial<Record<BaseStepKey | "destroy", string>> = {}
     for (const evt of sortedEvents) {
       const stepKey = eventToStep[evt?.event ?? ""]
       const ts = evt?.timestamp
@@ -632,8 +681,13 @@ function RequestDetailPage() {
         if (!Number.isNaN(parsed)) out[stepKey] = formatDate(ts)
       }
     }
+    const destroyRunTs = (request?.github?.workflows?.destroy ?? request?.destroyRun) as { completedAt?: string } | undefined
+    if (destroyRunTs?.completedAt && !out.destroy) {
+      const parsed = Date.parse(destroyRunTs.completedAt)
+      if (!Number.isNaN(parsed)) out.destroy = formatDate(destroyRunTs.completedAt)
+    }
     return out
-  }, [sortedEvents])
+  }, [sortedEvents, request?.github?.workflows?.destroy, request?.destroyRun])
 
   React.useEffect(() => {
     return () => {
@@ -683,15 +737,20 @@ function RequestDetailPage() {
 
   async function handleApplyOnly() {
     if (!requestId || !request) return
-    // Apply is allowed when PR is merged (derived status); stored request.status may be undefined or "merged"
-    if (deriveLifecycleStatus(request) !== "merged") return
+    const status = deriveLifecycleStatus(request)
+    const applyRun = request?.github?.workflows?.apply ?? request?.applyRun
+    const applyErrorState =
+      applyRun?.conclusion === "failure" || applyRun?.conclusion === "cancelled"
+    const canDeploy =
+      status === "merged" || (status === "failed" && applyErrorState)
+    if (!canDeploy) return
     await runAction(
       "apply",
       async () => {
-        const res = await fetch("/api/github/apply", {
+        const res = await fetch(`/api/requests/${requestId}/apply`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ requestId }),
+          body: JSON.stringify({}),
         })
         const data = (await res.json().catch(() => ({}))) as {
           error?: string
@@ -798,12 +857,15 @@ function RequestDetailPage() {
   }
 
   const requestStatus = request ? deriveLifecycleStatus(request) : "request_created"
+  const planRun = request?.github?.workflows?.plan ?? request?.planRun
+  const applyRun = request?.github?.workflows?.apply ?? request?.applyRun
+  const destroyRun = request?.github?.workflows?.destroy ?? request?.destroyRun
   const planSucceeded =
-    request?.planRun?.conclusion === "success" || request?.planRun?.status === "completed"
-  const planFailed = request?.planRun?.conclusion === "failure"
-  const planRunStatus = request?.planRun?.status
-  const planRunConclusion = request?.planRun?.conclusion
-  const planRunUrl = request?.planRun?.url
+    planRun?.conclusion === "success" || planRun?.status === "completed"
+  const planFailed = planRun?.conclusion === "failure"
+  const planRunStatus = planRun?.status
+  const planRunConclusion = planRun?.conclusion
+  const planRunUrl = planRun?.url
   const planRunning =
     planRunStatus === "in_progress" ||
     planRunStatus === "queued" ||
@@ -824,11 +886,13 @@ function RequestDetailPage() {
     request?.pullRequest?.merged === true ||
     request?.pullRequest?.open === false
   const applySucceeded =
-    request?.applyRun?.conclusion === "success" || requestStatus === "applied"
-  const applyFailed = request?.applyRun?.conclusion === "failure"
+    applyRun?.conclusion === "success" || requestStatus === "applied"
+  const applyFailed = applyRun?.conclusion === "failure"
+  const applyCancelled = applyRun?.conclusion === "cancelled"
+  const applyErrorState = applyFailed || applyCancelled
 
   const applyRunning =
-    requestStatus === "applying" || request?.applyRun?.status === "in_progress"
+    requestStatus === "applying" || applyRun?.status === "in_progress"
   const isApplyingDerived =
     isApplying || applyRunning || applyStatus === "pending" || applyStatus === "success"
   const isApplied = applySucceeded
@@ -849,19 +913,38 @@ function RequestDetailPage() {
     false
   const isPlanning =
     requestStatus === "planning" || requestStatus === "request_created"
-  const isFailed = requestStatus === "failed" || applyFailed || planFailed
-  const destroyFailed = isDestroyRunFailed(request)
+  const isFailed = requestStatus === "failed" || applyErrorState || planFailed
+  const destroyCancelled = destroyRun?.conclusion === "cancelled"
+  const destroyFailed = destroyRun?.conclusion === "failure"
+  const destroyErrorState = destroyCancelled || destroyFailed
   const destroyStale = isDestroyRunStale(request)
-
-  const hasLock = !!(request as any)?.lock
-  const applyRunActive =
-    (request?.applyRun?.status === "queued" || request?.applyRun?.status === "in_progress") &&
-    request?.applyRun?.conclusion == null
-  const destroyRun = request?.github?.workflows?.destroy ?? request?.destroyRun
   const destroyRunActive =
     (destroyRun?.status === "queued" || destroyRun?.status === "in_progress") &&
     destroyRun?.conclusion == null &&
     !destroyStale
+
+  const showDestroyStep = Boolean(
+    request?.github?.destroyTriggeredAt ||
+    actionProgress?.op === "destroy" ||
+    requestStatus === "destroying" ||
+    requestStatus === "destroyed" ||
+    (requestStatus === "failed" && destroyErrorState)
+  )
+  const timelineSteps = React.useMemo(() => {
+    const list: Array<{ key: BaseStepKey | "destroy"; label: string }> = [...baseSteps]
+    if (showDestroyStep) {
+      list.push({
+        key: "destroy",
+        label: destroyErrorState ? "Destroy failed" : isDestroyed ? "Destroyed" : destroyRunActive ? "Destroying" : "Destroy",
+      })
+    }
+    return list
+  }, [showDestroyStep, destroyErrorState, isDestroyed, destroyRunActive])
+
+  const hasLock = !!(request as any)?.lock
+  const applyRunActive =
+    (applyRun?.status === "queued" || applyRun?.status === "in_progress") &&
+    applyRun?.conclusion == null
 
   const activeRunRevalidateInFlightRef = React.useRef(false)
   const ACTIVE_RUN_POLL_INTERVAL_MS = 4_000
@@ -915,6 +998,16 @@ function RequestDetailPage() {
       )
     }
     if (action === "apply") {
+      if (applyErrorState) {
+        return (
+          !!isApplying ||
+          requestStatus === "applying" ||
+          applyRunActive ||
+          isApplyingDerived ||
+          isDestroying ||
+          isDestroyed
+        )
+      }
       return (
         !!isApplying ||
         !isMerged ||
@@ -945,11 +1038,11 @@ function RequestDetailPage() {
 
   // Reset transient apply UI state once backend reflects completion or failure
   React.useEffect(() => {
-    if (applySucceeded || applyFailed || requestStatus === "failed") {
+    if (applySucceeded || applyErrorState || requestStatus === "failed") {
       setApplyStatus("idle")
       setIsApplying(false)
     }
-  }, [applySucceeded, applyFailed, requestStatus])
+  }, [applySucceeded, applyErrorState, requestStatus])
 
   // Clear approve loading state when approval fact is present (no stored status dependency)
   React.useEffect(() => {
@@ -972,33 +1065,14 @@ function RequestDetailPage() {
   }, [request, prMergedForEffect])
 
   function computeStepInfo() {
-    if (isDestroyed) {
-      return {
-        key: "applied" as const,
-        state: "completed" as const,
-        subtitle: "Destroyed",
-      }
+    if (showDestroyStep && isDestroyed) {
+      return { key: "destroy" as const, state: "completed" as const, subtitle: "Destroyed" }
     }
-    if (isDestroying) {
-      return {
-        key: "applied" as const,
-        state: "pending" as const,
-        subtitle: "Destroying resources",
-      }
+    if (showDestroyStep && destroyErrorState) {
+      return { key: "destroy" as const, state: "completed" as const, subtitle: "Destroy failed" }
     }
-    if (destroyFailed) {
-      return {
-        key: "applied" as const,
-        state: "completed" as const,
-        subtitle: "Destroy failed",
-      }
-    }
-    if (actionProgress?.op === "destroy" && isApplied && !isDestroyed) {
-      return {
-        key: "applied" as const,
-        state: "pending" as const,
-        subtitle: "Destroying…",
-      }
+    if (showDestroyStep && (isDestroying || actionProgress?.op === "destroy")) {
+      return { key: "destroy" as const, state: "pending" as const, subtitle: "Destroying…" }
     }
     if (isApplied) {
       return {
@@ -1012,6 +1086,13 @@ function RequestDetailPage() {
         key: "applied" as const,
         state: "pending" as const,
         subtitle: "Deploying…",
+      }
+    }
+    if (isMerged && applyErrorState) {
+      return {
+        key: "applied" as const,
+        state: "pending" as const,
+        subtitle: "Deploy failed",
       }
     }
     if (
@@ -1099,7 +1180,13 @@ function RequestDetailPage() {
   }
 
   const stepInfo = computeStepInfo()
-  function stepState(stepKey: (typeof steps)[number]["key"]) {
+  function stepState(stepKey: BaseStepKey | "destroy") {
+    if (stepKey === "destroy") {
+      if (destroyErrorState) return "error"
+      if (isDestroyed) return "done"
+      if (destroyRunActive) return "current"
+      return "pending"
+    }
     switch (stepKey) {
       case "submitted":
         return "done"
@@ -1110,13 +1197,16 @@ function RequestDetailPage() {
       case "merged":
         return isMerged ? "done" : "pending"
       case "applied":
-        return isApplied || isDestroying || isDestroyed ? "done" : "pending"
+        return applyErrorState ? "error" : isApplied ? "done" : "pending"
       default:
         return "pending"
     }
   }
 
-  function stepSubtitle(stepKey: (typeof steps)[number]["key"], state: "pending" | "done") {
+  function stepSubtitle(stepKey: BaseStepKey | "destroy", state: "pending" | "done" | "error") {
+    if (stepKey === "destroy") {
+      return destroyErrorState ? "Destroy failed" : isDestroyed ? "Destroyed" : "Destroying…"
+    }
     switch (stepKey) {
       case "submitted":
         return "Request created"
@@ -1128,7 +1218,7 @@ function RequestDetailPage() {
       case "merged":
         return state === "done" ? "Pull request merged" : "Waiting for PR merge"
       case "applied":
-        if (applyFailed) return "Deploy failed"
+        if (applyErrorState) return "Deploy failed"
         return state === "done" ? "Deployed" : "Waiting for deploy"
       default:
         return "Pending"
@@ -1136,9 +1226,12 @@ function RequestDetailPage() {
   }
 
   function getStepCanonicalStatus(
-    stepKey: (typeof steps)[number]["key"],
-    state: "pending" | "done"
+    stepKey: BaseStepKey | "destroy",
+    state: "pending" | "done" | "error"
   ): CanonicalStatus {
+    if (stepKey === "destroy") {
+      return destroyErrorState ? "failed" : isDestroyed ? "destroyed" : "destroying"
+    }
     switch (stepKey) {
       case "submitted":
         return "request_created"
@@ -1149,13 +1242,8 @@ function RequestDetailPage() {
       case "merged":
         return state === "done" ? "merged" : "planning"
       case "applied":
-        if (state === "done") {
-          if (isDestroyed) return "destroyed"
-          if (isDestroying || actionProgress?.op === "destroy") return "destroying"
-          if (destroyFailed) return "failed"
-          if (applyFailed) return "failed"
-          return "applied"
-        }
+        if (applyErrorState) return "failed"
+        if (state === "done") return "applied"
         if (requestStatus === "applying") return "applying"
         return "planning"
       default:
@@ -1163,7 +1251,7 @@ function RequestDetailPage() {
     }
   }
 
-  const PENDING_STEP_LABELS: Record<(typeof steps)[number]["key"], string> = {
+  const PENDING_STEP_LABELS: Record<BaseStepKey, string> = {
     submitted: "Request created",
     planned: "Waiting for plan",
     approved: "Waiting for approval",
@@ -1172,12 +1260,17 @@ function RequestDetailPage() {
   }
 
   function getStepDisplayLabel(
-    stepKey: (typeof steps)[number]["key"],
-    state: "pending" | "done" | "current",
+    stepKey: BaseStepKey | "destroy",
+    state: "pending" | "done" | "current" | "error",
     status?: CanonicalStatus
   ): string {
+    if (stepKey === "destroy") {
+      if (destroyErrorState) return "Destroy failed"
+      if (isDestroyed) return "Destroyed"
+      if (destroyRunActive) return "Destroying"
+      return "Destroy"
+    }
     if (state === "done" || stepKey === "submitted") {
-      if (stepKey === "applied" && destroyFailed) return "Destroy failed"
       return getStatusLabel(getStepCanonicalStatus(stepKey, "done"))
     }
     if (stepKey === "approved" && state === "current" && (actionProgress?.op === "approve" || isApproving)) {
@@ -1192,8 +1285,8 @@ function RequestDetailPage() {
     if (stepKey === "merged" && state === "current") {
       return "Waiting for PR merge"
     }
-    if (stepKey === "applied" && state === "current" && (destroyRunActive || isDestroying || actionProgress?.op === "destroy")) {
-      return "Destroying…"
+    if (stepKey === "applied" && (state === "error" || applyErrorState)) {
+      return "Deploy failed"
     }
     if (stepKey === "applied" && state === "current" && (applyRunActive || isApplyingDerived || actionProgress?.op === "apply")) {
       return "Deploying…"
@@ -1204,7 +1297,7 @@ function RequestDetailPage() {
     if (state === "current" && status && isActiveStatus(status)) {
       return getStatusLabel(status)
     }
-    return PENDING_STEP_LABELS[stepKey]
+    return PENDING_STEP_LABELS[stepKey as BaseStepKey] ?? stepKey
   }
 
   if (initialLoading && !request) {
@@ -1447,22 +1540,34 @@ function RequestDetailPage() {
               </p>
             </div>
             <div className="px-5 pt-1 pb-4 flex flex-col flex-1 min-h-0">
-              <div className="relative flex h-full flex-col gap-6">
-                <div
-                  className="absolute left-[7px] top-0 bottom-0 w-0.5 bg-muted-foreground/25 dark:bg-muted-foreground/40"
-                  aria-hidden
-                />
-                {steps.map((step) => {
+              <TooltipProvider delayDuration={0}>
+                <div className="relative flex h-full flex-col gap-6">
+                  <div
+                    className="absolute left-[7px] top-0 bottom-0 w-0.5 bg-muted-foreground/25 dark:bg-muted-foreground/40"
+                    aria-hidden
+                  />
+                  {timelineSteps.map((step) => {
                   const stepStateVal = stepState(step.key)
                   const isCurrent =
                     step.key === stepInfo.key && stepInfo.state === "pending"
-                  const state: "pending" | "done" | "current" = isCurrent
+                  const state: "pending" | "done" | "current" | "error" = isCurrent
                     ? "current"
                     : stepStateVal === "done"
                       ? "done"
-                      : "pending"
-                  const status = getStepCanonicalStatus(step.key, stepStateVal)
-                  const displayLabel = getStepDisplayLabel(step.key, state, status)
+                      : stepStateVal === "error"
+                        ? "error"
+                        : "pending"
+                  const status = getStepCanonicalStatus(
+                    step.key,
+                    stepStateVal === "current" ? "pending" : stepStateVal
+                  )
+                  const displayLabel = step.key === "destroy" ? step.label : getStepDisplayLabel(step.key, state, status)
+                  const stepTooltip =
+                    step.key === "destroy" && destroyErrorState
+                      ? "This destroy did not complete. You can retry destroy."
+                      : step.key === "applied" && displayLabel === "Deploy failed"
+                        ? "This deployment failed. You can redeploy to try again."
+                        : undefined
                   const hidePulse =
                     (step.key === "approved" &&
                       state === "current" &&
@@ -1475,7 +1580,9 @@ function RequestDetailPage() {
                     (step.key === "applied" &&
                       state === "current" &&
                       !isApplyingDerived &&
-                      actionProgress?.op !== "apply" &&
+                      actionProgress?.op !== "apply") ||
+                    (step.key === "destroy" &&
+                      state === "current" &&
                       !isDestroying &&
                       actionProgress?.op !== "destroy")
                   return (
@@ -1486,10 +1593,44 @@ function RequestDetailPage() {
                       state={state}
                       timestamp={stepTimestamps[step.key]}
                       hidePulse={hidePulse}
+                      stepTooltip={stepTooltip}
                     />
                   )
                 })}
-              </div>
+                {Array.isArray(request.timeline) &&
+                  request.timeline
+                    .filter((entry: { step?: string }) => {
+                      const stepName = (entry.step ?? "").trim()
+                      if (!stepName) return true
+                      const coreLabels = [
+                        "Submitted",
+                        "Request created",
+                        "Plan Ready",
+                        "Approved",
+                        "Merged",
+                        "Pull request merged",
+                        "Deployed",
+                        "Destroy Completed",
+                        "Destroyed",
+                        "Destroying",
+                        "Destroy failed",
+                        "Cleanup PR opened",
+                        "Cleanup PR merged",
+                      ]
+                      return !coreLabels.some((l) => l.toLowerCase() === stepName.toLowerCase())
+                    })
+                    .map((entry: { step?: string; status?: string; message?: string; at?: string }, idx: number) => (
+                      <TimelineStep
+                        key={`timeline-${idx}-${entry.step ?? ""}`}
+                        displayLabel={entry.step ?? "—"}
+                        status="request_created"
+                        state={entry.status === "Complete" ? "done" : "pending"}
+                        timestamp={entry.at}
+                        hidePulse
+                      />
+                    ))}
+                </div>
+              </TooltipProvider>
             </div>
           </div>
         </div>
@@ -1534,165 +1675,109 @@ function RequestDetailPage() {
             </div>
           </CardHeader>
           <CardContent className="px-5 pt-2 pb-4 space-y-5">
-            <TooltipProvider>
-              <div className="flex flex-wrap items-center gap-2">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      size="sm"
-                      className={cn(
-                        "h-9",
-                        isActionDisabled("approve") &&
-                          "cursor-not-allowed bg-muted text-muted-foreground opacity-70"
-                      )}
-                      disabled={isActionDisabled("approve")}
-                      onClick={() => {
-                        if (isActionDisabled("approve")) return
-                        setApproveStatus("idle")
-                        setApproveModalOpen(true)
-                      }}
-                    >
-                      {isApproving ? (
-                        <span className="inline-flex items-center gap-2">
-                          <Loader2 className="size-4 animate-spin" />
-                          Approving…
-                        </span>
-                      ) : (
-                        "Approve"
-                      )}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {hasLock
-                      ? "Another operation is in progress"
-                      : !isPlanReady
-                        ? "Wait for plan to be ready"
-                        : requestStatus !== "request_created" &&
-                            requestStatus !== "planning" &&
-                            requestStatus !== "plan_ready" &&
-                            requestStatus !== "approved"
-                          ? "Already approved, merged, deployed, destroying, deploying, or failed"
-                          : "Approve this request"}
-                  </TooltipContent>
-                </Tooltip>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                className={cn(
+                  "h-9",
+                  isActionDisabled("approve") &&
+                    "cursor-not-allowed bg-muted text-muted-foreground opacity-70"
+                )}
+                disabled={isActionDisabled("approve")}
+                onClick={() => {
+                  if (isActionDisabled("approve")) return
+                  setApproveStatus("idle")
+                  setApproveModalOpen(true)
+                }}
+              >
+                {isApproving ? (
+                  <span className="inline-flex items-center gap-2">
+                    <Loader2 className="size-4 animate-spin" />
+                    Approving…
+                  </span>
+                ) : (
+                  "Approve"
+                )}
+              </Button>
 
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      size="sm"
-                      className={cn(
-                        "h-9",
-                        isActionDisabled("merge") &&
-                          "cursor-not-allowed bg-muted text-muted-foreground opacity-70"
-                      )}
-                      disabled={isActionDisabled("merge")}
-                      onClick={() => {
-                        if (isActionDisabled("merge")) return
-                        setMergeStatus("idle")
-                        setMergeError(null)
-                        setMergeModalOpen(true)
-                      }}
-                    >
-                      {mergeStatus === "pending" ? (
-                        <span className="inline-flex items-center gap-2">
-                          <Loader2 className="size-4 animate-spin" />
-                          Merging…
-                        </span>
-                      ) : (
-                        "Merge"
-                      )}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {hasLock
-                      ? "Another operation is in progress"
-                      : requestStatus !== "approved"
-                        ? "Approve first to enable merge"
-                        : "Merge the PR"}
-                  </TooltipContent>
-                </Tooltip>
+              <Button
+                size="sm"
+                className={cn(
+                  "h-9",
+                  isActionDisabled("merge") &&
+                    "cursor-not-allowed bg-muted text-muted-foreground opacity-70"
+                )}
+                disabled={isActionDisabled("merge")}
+                onClick={() => {
+                  if (isActionDisabled("merge")) return
+                  setMergeStatus("idle")
+                  setMergeError(null)
+                  setMergeModalOpen(true)
+                }}
+              >
+                {mergeStatus === "pending" ? (
+                  <span className="inline-flex items-center gap-2">
+                    <Loader2 className="size-4 animate-spin" />
+                    Merging…
+                  </span>
+                ) : (
+                  "Merge"
+                )}
+              </Button>
 
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      size="sm"
-                      variant="success"
-                      className={cn(
-                        "h-9",
-                        isActionDisabled("apply") &&
-                          "cursor-not-allowed bg-muted text-muted-foreground opacity-70"
-                      )}
-                      disabled={isActionDisabled("apply")}
-                      onClick={() => {
-                        if (isActionDisabled("apply")) return
-                        setApplyStatus("idle")
-                        setApplyModalOpen(true)
-                      }}
-                    >
-                      {isApplyingDerived ? (
-                        <span className="inline-flex items-center gap-2">
-                          <Loader2 className="size-4 animate-spin" />
-                          Deploying…
-                        </span>
-                      ) : applyFailed && !applyRunActive ? (
-                        "Retry deploy"
-                      ) : (
-                        "Deploy"
-                      )}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {hasLock
-                      ? "Another operation is in progress"
-                      : !isMerged
-                        ? "Merge first to enable deploy"
-                        : "Deploy the requested changes"}
-                  </TooltipContent>
-                </Tooltip>
+              <Button
+                size="sm"
+                variant="success"
+                className={cn(
+                  "h-9",
+                  isActionDisabled("apply") &&
+                    "cursor-not-allowed bg-muted text-muted-foreground opacity-70"
+                )}
+                disabled={isActionDisabled("apply")}
+                onClick={() => {
+                  if (isActionDisabled("apply")) return
+                  setApplyStatus("idle")
+                  setApplyModalOpen(true)
+                }}
+              >
+                {isApplyingDerived ? (
+                  <span className="inline-flex items-center gap-2">
+                    <Loader2 className="size-4 animate-spin" />
+                    Deploying…
+                  </span>
+                ) : applyErrorState ? (
+                  "Redeploy"
+                ) : (
+                  "Deploy"
+                )}
+              </Button>
 
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      size="sm"
-                      variant="destructive"
-                      className={cn(
-                        "h-9",
-                        isActionDisabled("destroy") &&
-                          "cursor-not-allowed bg-muted text-muted-foreground opacity-70"
-                      )}
-                      disabled={isActionDisabled("destroy")}
-                      onClick={() => {
-                        if (isActionDisabled("destroy")) return
-                        setDestroyStatus("idle")
-                        setDestroyError(null)
-                        setDestroyModalOpen(true)
-                      }}
-                    >
-                      {destroyInFlight ? (
-                        <span className="inline-flex items-center gap-2">
-                          <Loader2 className="size-4 animate-spin" />
-                          Destroying…
-                        </span>
-                      ) : (destroyFailed || destroyStale) && !destroyRunActive
-                        ? "Retry destroy"
-                        : "Destroy"}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {hasLock
-                      ? "Another operation is in progress"
-                      : !canDestroy
-                        ? canDestroyData?.reason === "not_in_destroy_prod_allowlist"
-                          ? "You're not allowed to destroy prod requests"
-                          : canDestroyData?.reason === "requires_admin_role"
-                            ? "Destroy requires admin role"
-                            : "Destroy not permitted"
-                        : (destroyFailed || destroyStale) && !destroyRunActive
-                          ? "Previous destroy failed or status unclear. Retry or repair to refresh."
-                          : "Destroy the resources for this request"}
-                  </TooltipContent>
-                </Tooltip>
-                {destroyStale && (
+              <Button
+                size="sm"
+                variant="destructive"
+                className={cn(
+                  "h-9",
+                  isActionDisabled("destroy") &&
+                    "cursor-not-allowed bg-muted text-muted-foreground opacity-70"
+                )}
+                disabled={isActionDisabled("destroy")}
+                onClick={() => {
+                  if (isActionDisabled("destroy")) return
+                  setDestroyStatus("idle")
+                  setDestroyError(null)
+                  setDestroyModalOpen(true)
+                }}
+              >
+                {destroyInFlight ? (
+                  <span className="inline-flex items-center gap-2">
+                    <Loader2 className="size-4 animate-spin" />
+                    Destroying…
+                  </span>
+                ) : (destroyErrorState || destroyStale) && !destroyRunActive
+                  ? "Retry destroy"
+                  : "Destroy"}
+              </Button>
+              {destroyStale && (
                   <Button
                     size="sm"
                     variant="outline"
@@ -1723,10 +1808,9 @@ function RequestDetailPage() {
                     )}
                   </Button>
                 )}
-              </div>
-            </TooltipProvider>
+            </div>
 
-            {(isDestroying || isDestroyed || destroyFailed || destroyStale || destroyRun) && (
+            {(isDestroying || isDestroyed || destroyErrorState || destroyStale || destroyRun) && (
               <div className="rounded-md bg-muted/30 px-3 py-2 text-sm text-foreground">
                 <div className="flex items-center gap-2">
                   <Badge
@@ -1740,7 +1824,7 @@ function RequestDetailPage() {
                         ? "Destroying"
                         : destroyStale
                           ? "Status unclear (repair to refresh)"
-                          : destroyFailed
+                          : destroyErrorState
                             ? "Destroy failed"
                             : "Destroy triggered"}
                   </Badge>

@@ -3,6 +3,7 @@ import { GetObjectCommand, ListObjectsV2Command, S3Client } from "@aws-sdk/clien
 
 import { getSessionFromCookies } from "@/lib/auth/session"
 import { env } from "@/lib/config/env"
+import { deriveLifecycleStatus } from "@/lib/requests/deriveLifecycleStatus"
 import { getRequest } from "@/lib/storage/requestsStore"
 
 const s3 = new S3Client({ region: env.TFPILOT_DEFAULT_REGION })
@@ -101,7 +102,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ req
         targetEnvPath: request.targetEnvPath,
         createdAt: request.createdAt || request.receivedAt,
         updatedAt: request.updatedAt,
-        status: request.status,
+        status: deriveLifecycleStatus(request),
         revision: request.revision,
       },
       lifecycleEvents,

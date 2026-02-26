@@ -23,19 +23,21 @@ export default function NavBar() {
 
   return (
     <div className="flex items-center gap-4">
-      <nav className="flex items-center gap-2">
-        {navItems.map((item) => (
-          <Button
-            key={item.href}
-            variant="ghost"
-            size="sm"
-            asChild
-            className="text-sm text-foreground/80 hover:text-foreground hover:bg-transparent focus-visible:bg-transparent"
-          >
-            <Link href={item.href}>{item.label}</Link>
-          </Button>
-        ))}
-      </nav>
+      {user && (
+        <nav className="flex items-center gap-2">
+          {navItems.map((item) => (
+            <Button
+              key={item.href}
+              variant="ghost"
+              size="sm"
+              asChild
+              className="text-sm text-foreground/80 hover:text-foreground hover:bg-transparent focus-visible:bg-transparent"
+            >
+              <Link href={item.href}>{item.label}</Link>
+            </Button>
+          ))}
+        </nav>
+      )}
       <Button
         variant="ghost"
         size="icon"

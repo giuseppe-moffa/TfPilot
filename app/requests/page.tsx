@@ -37,6 +37,7 @@ import { cn } from "@/lib/utils"
 import { useAwsConnection } from "../providers"
 import { patchRequestCache, requestCacheKey } from "@/hooks/use-request"
 import { subscribeToRequestEvents } from "@/lib/sse/streamClient"
+import { deriveLifecycleStatus } from "@/lib/requests/deriveLifecycleStatus"
 import { normalizeRequestStatus } from "@/lib/status/status-config"
 import { getStatusLabel } from "@/lib/status/status-config"
 
@@ -164,7 +165,7 @@ export default function RequestsPage() {
         module: r.module,
         service:
           typeof r.config?.["name"] === "string" ? (r.config["name"] as string) : undefined,
-        status: r.status ?? ("pending" as const),
+        status: deriveLifecycleStatus(r) ?? ("pending" as const),
         createdAt: r.receivedAt,
         config: r.config,
         pullRequest: r.pullRequest,

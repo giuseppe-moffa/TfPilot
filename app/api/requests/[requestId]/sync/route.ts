@@ -12,6 +12,7 @@ import { getRequestCost } from "@/lib/services/cost-service"
 import { env } from "@/lib/config/env"
 import { ensureAssistantState } from "@/lib/assistant/state"
 import { sendAdminNotification, formatRequestNotification } from "@/lib/notifications/email"
+import { logWarn } from "@/lib/observability/logger"
 
 type ApplyRunLike = {
   runId?: number
@@ -563,6 +564,52 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
       } catch (err) {
         console.warn("[api/requests/sync] destroy run fetch failed for runId:", request.destroyRun?.runId, err)
       }
+    }
+
+    // Canonicalize apply: if legacy applyRun is completed but github.workflows.apply is not, set canonical from legacy (repair path).
+    // Never overwrite an already-completed canonical apply; never regress completed → queued/in_progress.
+    const applyRunLegacy = request.applyRun
+    const canonicalApply = request.github?.workflows?.apply
+    if (
+      applyRunLegacy?.status === "completed" &&
+      (!canonicalApply || canonicalApply.status !== "completed")
+    ) {
+      logWarn("repair.split_brain_apply_detected", {
+        requestId,
+        legacyStatus: applyRunLegacy.status,
+        legacyConclusion: applyRunLegacy.conclusion,
+        canonicalStatus: canonicalApply?.status ?? null,
+      })
+      if (!request.github) request.github = {}
+      if (!request.github.workflows) request.github.workflows = {}
+      request.github.workflows.apply = {
+        runId: applyRunLegacy.runId,
+        url: applyRunLegacy.url,
+        status: applyRunLegacy.status,
+        conclusion: applyRunLegacy.conclusion,
+        headSha: applyRunLegacy.headSha,
+      }
+      request.applyRun = { ...request.github.workflows.apply }
+    }
+
+    // Canonicalize destroy: if legacy destroyRun is completed but github.workflows.destroy is not, set canonical from legacy (repair path).
+    // Never allow stale canonical to overwrite completed legacy; do not regress from completed → in_progress.
+    const destroyRunLegacy = request.destroyRun
+    const canonicalDestroy = request.github?.workflows?.destroy
+    if (
+      destroyRunLegacy?.status === "completed" &&
+      (!canonicalDestroy || canonicalDestroy.status !== "completed")
+    ) {
+      if (!request.github) request.github = {}
+      if (!request.github.workflows) request.github.workflows = {}
+      request.github.workflows.destroy = {
+        runId: destroyRunLegacy.runId,
+        status: destroyRunLegacy.status,
+        conclusion: destroyRunLegacy.conclusion,
+        headSha: destroyRunLegacy.headSha,
+        url: destroyRunLegacy.url,
+      }
+      request.destroyRun = { ...request.github.workflows.destroy }
     }
 
     const status = deriveLifecycleStatus(request)

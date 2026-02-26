@@ -4,6 +4,7 @@
  * Safe to import in client code (no server-only dependencies).
  */
 
+import { deriveLifecycleStatus, type RequestLike } from "@/lib/requests/deriveLifecycleStatus"
 import { isActiveStatus, isTerminalStatus } from "@/lib/status/status-config"
 
 /** Parse env as integer; must be finite and > 0, else return fallback. */
@@ -47,20 +48,19 @@ export const SYNC_INTERVAL_RATE_LIMIT_BACKOFF_MS = readIntEnv(
   DEFAULT_RATE_LIMIT_BACKOFF_MS
 )
 
-type RequestLike = { status?: string } | null | undefined
-
 /**
  * Returns the sync polling interval (ms) for the given request and tab visibility.
  * Terminal status → 0 (stop polling). Tab hidden → HIDDEN_MS. Active → ACTIVE_MS. Else → IDLE_MS.
+ * Uses deriveLifecycleStatus(request) so polling never relies on stored status.
  */
 export function getSyncPollingInterval(
-  request: RequestLike,
+  request: RequestLike | null | undefined,
   tabHidden: boolean
 ): number {
   if (!request) return SYNC_INTERVAL_IDLE_MS
   if (tabHidden) return SYNC_INTERVAL_HIDDEN_MS
-  const status = request.status as string | undefined
-  if (status && isTerminalStatus(status)) return 0
-  if (status && isActiveStatus(status)) return SYNC_INTERVAL_ACTIVE_MS
+  const status = deriveLifecycleStatus(request)
+  if (isTerminalStatus(status)) return 0
+  if (isActiveStatus(status)) return SYNC_INTERVAL_ACTIVE_MS
   return SYNC_INTERVAL_IDLE_MS
 }

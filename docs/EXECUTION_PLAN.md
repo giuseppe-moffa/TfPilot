@@ -1,229 +1,233 @@
-# TfPilot EXECUTION PLAN
-
-**Doc index:** [docs/DOCS_INDEX.md](DOCS_INDEX.md). This file is the roadmap (referenced by .cursor rules).
+# TfPilot EXECUTION PLAN (v2)
 
 ## Mission
 
-TfPilot is an AI-driven Terraform orchestration platform that provides safe, deterministic infrastructure workflows through a GitHub-native lifecycle.
+TfPilot is an AI-driven Terraform orchestration platform that provides
+safe, deterministic infrastructure workflows through a GitHub-native
+lifecycle.
 
-The goal is to evolve TfPilot into a production-grade internal developer platform comparable to env0/Terraform Cloud while remaining lightweight and AI-first.
+The goal is to evolve TfPilot into a production-grade internal developer
+platform comparable to env0 / Terraform Cloud while remaining
+lightweight, cost-efficient, and AI-first.
 
----
+------------------------------------------------------------------------
 
-## Current State
+# Guiding Constraints
 
-- Next.js API + UI
-- Requests stored in S3
-- Chat agent for request creation
-- GitHub workflows for plan/apply/destroy/cleanup
-- Deterministic Terraform modules
-- Request lifecycle tracking
+-   Keep AWS costs minimal
+-   Prefer GitHub-native workflows
+-   Avoid heavy infra (no Kubernetes operators, no event buses)
+-   Deterministic Terraform only
+-   Webhook-first over polling
+-   UI-driven safety signals
 
----
+------------------------------------------------------------------------
 
-## Principles
+# Current State
 
-- GitHub is the source of truth
-- Terraform execution happens only in workflows
-- Requests are immutable records
-- AI collects inputs, never writes Terraform directly
-- Security by default
-- Lightweight over complex
-- Deterministic modules only
+-   Next.js API + UI
+-   Requests stored in S3
+-   GitHub Actions for plan/apply/destroy
+-   Deterministic Terraform modules
+-   Lifecycle tracking
+-   Template catalogue
 
----
+------------------------------------------------------------------------
 
-## Target Architecture
+# Roadmap (Ranked by Fastest Wins First)
 
-TfPilot will include:
+------------------------------------------------------------------------
 
-- Lifecycle logging
-- Metrics + observability
-- Drift detection
-- Policy engine
-- Cost estimation
-- RBAC roles
-- Notification system
-- Service catalog UI
+# PHASE 1 --- Fastest Wins (High Impact / Low Cost)
 
----
+## 1️⃣ Risk Classification Engine
 
-## Phase 1 — Production Foundation
+Classify plan before approval: - Safe (adds only) - Medium (modifies) -
+Destructive (destroys \> 0)
 
-### Lifecycle Logging
+UI shows risk badge.
 
-Goal:
-Track all request lifecycle events.
+Impact: Major enterprise signal\
+Infra Cost: None\
+Effort: Low (parse plan JSON)
 
-Requirements:
-- JSON structured logs
-- Stored in S3 under logs/
-- API endpoint to query logs
+------------------------------------------------------------------------
 
-Acceptance:
-- Every workflow event logged
+## 2️⃣ Execution Replay Timeline
 
----
+Per request: - Who approved - PR merge SHA - Workflow run ID -
+Duration - Exit code
 
-### Drift Detection
+Surface from existing logs + GitHub metadata.
 
-Requirements:
-- Nightly terraform plan run
-- Mark drift in request status
-- Send notification
+Impact: High audit maturity\
+Infra Cost: None\
+Effort: Low
 
-Acceptance:
-- Drift surfaced in UI
+------------------------------------------------------------------------
 
----
+## 3️⃣ Concurrency Guard Visualizer
 
-### Notifications
+Display: - Environment lock holder - Queue status - Pending operations
 
-Requirements:
-- Slack + email support
-- Events: plan failed, apply complete, approval required
+Impact: Strong platform engineering signal\
+Infra Cost: None\
+Effort: Low
 
-Acceptance:
-- Notifications triggered on lifecycle events
+------------------------------------------------------------------------
 
----
+## 4️⃣ Webhook-First Lifecycle
 
-### Metrics Endpoint
+Replace polling with GitHub webhooks for: - Workflow completion - PR
+merge - Plan status
 
-Expose:
-- total requests
-- success rate
-- failures
-- average apply time
+Impact: Scalability + API reduction\
+Infra Cost: None\
+Effort: Medium
 
-Acceptance:
-- /metrics endpoint returns JSON
+------------------------------------------------------------------------
 
----
+## 5️⃣ Approval Rules per Environment
 
-## Phase 2 — Governance & Safety
+Rules: - Dev → 1 approver - Prod → 2 approvers - Restrict approvers via
+GitHub teams
 
-### Policy Engine
+Impact: Governance maturity\
+Infra Cost: None\
+Effort: Medium
 
-Requirements:
-- Pre-plan policy checks
-- Naming rules
-- Required tags
-- Allowed regions
+------------------------------------------------------------------------
 
-Acceptance:
-- Requests blocked if policy fails
+# PHASE 2 --- Safety & Governance
 
----
+## 6️⃣ Drift Dashboard
 
-### RBAC
+Nightly terraform plan per environment: - Show drift count - Last scan
+time - Drifted environments summary
 
-Roles:
-- Viewer
-- Developer
-- Approver
-- Admin
+Impact: Enterprise readiness\
+Infra Cost: Minimal (reuse workflows)\
+Effort: Medium
 
-Acceptance:
-- Actions restricted by role
+------------------------------------------------------------------------
 
----
+## 7️⃣ Environment Health Score
 
-### Cost Estimation
+Score based on: - Drift presence - Failed applies - Open PRs - Last
+successful apply
 
-Requirements:
-- Integrate infracost
-- Show cost diff in PR + UI
+Display health badge (Green/Yellow/Red).
 
-Acceptance:
-- Cost shown before apply
+Impact: Platform differentiation\
+Infra Cost: None\
+Effort: Medium
 
----
+------------------------------------------------------------------------
 
-## Phase 3 — Platform Maturity
+## 8️⃣ Metrics Endpoint
 
-### Service Catalog
+Expose: - Total requests - Success rate - Failure rate - Avg apply
+time - Drift count
 
-Requirements:
-- Module catalog UI
-- Descriptions + inputs + examples
+JSON endpoint only (no heavy observability stack).
 
-Acceptance:
-- Users can browse modules
+Impact: Operational visibility\
+Infra Cost: None\
+Effort: Low
 
----
+------------------------------------------------------------------------
 
-### Request Templates
+# PHASE 3 --- Governance Controls
 
-Acceptance:
-- Users can create requests from templates
+## 9️⃣ Lightweight Policy Engine
 
----
+Pre-plan validation: - Naming conventions - Required tags - Allowed
+regions - Instance type allowlists
 
-### Environment Promotion
+Block request if invalid.
 
-Acceptance:
-- Dev → Stage → Prod promotion workflow
+Impact: Enterprise safety\
+Infra Cost: None\
+Effort: Medium
 
----
+------------------------------------------------------------------------
 
-## Phase 4 — AI Differentiation
+## 🔟 RBAC
 
-### Plan Summarization
+Roles: - Viewer - Developer - Approver - Admin
 
-Acceptance:
-- AI explains terraform plan
+Enforce action restrictions in UI + API.
 
----
+Impact: Governance maturity\
+Infra Cost: None\
+Effort: Medium
 
-### Intelligent Suggestions
+------------------------------------------------------------------------
 
-Acceptance:
-- Agent suggests optimizations
+# PHASE 4 --- Platform Maturity
 
----
+## Service Catalog Improvements
 
-### Natural Language Queries
+-   Input previews
+-   Example configs
+-   Usage stats
+-   Template popularity
 
-Acceptance:
-- Users can query platform state via chat
+Infra Cost: None\
+Effort: Medium
 
----
+------------------------------------------------------------------------
 
-## Non-Functional Requirements
+## Cost Estimation (Later)
 
-- No breaking existing workflows
-- Backwards compatible request schema
-- Avoid heavy dependencies
-- Prefer simple AWS primitives
-- Keep infra costs minimal
+Integrate Infracost in PR: - Show cost diff before approval
 
----
+Infra Cost: Minimal (GitHub action only)\
+Effort: Medium
 
-## Definition of Done
+------------------------------------------------------------------------
 
-A feature is complete when:
+# Strategic Avoid List (Costly / Low ROI Now)
 
-- API implemented
-- UI updated
-- Workflow integration complete
-- Logging added
-- README updated
+-   Kubernetes operator
+-   Multi-cloud orchestration
+-   Custom runners
+-   Event streaming platforms
+-   Heavy OPA integration
+-   SOC2 tooling early
 
----
+------------------------------------------------------------------------
 
-## Coding Standards
+# Target Score Trajectory
 
-- TypeScript strict
-- No any types
-- Small composable functions
-- Clear error handling
-- Avoid duplication
+Current: \~8.3 / 10\
+After Phase 1: \~9.0\
+After Phase 2: \~9.2\
+After Phase 3: \~9.4
 
----
+------------------------------------------------------------------------
 
-## Risks / Constraints
+# Definition of Done
 
-- Must remain lightweight
-- Avoid enterprise complexity
-- Keep infrastructure costs minimal
+A feature is complete when: - API implemented - UI updated - Workflow
+integration complete - Logging added - README updated - No infra cost
+increase unless justified
+
+------------------------------------------------------------------------
+
+# Coding Standards
+
+-   TypeScript strict
+-   No `any`
+-   Small composable functions
+-   Deterministic behavior
+-   Clear error handling
+-   Minimal dependencies
+
+------------------------------------------------------------------------
+
+# Core Philosophy
+
+TfPilot should feel like: - Terraform Cloud discipline - GitHub-native
+simplicity - AI-assisted but deterministic - Enterprise-grade without
+enterprise cost

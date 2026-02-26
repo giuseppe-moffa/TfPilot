@@ -3,7 +3,6 @@ import { NextRequest, NextResponse } from "next/server"
 import { getSessionFromCookies } from "@/lib/auth/session"
 import { getGitHubAccessToken } from "@/lib/github/auth"
 import { gh } from "@/lib/github/client"
-import { githubRequest } from "@/lib/github/rateAware"
 import { env } from "@/lib/config/env"
 import { withCorrelation } from "@/lib/observability/correlation"
 import { logError, logInfo, logWarn } from "@/lib/observability/logger"
@@ -13,21 +12,9 @@ import { getUserRole } from "@/lib/auth/roles"
 import { getIdempotencyKey, assertIdempotentOrRecord, ConflictError } from "@/lib/requests/idempotency"
 import { acquireLock, releaseLock, LockConflictError, type RequestDocWithLock } from "@/lib/requests/lock"
 import { getEnvTargetFile, getModuleType } from "@/lib/infra/moduleType"
-import { buildWorkflowDispatchPatch, persistWorkflowDispatchIndex } from "@/lib/requests/persistWorkflowDispatch"
-
-function isDestroyRunCorrelated(
-  r: { head_sha?: string; name?: string },
-  candidateShas: Set<string>,
-  requestId: string,
-  req: { branchName?: string; prNumber?: number }
-): boolean {
-  if (r.head_sha && candidateShas.has(r.head_sha)) return true
-  if (!r.name) return false
-  if (r.name.includes(requestId)) return true
-  if (req.branchName && r.name.includes(req.branchName)) return true
-  if (req.prNumber != null && r.name.includes(String(req.prNumber))) return true
-  return false
-}
+import { buildWorkflowDispatchPatch } from "@/lib/requests/persistWorkflowDispatch"
+import { putRunIndex } from "@/lib/requests/runIndex"
+import { resolveDestroyRunId } from "@/lib/requests/resolveDestroyRunId"
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ requestId: string }> }) {
   const start = Date.now()
@@ -171,6 +158,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
       })
     }
 
+    const dispatchTime = new Date()
+
     // Dispatch destroy workflow
     await gh(token, `/repos/${request.targetOwner}/${request.targetRepo}/actions/workflows/${env.GITHUB_DESTROY_WORKFLOW_FILE}/dispatches`, {
       method: "POST",
@@ -183,61 +172,77 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
       }),
     })
 
-    // Brief delay so the newly triggered run appears first in the list
-    await new Promise((r) => setTimeout(r, 2500))
+    logInfo("destroy.dispatch", {
+      ...correlation,
+      requestId: request.id,
+      dispatchTime: dispatchTime.toISOString(),
+      route: "requests/[requestId]/destroy",
+    })
 
+    const candidateShas = new Set(
+      [
+        request.mergedSha,
+        request.commitSha,
+        (request as { planRun?: { headSha?: string } }).planRun?.headSha,
+        (request as { pr?: { headSha?: string } }).pr?.headSha,
+      ].filter(Boolean) as string[]
+    )
+    const branch = request.targetBase ?? env.GITHUB_DEFAULT_BASE_BRANCH
+
+    const RESOLVE_ATTEMPTS = 12
+    const BACKOFF_MS = [500, 500, 1000, 1000, 1500, 1500, 2000, 2000, 2000, 2000, 2000, 2000]
     let destroyRunId: number | undefined
     let destroyRunUrl: string | undefined
-    try {
-      const runsJson = await githubRequest<{
-        workflow_runs?: Array<{ id: number; head_sha?: string; name?: string; status?: string }>
-      }>({
-        token,
-        key: `gh:wf-runs:${request.targetOwner}:${request.targetRepo}:${env.GITHUB_DESTROY_WORKFLOW_FILE}:${request.targetBase ?? env.GITHUB_DEFAULT_BASE_BRANCH}`,
-        ttlMs: 15_000,
-        path: `/repos/${request.targetOwner}/${request.targetRepo}/actions/workflows/${env.GITHUB_DESTROY_WORKFLOW_FILE}/runs?branch=${encodeURIComponent(
-          request.targetBase ?? env.GITHUB_DEFAULT_BASE_BRANCH
-        )}&per_page=5`,
-        context: { route: "requests/[requestId]/destroy", correlationId: requestId },
-      })
-      const candidateShas = new Set(
-        [
-          request.mergedSha,
-          request.commitSha,
-          (request as { planRun?: { headSha?: string } }).planRun?.headSha,
-          (request as { pr?: { headSha?: string } }).pr?.headSha,
-        ].filter(Boolean) as string[]
-      )
-      const runs = runsJson.workflow_runs ?? []
-      const active = (r: { status?: string }) => r.status === "queued" || r.status === "in_progress"
-      const correlated = runs.find((r) =>
-        isDestroyRunCorrelated(r, candidateShas, requestId ?? "", request)
-      )
-      const correlatedActive = correlated && active(correlated) ? correlated : null
-      const firstActive = runs.find(active)
-      const chosen = correlatedActive ?? correlated ?? firstActive ?? runs[0]
-      destroyRunId = chosen?.id
-      if (destroyRunId) {
-        destroyRunUrl = `https://github.com/${request.targetOwner}/${request.targetRepo}/actions/runs/${destroyRunId}`
+
+    for (let attempt = 0; attempt < RESOLVE_ATTEMPTS; attempt++) {
+      if (attempt > 0) {
+        await new Promise((r) => setTimeout(r, BACKOFF_MS[Math.min(attempt - 1, BACKOFF_MS.length - 1)]))
       }
-    } catch {
-      /* ignore run discovery failures */
+      try {
+        const result = await resolveDestroyRunId({
+          token,
+          owner: request.targetOwner,
+          repo: request.targetRepo,
+          workflowFile: env.GITHUB_DESTROY_WORKFLOW_FILE,
+          branch,
+          requestId: request.id,
+          dispatchTime,
+          candidateShas,
+          requestIdForName: request.id,
+          logContext: { route: "requests/[requestId]/destroy", correlationId: correlation.correlationId ?? request.id },
+        })
+        if (result) {
+          destroyRunId = result.runId
+          destroyRunUrl = result.url
+          break
+        }
+      } catch (err) {
+        if (attempt === RESOLVE_ATTEMPTS - 1) {
+          logWarn("destroy.resolve_run_failed", { ...correlation, requestId: request.id, attempt: attempt + 1, err: String(err) })
+        }
+      }
+    }
+
+    if (destroyRunId != null) {
+      try {
+        await putRunIndex("destroy", destroyRunId, request.id)
+      } catch (err) {
+        logWarn("destroy.run_index_write_failed", { ...correlation, requestId: request.id, runId: destroyRunId, err: String(err) })
+      }
     }
 
     const nowIso = new Date().toISOString()
+    const dispatchTimeIso = dispatchTime.toISOString()
+
     const [updated] = await updateRequest(request.id, (current) => {
-      const cur = current as { github?: Record<string, unknown>; destroyRun?: { runId?: number; url?: string }; cleanupPr?: unknown }
+      const cur = current as { github?: Record<string, unknown>; destroyRun?: { runId?: number; url?: string; status?: string }; cleanupPr?: unknown }
       const runId = destroyRunId ?? cur.destroyRun?.runId
+      const runUrl = destroyRunUrl ?? cur.destroyRun?.url
       const patch =
         runId != null
-          ? buildWorkflowDispatchPatch(current as Record<string, unknown>, "destroy", runId, destroyRunUrl ?? cur.destroyRun?.url)
+          ? buildWorkflowDispatchPatch(current as Record<string, unknown>, "destroy", runId, runUrl)
           : {}
       const patchGithub = (patch as { github?: Record<string, unknown> }).github ?? {}
-      const destroyRunPayload = {
-        runId: destroyRunId ?? cur.destroyRun?.runId,
-        url: destroyRunUrl ?? cur.destroyRun?.url,
-        status: "in_progress" as const,
-      }
       return {
         ...current,
         ...(idemPatch ?? {}),
@@ -246,13 +251,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
         github: {
           ...cur.github,
           ...patchGithub,
+          destroyTriggeredAt: dispatchTimeIso,
           workflows: {
             ...(cur.github?.workflows ?? {}),
             ...(patchGithub.workflows ?? {}),
-            destroy: { ...destroyRunPayload },
+            ...(runId != null ? { destroy: { runId, url: runUrl ?? cur.destroyRun?.url, status: "in_progress" } } : {}),
           },
         },
-        destroyRun: { ...destroyRunPayload },
+        destroyRun:
+          runId != null ? { runId, url: runUrl ?? cur.destroyRun?.url, status: "in_progress" as const } : { ...cur.destroyRun },
         cleanupPr: cur.cleanupPr ?? { status: "pending" },
         updatedAt: nowIso,
       }
@@ -279,10 +286,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
       await archiveRequest(updated)
     } catch (archiveError) {
       console.error("[api/requests/destroy] archive failed", archiveError)
-    }
-
-    if (destroyRunId != null) {
-      persistWorkflowDispatchIndex(request.id, "destroy", destroyRunId)
     }
 
     return NextResponse.json({ ok: true, destroyRunId, destroyRunUrl, request: updated })
