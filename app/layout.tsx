@@ -7,6 +7,7 @@ import { AuthProvider } from "./providers"
 import { AwsConnectionProvider } from "./providers"
 import { ThemeProvider } from "./theme-provider"
 import NavBar from "./nav-bar"
+import { RequestStreamRevalidator } from "@/lib/sse/RequestStreamRevalidator"
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -59,6 +60,7 @@ export default function RootLayout({
         <ThemeProvider>
           <AuthProvider>
             <AwsConnectionProvider>
+              <RequestStreamRevalidator />
               <div className="flex min-h-screen flex-col">
                 <header className="bg-card backdrop-blur shadow-[0_4px_6px_-1px_rgba(0,0,0,0.05),0_2px_4px_-2px_rgba(0,0,0,0.04)] dark:shadow-[0_4px_6px_-1px_rgba(0,0,0,0.12),0_2px_4px_-2px_rgba(0,0,0,0.08)]">
                   <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">

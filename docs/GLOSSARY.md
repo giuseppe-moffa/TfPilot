@@ -33,5 +33,16 @@ All derived by `deriveLifecycleStatus(request)`; not stored as source of truth (
 ## Repair
 
 - **Meaning:** Sync that performs GitHub API calls to refresh request facts (PR, reviews, workflow runs) and optionally retry cleanup dispatch after destroy success.
-- **When:** Sync runs GitHub fetch when `needsRepair(request)` is true, when the client calls sync with `?repair=1` or `?hydrate=1`, or when any current attempt (plan/apply/destroy) has runId and status queued/in_progress (so "stuck" states converge without manual repair).
+- **When:** Sync runs GitHub fetch when `needsRepair(request)` is true, when the client calls sync with `?repair=1` or `?hydrate=1`, or when any current attempt (plan/apply/destroy) satisfies **needsReconcile** (runId present and conclusion missing), so "stuck" states converge without manual repair.
 - **Endpoint:** GET `/api/requests/:requestId/sync` (with optional `repair=1` or `hydrate=1`). Implemented in **app/api/requests/[requestId]/sync/route.ts**; policy in **lib/requests/syncPolicy.ts**.
+
+---
+
+## Observability
+
+| Term | Meaning |
+|------|---------|
+| **Insights** | Dashboard at `/insights`: ops metrics (request counts, success rates, status distribution, durations) and GitHub API usage (in-memory). Data from GET `/api/metrics/insights` and GET `/api/metrics/github`; session required. |
+| **GitHub API usage metrics** | In-memory counters and windows in **lib/observability/github-metrics.ts**. Recorded only in **lib/github/client.ts** `ghResponse()` (one call per real response). Rolling 5m/60m buckets; top routes (60m), hot routes (5m); last-seen rate-limit headers; ring of rate-limit events. Resets on deploy/restart; no DB. |
+| **Rate-limit burst (5m)** | Derived boolean in the GitHub metrics snapshot: true if there was any rate-limited response in the last 5 minutes, or if remaining/limit &lt; 10%. Surfaces “rate-limit pressure” in the Insights UI. |
+| **kindGuess** | Best-effort label for a rate-limit event inferred from the normalized route path (e.g. `run`, `pr`, `reviews`, `jobs`, `workflow`, `contents`, `dispatch`, `commits`). See `inferKindGuess()` in **lib/observability/github-metrics.ts**. |

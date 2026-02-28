@@ -152,9 +152,9 @@ TfPilot is an AI-assisted Terraform self-service platform. Users create requests
 }
 ```
 
-**Authoritative fields:**
+**Authoritative fields:** (Status in the example JSON above is for illustration only; it is derived by `deriveLifecycleStatus(request)`, not stored as truth.)
 
-- **Run execution:** All workflow execution state lives under `request.runs.{plan,apply,destroy}`. Each has `currentAttempt` and `attempts: AttemptRecord[]`. Current attempt = `attempts.find(a => a.attempt === currentAttempt)`. Helpers: `getCurrentAttemptStrict(request.runs, "plan"|"apply"|"destroy")` in **lib/requests/runsModel.ts**. Attempts may have optional runId/url (e.g. plan at dispatch); webhook/sync can attach runId by head_sha. Sync **always** fetches and patches when current attempt has runId and status queued/in_progress. No legacy run state.
+- **Run execution:** All workflow execution state lives under `request.runs.{plan,apply,destroy}`. Each has `currentAttempt` and `attempts: AttemptRecord[]`. Current attempt = `attempts.find(a => a.attempt === currentAttempt)`. Helpers: `getCurrentAttemptStrict(request.runs, "plan"|"apply"|"destroy")` in **lib/requests/runsModel.ts**. Attempts may have optional runId/url (e.g. plan at dispatch); webhook/sync can attach runId by head_sha. Sync fetches and patches when current attempt satisfies **needsReconcile** (runId present, conclusion missing); noop cooldown 60s in-memory when reconcile returns non-terminal payload with no patch. No legacy run state.
 - **Stale destroy:** If the current destroy attempt has no conclusion for >15 min after `dispatchedAt`, `isDestroyRunStale(request)` is true and derivation returns `failed`.
 - **PR + merge:** `pr` or `github.pr` (number, url, merged, headSha, open). `mergedSha` set by merge route when GitHub merge succeeds.
 - **Status:** Not authoritative. UI/API use `deriveLifecycleStatus(request)`. Derivation reads current attempts only.
@@ -243,8 +243,8 @@ return [payload, true]
 
 - **lib/github/streamState.ts:** S3 key `webhooks/github/stream.json`. `appendStreamEvent({ requestId, updatedAt, type })` read-modify-write; seq monotonic; trim to last 50 events. **Only called when a request write actually occurred** (e.g. after webhook patch that changed doc).
 - **app/api/stream/route.ts:** GET, session required. Polls `getStreamState()` every 2s; sends SSE `event: request`, `data: JSON.stringify(ev)` for events with `ev.seq > since`. Heartbeat every 15s. Client passes `?since=<seq>`.
-- **lib/sse/streamClient.ts:** Client-only. Single `EventSource` to `/api/stream?since=${lastSeq}`. `subscribeToRequestEvents(handler)` → on "request" event, update lastSeq, call handlers. Handlers typically call `globalMutate("req:" + requestId)` and `globalMutate("/api/requests")`.
-- **Hooks:** `useRequest(requestId)` (hooks/use-request.ts): SWR key `req:${id}`, fetcher = GET `/api/requests/${id}/sync`. Subscribes to SSE; on event calls `globalMutate(k)` and `globalMutate("/api/requests")`. Polling: when SSE connected, refreshInterval at least 60s; when apply/destroy active, 0 (page drives sync). `useRequestStatus` (hooks/use-request-status.ts): similar; used for detail page with nonce and 429 backoff.
+- **SSE revalidation:** Single global subscriber in root layout (`RequestStreamRevalidator`, lib/sse/RequestStreamRevalidator.tsx). On each "request" event: mutate `req:${requestId}` immediately; debounce 300ms and mutate `/api/requests`. No duplicate subscribers. **lib/sse/streamClient.ts:** Client-only. Single `EventSource` to `/api/stream?since=${lastSeq}`. `subscribeToRequestEvents(handler)` → on "request" event, update lastSeq, call handlers.
+- **Hooks:** `useRequest(requestId)` (hooks/use-request.ts): SWR key `req:${id}`, fetcher = GET `/api/requests/${id}/sync`. Root revalidator mutates keys on SSE. Polling: when SSE connected, refreshInterval at least 60s; when apply/destroy active, 0 (page drives sync). `useRequestStatus` (hooks/use-request-status.ts): similar; used for detail page with nonce and 429 backoff.
 
 ---
 

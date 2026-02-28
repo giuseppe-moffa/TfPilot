@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react"
 import useSWR from "swr"
-import * as SWRModule from "swr"
 import {
   getSyncPollingInterval,
   SYNC_INTERVAL_RATE_LIMIT_BACKOFF_MS,
@@ -9,7 +8,6 @@ import {
   subscribeToRequestEvents,
   subscribeToConnectionState,
 } from "@/lib/sse/streamClient"
-import { requestCacheKey } from "@/hooks/use-request"
 
 type GlobalMutator = (key: string, data?: unknown, opts?: { revalidate?: boolean }) => Promise<unknown>
 
@@ -76,13 +74,8 @@ export function useRequestStatus(requestId?: string, initial?: RequestLike) {
 
   const mutateRef = useRef<(() => void) | null>(null)
 
-  const globalMutate = (SWRModule as unknown as { mutate: (key: string) => Promise<unknown> }).mutate
-
   useEffect(() => {
     const unsubEvents = subscribeToRequestEvents((ev) => {
-      const k = requestCacheKey(ev.requestId)
-      if (k) void globalMutate(k)
-      void globalMutate("/api/requests")
       if (ev.requestId === requestId) mutateRef.current?.()
     })
     const unsubConn = subscribeToConnectionState(setSseConnected)

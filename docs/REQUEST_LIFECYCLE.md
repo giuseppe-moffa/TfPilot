@@ -28,14 +28,16 @@ Status is **not** stored as authoritative. It is computed by `deriveLifecycleSta
 - **Current attempts only:** `getCurrentAttempt(request.runs, "plan"|"apply"|"destroy")` — i.e. the attempt where `attempt === currentAttempt`
 - `approval`, `mergedSha`
 
+**Derivation rules (terminality from conclusion, not status):** Apply/destroy in-flight are derived from **runId present + no conclusion** (status-agnostic). Stale destroy: runId + no conclusion + past threshold (e.g. 15 min after current attempt’s `dispatchedAt`) → `failed`. No status string is trusted for liveness.
+
 **Priority order (exact from code):**
 
 1. Destroy current attempt failed conclusion → `failed`
 2. Destroy current attempt success → `destroyed`
-3. Destroy in progress (and not stale) → `destroying`; if stale (no conclusion for >15 min after latest attempt’s `dispatchedAt`) → `failed`
+3. Destroy in progress (runId + no conclusion, not stale) → `destroying`; if stale (no conclusion for >15 min after latest attempt’s `dispatchedAt`) → `failed`
 4. Apply current attempt failed → `failed`
 5. Plan current attempt failed → `failed`
-6. Apply running → `applying`
+6. Apply in-flight (runId + no conclusion) → `applying`
 7. Apply success → `applied`
 8. PR merged or `mergedSha` → `merged`
 9. Approval approved → `approved`
@@ -54,11 +56,11 @@ Status is **not** stored as authoritative. It is computed by `deriveLifecycleSta
 | Situation | Behavior |
 |-----------|----------|
 | **State lock** | Apply/destroy workflows use concurrency group per env (state); plan uses per-request group. Lock contention is in GitHub, not TfPilot. |
-| **Webhook loss** | Sync **always** fetches and patches when the current attempt (plan/apply/destroy) has runId and status `queued` or `in_progress`. So when the UI polls sync (e.g. on the request detail page), the attempt is updated to completed without manual repair. Sync also runs when `needsRepair(request)` or with `?repair=1` for other cases (e.g. missing runId resolution, PR cleanup). GET `/api/requests/:id/sync?repair=1` forces full GitHub fetch and patches. |
+| **Webhook loss** | Sync fetches and patches when **needsReconcile(attempt)** — runId present and conclusion missing — for plan, apply, destroy (status-agnostic). So when the UI polls sync (e.g. on the request detail page), the attempt is updated to completed without manual repair. Sync also runs when `needsRepair(request)` or with `?repair=1` for other cases (e.g. missing runId resolution, PR cleanup). A noop cooldown (60s, in-memory) applies when reconcile returns non-terminal payload with no patch. GET `/api/requests/:id/sync?repair=1` forces full GitHub fetch and patches. |
 | **Stale destroy** | If destroy was dispatched but no conclusion for >15 min after the current attempt’s `dispatchedAt`, `deriveLifecycleStatus` returns `failed` and `isDestroyRunStale(request)` is true. UI can show “Repair” / “Retry destroy”. Sync repair refreshes the attempt from GitHub; optional re-dispatch creates a new attempt. |
 | **Cleanup dispatch failed** | After destroy success, webhook may trigger cleanup dispatch. If that fails, sync with `?repair=1` re-attempts cleanup dispatch and updates `cleanupDispatchStatus`. |
 
-**Repair:** Sync with `?repair=1` (or `hydrate=1`) forces GitHub calls and re-patches request facts (PR, reviews, cleanup PR, and **run attempts** by runId). When `needsRepair(request)` is true, sync does the same without the query param. In addition, sync **always** performs GitHub run fetch for any current attempt (plan/apply/destroy) that has runId and status queued or in_progress, so "stuck destroying" (or planning/applying) converges within 1–2 poll intervals without manual repair. See **docs/OPERATIONS.md**.
+**Repair:** Sync with `?repair=1` (or `hydrate=1`) forces GitHub calls and re-patches request facts (PR, reviews, cleanup PR, and **run attempts** by runId). When `needsRepair(request)` is true, sync does the same without the query param. In addition, sync performs GitHub run fetch for any current attempt (plan/apply/destroy) that satisfies **needsReconcile** (runId present and conclusion missing), so "stuck destroying" (or planning/applying) converges within 1–2 poll intervals without manual repair. See **docs/OPERATIONS.md**.
 
 ---
 

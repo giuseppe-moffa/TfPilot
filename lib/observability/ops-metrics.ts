@@ -24,7 +24,9 @@ export type DisplayStatus =
 export type RequestRow = {
   id?: string
   status?: string
+  /** When request was created; some docs may use createdAt. */
   receivedAt?: string
+  createdAt?: string
   updatedAt?: string
   statusDerivedAt?: string
   runs?: RunsState
@@ -49,7 +51,7 @@ export type OpsMetricsPayload = {
   /** Apply duration (seconds). From runs.apply current attempt dispatchedAt → completedAt. */
   avgApplySecondsLast7d: number | null
   p95ApplySecondsLast7d: number | null
-  /** created → plan_ready: not reliably stored; null unless we add a field later. */
+  /** created → plan_ready: avg seconds from receivedAt to plan attempt completedAt (7d window). */
   avgCreatedToPlanReadySecondsLast7d: number | null
   /** Apply success rate = applies success / (applies success + apply failures) in 7d. */
   applySuccessRateLast7d: number | null
@@ -82,6 +84,7 @@ export function buildOpsMetrics(requests: RequestRow[], generatedAt: string): Op
   const now = Date.now()
   const statusCounts: Record<string, number> = {}
   const applyDurations7d: number[] = []
+  const createdToPlanReadyDurations7d: number[] = []
   let failures24h = 0
   let failures7d = 0
   let applies24h = 0
@@ -134,6 +137,15 @@ export function buildOpsMetrics(requests: RequestRow[], generatedAt: string): Op
     if (latestPlan?.conclusion && ["failure", "cancelled", "timed_out"].includes(latestPlan.conclusion) && inWindow(updatedAt, MS_7D, now)) {
       planFail7d += 1
     }
+
+    const createdAt = row.receivedAt ?? row.createdAt
+    if (latestPlan?.conclusion === "success" && latestPlan.completedAt && createdAt && inWindow(latestPlan.completedAt, MS_7D, now)) {
+      const start = Date.parse(createdAt)
+      const end = Date.parse(latestPlan.completedAt)
+      if (!Number.isNaN(start) && !Number.isNaN(end) && end > start) {
+        createdToPlanReadyDurations7d.push(Math.round((end - start) / 1000))
+      }
+    }
   }
 
   const total = requests.length
@@ -149,6 +161,12 @@ export function buildOpsMetrics(requests: RequestRow[], generatedAt: string): Op
   const planTotal7d = planSuccess7d + planFail7d
   const planSuccessRateLast7d = planTotal7d > 0 ? Math.round((planSuccess7d / planTotal7d) * 1000) / 1000 : null
 
+  const sumCreatedToPlanReady = createdToPlanReadyDurations7d.reduce((a, b) => a + b, 0)
+  const avgCreatedToPlanReadySecondsLast7d =
+    createdToPlanReadyDurations7d.length > 0
+      ? Math.round(sumCreatedToPlanReady / createdToPlanReadyDurations7d.length)
+      : null
+
   return {
     total,
     statusCounts,
@@ -160,7 +178,7 @@ export function buildOpsMetrics(requests: RequestRow[], generatedAt: string): Op
     destroysLast7d: destroys7d,
     avgApplySecondsLast7d,
     p95ApplySecondsLast7d,
-    avgCreatedToPlanReadySecondsLast7d: null,
+    avgCreatedToPlanReadySecondsLast7d,
     applySuccessRateLast7d,
     planSuccessRateLast7d,
     generatedAt,

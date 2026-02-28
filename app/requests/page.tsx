@@ -2,7 +2,6 @@
 
 import * as React from "react"
 import useSWR from "swr"
-import * as SWRModule from "swr"
 import Link from "next/link"
 
 import { Button } from "@/components/ui/button"
@@ -35,8 +34,7 @@ import {
 import { Eye, Search } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useAwsConnection } from "../providers"
-import { patchRequestCache, requestCacheKey } from "@/hooks/use-request"
-import { subscribeToRequestEvents } from "@/lib/sse/streamClient"
+import { patchRequestCache } from "@/hooks/use-request"
 import { deriveLifecycleStatus } from "@/lib/requests/deriveLifecycleStatus"
 import { normalizeRequestStatus } from "@/lib/status/status-config"
 import { getStatusLabel } from "@/lib/status/status-config"
@@ -127,17 +125,6 @@ export default function RequestsPage() {
   })
   const { data, error, mutate: mutateList } = swr
   const isValidating = (swr as any).isValidating ?? false
-
-  const globalMutate = (SWRModule as unknown as { mutate: (key: string) => Promise<unknown> }).mutate
-
-  React.useEffect(() => {
-    const unsub = subscribeToRequestEvents((ev) => {
-      const k = requestCacheKey(ev.requestId)
-      if (k) void globalMutate(k)
-      void mutateList()
-    })
-    return unsub
-  }, [mutateList])
 
   const [requests, setRequests] = React.useState<RequestRow[]>([])
   type DatasetMode = "active" | "drifted" | "destroyed" | "all"

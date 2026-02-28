@@ -66,9 +66,11 @@ export function deriveLifecycleStatus(request: RequestLike | null | undefined): 
   if (currentDestroy?.conclusion === "success") {
     return "destroyed"
   }
-  const destroyStatusActive =
-    currentDestroy?.status === "in_progress" || currentDestroy?.status === "queued"
-  if (destroyStatusActive && currentDestroy?.conclusion == null) {
+  // Destroy in-flight: runId present and no conclusion (status-agnostic); stale → failed
+  if (
+    currentDestroy?.runId != null &&
+    (currentDestroy?.conclusion == null || currentDestroy?.conclusion === undefined)
+  ) {
     const dispatchedMs = currentDestroy.dispatchedAt ? new Date(currentDestroy.dispatchedAt).getTime() : 0
     if (dispatchedMs && !isNaN(dispatchedMs) && Date.now() - dispatchedMs > DESTROY_STALE_MINUTES * 60 * 1000) {
       return "failed"
@@ -84,8 +86,11 @@ export function deriveLifecycleStatus(request: RequestLike | null | undefined): 
   if (currentPlan?.conclusion && FAILED_CONCLUSIONS.includes(currentPlan.conclusion as any)) {
     return "failed"
   }
-  // 4. Apply running
-  if (currentApply?.status === "in_progress" || currentApply?.status === "queued") {
+  // 4. Apply in-flight: runId present and no conclusion yet (covers queued, in_progress, unknown, etc.)
+  if (
+    currentApply?.runId != null &&
+    (currentApply?.conclusion == null || currentApply?.conclusion === undefined)
+  ) {
     return "applying"
   }
   // 5. Apply success → applied
@@ -127,16 +132,14 @@ export function isDestroyRunFailed(request: RequestLike | null | undefined): boo
 }
 
 /**
- * True when current destroy attempt is in_progress/queued with no conclusion
- * and more than DESTROY_STALE_MINUTES have passed since dispatchedAt.
+ * True when current destroy attempt has runId and no conclusion
+ * and more than DESTROY_STALE_MINUTES have passed since dispatchedAt (stale guard).
  */
 export function isDestroyRunStale(request: RequestLike | null | undefined): boolean {
   if (!request?.runs) return false
   const currentDestroy = getCurrentAttemptStrict(request.runs as RunsState, "destroy")
   if (currentDestroy?.conclusion != null) return false
-  const statusActive =
-    currentDestroy?.status === "in_progress" || currentDestroy?.status === "queued"
-  if (!statusActive || currentDestroy?.runId == null) return false
+  if (currentDestroy?.runId == null) return false
   const dispatchedMs = currentDestroy.dispatchedAt ? new Date(currentDestroy.dispatchedAt).getTime() : NaN
   if (isNaN(dispatchedMs)) return false
   return Date.now() - dispatchedMs > DESTROY_STALE_MINUTES * 60 * 1000

@@ -19,7 +19,7 @@ The codebase is organized so that **top-level folders and route shapes reflect t
 | **GitHub** | Execution and source of truth live in GitHub: PRs, workflows, webhooks. |
 | **Storage** | Requests and run index live in S3; no hidden local state. |
 | **Status** | Lifecycle status is derived from facts (single place: `deriveLifecycleStatus`). |
-| **Stream / SSE** | UI stays fresh via server-push when webhooks patch request facts. |
+| **Stream / SSE** | Single global SSE subscriber in root layout; on request event, mutate request key immediately and list key after 300ms debounce. UI stays fresh without duplicate subscribers. |
 | **Modules / templates** | Terraform is generated from modules and templates; AI collects inputs, templates render. |
 
 ---
@@ -50,7 +50,7 @@ The codebase is organized so that **top-level folders and route shapes reflect t
 - **`lib/plan/`** — Plan output stripping / formatting.
 - **`lib/config/`** — Env, polling config.
 - **`lib/validation/`** — e.g. resource naming.
-- **`lib/observability/`** — Logging, metrics, correlation.
+- **`lib/observability/`** — Ops metrics (request aggregates, cached), GitHub API usage (in-memory: windows, top/hot routes, rate-limit events, kindGuess). Hooks for Insights dashboard. Logging, correlation.
 - **`lib/logs/`** — Lifecycle logs.
 - **`lib/infra/`** — e.g. module type.
 - **`lib/notifications/`**, **`lib/services/`** — Notifications and shared services.

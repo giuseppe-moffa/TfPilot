@@ -1,14 +1,9 @@
 import React from "react"
 import useSWR from "swr"
-import * as SWRModule from "swr"
 import { getSyncPollingInterval } from "@/lib/config/polling"
 
-const globalMutate = (SWRModule as unknown as { mutate: (key: string) => Promise<unknown> }).mutate
 import { getCurrentAttemptStrict, isAttemptActive, type RunsState } from "@/lib/requests/runsModel"
-import {
-  subscribeToRequestEvents,
-  subscribeToConnectionState,
-} from "@/lib/sse/streamClient"
+import { subscribeToConnectionState } from "@/lib/sse/streamClient"
 
 export const REQUEST_CACHE_KEY_PREFIX = "req:"
 
@@ -75,16 +70,8 @@ export function useRequest(requestId: string | undefined, initial?: RequestLike)
     return () => document.removeEventListener("visibilitychange", handler)
   }, [])
   React.useEffect(() => {
-    const unsubEvents = subscribeToRequestEvents((ev) => {
-      const k = requestCacheKey(ev.requestId)
-      if (k) void globalMutate(k)
-      void globalMutate("/api/requests")
-    })
     const unsubConn = subscribeToConnectionState(setSseConnected)
-    return () => {
-      unsubEvents()
-      unsubConn()
-    }
+    return () => unsubConn()
   }, [])
   const swr = useSWR(key, key ? syncFetcher : null, {
     fallbackData: initial != null ? { success: true, request: initial, sync: {} } : undefined,

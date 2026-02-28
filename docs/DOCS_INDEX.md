@@ -4,6 +4,33 @@ Canonical docs only. For archived/retired docs see `docs/archive/`.
 
 ---
 
+## Doc refresh (correctness invariants / alignment) — 2026-02-28
+
+**What changed**
+- **Audit:** Aligned all docs to current platform invariants: needsReconcile (runId + no conclusion), apply/destroy in-flight and stale destroy (terminality from conclusion; no status stored), sync noop cooldown (60s, in-memory), single global SSE in root layout, debounced list mutate (300ms).
+- **SYSTEM_OVERVIEW.md:** Sync bullet uses needsReconcile; SSE table row describes global subscriber + 300ms debounce; new **Correctness guarantees** section (facts-only, monotonic patching, attempts-first, reconciliation invariant, cooldown guard, SSE-driven freshness, stale destroy guard).
+- **REQUEST_LIFECYCLE.md:** Derivation rules (runId + no conclusion; stale = threshold); failure-mode and repair bullets use needsReconcile; noop cooldown mentioned.
+- **WEBHOOKS_AND_CORRELATION.md:** Sync/reconciliation uses needsReconcile; noop cooldown noted.
+- **OPERATIONS.md:** Stuck-state table and re-sync guidance use needsReconcile; list row describes SSE-driven revalidation (300ms debounce).
+- **GLOSSARY.md:** Repair "When" uses needsReconcile.
+- **CONTEXT_PACK.md:** Run execution bullet (needsReconcile + cooldown); SSE revalidation (global subscriber, 300ms debounce); note that example JSON status is derived, not stored.
+- **README.md**, **SCREAMING_ARCHITECTURE.md:** UI/SSE bullets updated (global SSE, 300ms debounce).
+- **DOCS_INDEX.md:** Lifecycle/sync refresh line already referenced needsReconcile; no further change.
+- **STATUS_WORKFLOW_SPIKE.md:** Unchanged (historical context preserved).
+- No code changes; docs only.
+
+---
+
+## Doc refresh (observability / Insights) — 2026-02-28
+
+**What changed**
+- **SYSTEM_OVERVIEW.md:** Added **Observability and Insights** section: Insights page, ops metrics (cached), GitHub API usage (in-memory, single call-site, 5m/60m windows, top/hot routes, rate-limit burst, kindGuess, last rate-limit events), and `lib/observability` roles.
+- **GLOSSARY.md:** Added **Observability** subsection: Insights, GitHub API usage metrics, rate-limit burst (5m), kindGuess.
+- **SCREAMING_ARCHITECTURE.md:** Expanded `lib/observability/` bullet to mention ops-metrics, github-metrics, top/hot routes, rate-limit events, kindGuess, and Insights hooks.
+- No code changes; docs only.
+
+---
+
 ## PR summary (docs cleanup refresh)
 
 **What changed**
@@ -12,7 +39,7 @@ Canonical docs only. For archived/retired docs see `docs/archive/`.
 - **README.md** shortened: “What is TfPilot”, core invariants, quickstart, links to DOCS_INDEX and key docs. Status wording aligned to derived canonical statuses (`applied` not `complete`).
 - **EXECUTION_PLAN.md** and **SYSTEM_OVERVIEW.md** given a one-line pointer to DOCS_INDEX. **.cursor/rules/agent-routing.mdc** now references DOCS_INDEX.
 
-**Doc refresh (lifecycle/sync/webhooks):** Plan attempt always created at dispatch (runId optional); sync always fetches/patches when current attempt has runId and status queued/in_progress; webhook can attach runId by head_sha; DEBUG_WEBHOOKS=1 noop_reason logging. REQUEST_LIFECYCLE, WEBHOOKS_AND_CORRELATION, RUN_INDEX, OPERATIONS, GITHUB_WORKFLOWS, GLOSSARY, SYSTEM_OVERVIEW, CONTEXT_PACK updated. Refs: `getCurrentAttemptStrict`, `persistDispatchAttempt` in lib/requests/runsModel.ts.
+**Doc refresh (lifecycle/sync/webhooks):** Plan attempt always created at dispatch (runId optional); sync fetches/patches when **needsReconcile(attempt)** (runId present, conclusion missing); webhook can attach runId by head_sha; DEBUG_WEBHOOKS=1 noop_reason logging. REQUEST_LIFECYCLE, WEBHOOKS_AND_CORRELATION, RUN_INDEX, OPERATIONS, GITHUB_WORKFLOWS, GLOSSARY, SYSTEM_OVERVIEW, CONTEXT_PACK updated. Refs: `getCurrentAttemptStrict`, `persistDispatchAttempt`, `needsReconcile` in lib/requests/runsModel.ts.
 
 **Doc refresh (UI):** Lifecycle History timeline: chronological order (request_created first), dedupe completion events by runId+attempt, "Apply Succeeded" → "Deployment Succeeded", runId and project/targetRepo links (buildLink: runId → GitHub actions run URL; project/targetRepo → repo root; PR link only for prNumber/pr keys to avoid project→pull bug). Timeline details use 2–3 column grid. CONTEXT_PACK Run index bullet fixed: `persistDispatchAttempt` in runsModel (not persistWorkflowDispatch).
 
@@ -39,7 +66,7 @@ Canonical docs only. For archived/retired docs see `docs/archive/`.
 | `docs/RUN_INDEX.md` | Run index: kinds, key format, value schema, retention | **KEEP** | — | Current |
 | `docs/OPERATIONS.md` | Recovery playbook: stuck states, repair, re-sync, dev reset | **KEEP** | — | New |
 | `docs/POLLING.md` | Request-detail polling env vars and behavior | **KEEP** | — | Current |
-| `docs/GLOSSARY.md` | Terminology: workflow kinds, statuses, Repair | **KEEP** | — | New |
+| `docs/GLOSSARY.md` | Terminology: workflow kinds, statuses, Repair, observability | **KEEP** | — | Current |
 | `docs/CONTEXT_PACK.md` | New-chat context pack: paste into new thread for lifecycle/webhook/SSE debugging | **KEEP** | — | New |
 | **Roadmap / agent** | | | | |
 | `docs/EXECUTION_PLAN.md` | Roadmap, phases, principles (referenced by .cursor rules) | **KEEP** | — | Current |
@@ -48,6 +75,7 @@ Canonical docs only. For archived/retired docs see `docs/archive/`.
 | `docs/prompts/design/*.md` | UI/Internal design prompts | **KEEP** | — | Current |
 | **Reference / optional** | | | | |
 | `docs/PLATFORM_BENCHMARKS.md` | Benchmarks | **KEEP** | — | Optional reference |
+| `docs/STATUS_WORKFLOW_SPIKE.md` | Spike: status derivation, list vs detail, apply/sync; no code changes | **KEEP** | — | Investigation only |
 | **Archived** (moved to `docs/archive/`) | | | | |
 | `docs/LIFECYCLE_MODEL_V2.md` | Design doc for derived lifecycle | **ARCHIVE** | `docs/REQUEST_LIFECYCLE.md` | Superseded by code + REQUEST_LIFECYCLE |
 | `docs/EXECUTION_PLAN_V2.md` | Roadmap v2 | **ARCHIVE** | `docs/EXECUTION_PLAN.md` | Redundant with EXECUTION_PLAN |

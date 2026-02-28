@@ -249,6 +249,17 @@ export function isAttemptActive(attempt: AttemptRecord | null | undefined): bool
 }
 
 /**
+ * True when the attempt needs reconciliation: we have a runId but no terminal conclusion.
+ * Use for sync: fetch run from GitHub and patch status/conclusion/completedAt/headSha.
+ * Does NOT depend on status — so attempts stuck as "unknown" (or any status) without
+ * conclusion are still reconciled and can converge to applied/failed.
+ */
+export function needsReconcile(attempt: AttemptRecord | null | undefined): boolean {
+  if (!attempt) return false
+  return attempt.runId != null && (attempt.conclusion == null || attempt.conclusion === undefined)
+}
+
+/**
  * Find which op and attempt record has the given runId (for output routes / lookup by runId).
  */
 export function getAttemptByRunId(

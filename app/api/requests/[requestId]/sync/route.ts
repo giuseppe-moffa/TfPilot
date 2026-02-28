@@ -12,6 +12,7 @@ import {
   ensureRuns,
   getCurrentAttemptStrict,
   isAttemptActive,
+  needsReconcile,
   patchAttemptByRunId,
   patchAttemptRunId,
 } from "@/lib/requests/runsModel"
@@ -24,6 +25,35 @@ import { env } from "@/lib/config/env"
 import { ensureAssistantState } from "@/lib/assistant/state"
 import { sendAdminNotification, formatRequestNotification } from "@/lib/notifications/email"
 import { logWarn } from "@/lib/observability/logger"
+
+/** Cooldown after a reconcile fetch produced no patch (avoid hammering GitHub when status/conclusion missing). */
+const RECONCILE_NOOP_COOLDOWN_MS = 60_000
+const MAX_RECONCILE_COOLDOWN_ENTRIES = 2000
+const reconcileNoopAt = new Map<string, number>()
+
+function reconcileCooldownKey(requestId: string, kind: string, runId: number): string {
+  return `reconcile:${requestId}:${kind}:${runId}`
+}
+
+function isInReconcileCooldown(requestId: string, kind: string, runId: number): boolean {
+  const key = reconcileCooldownKey(requestId, kind, runId)
+  const at = reconcileNoopAt.get(key)
+  if (at == null) return false
+  return Date.now() - at < RECONCILE_NOOP_COOLDOWN_MS
+}
+
+function setReconcileCooldown(requestId: string, kind: string, runId: number): void {
+  if (reconcileNoopAt.size >= MAX_RECONCILE_COOLDOWN_ENTRIES) {
+    const oldest = [...reconcileNoopAt.entries()].sort((a, b) => a[1] - b[1])[0]
+    if (oldest) reconcileNoopAt.delete(oldest[0])
+  }
+  reconcileNoopAt.set(reconcileCooldownKey(requestId, kind, runId), Date.now())
+}
+
+/** True when GitHub run payload has terminal state (completed + conclusion); do not cooldown in that case. */
+function isRunPayloadTerminal(gh: { status?: string; conclusion?: string | null }): boolean {
+  return gh.status === "completed" && gh.conclusion != null && String(gh.conclusion).trim() !== ""
+}
 
 /** True if the GitHub run is the destroy workflow (not plan/apply). */
 function isDestroyWorkflowRun(runPath: string | undefined, destroyWorkflowFile: string): boolean {
@@ -69,9 +99,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
     const applyAttemptGate = getCurrentAttemptStrict(runsForGate, "apply")
     const destroyAttemptGate = getCurrentAttemptStrict(runsForGate, "destroy")
     const hasActiveAttemptNeedingFetch =
-      (planAttemptGate?.runId != null && isAttemptActive(planAttemptGate)) ||
-      (applyAttemptGate?.runId != null && isAttemptActive(applyAttemptGate)) ||
-      (destroyAttemptGate?.runId != null && isAttemptActive(destroyAttemptGate))
+      (planAttemptGate != null && (isAttemptActive(planAttemptGate) || needsReconcile(planAttemptGate))) ||
+      (applyAttemptGate != null && (isAttemptActive(applyAttemptGate) || needsReconcile(applyAttemptGate))) ||
+      (destroyAttemptGate != null && (isAttemptActive(destroyAttemptGate) || needsReconcile(destroyAttemptGate)))
 
     const doGitHub = repair || hydrate || needsRepair(request) || hasActiveAttemptNeedingFetch
     if (!doGitHub) {
@@ -297,8 +327,38 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
       }
     }
 
-    // Always fetch and patch active attempts (queued|in_progress) by runId — never rely solely on webhook
-    if (applyAttempt?.runId && isAttemptActive(applyAttempt)) {
+    // Reconcile apply when we have runId but no conclusion (covers queued/in_progress and stuck "unknown")
+    const applyEligible = applyAttempt != null && needsReconcile(applyAttempt)
+    const applyInCooldown =
+      applyAttempt?.runId != null && isInReconcileCooldown(requestId, "apply", applyAttempt.runId)
+    if (process.env.DEBUG_WEBHOOKS === "1") {
+      console.log("event=sync.apply_reconcile", {
+        requestId,
+        eligible: applyEligible,
+        skippedCooldown: applyInCooldown,
+        reason: applyEligible
+          ? applyInCooldown
+            ? "in cooldown after prior noop reconcile"
+            : "runId present, conclusion missing"
+          : !applyAttempt
+            ? "no current apply attempt"
+            : applyAttempt.runId == null
+              ? "no runId"
+              : "has conclusion",
+      })
+    }
+    if (applyInCooldown && applyAttempt?.runId != null && process.env.DEBUG_WEBHOOKS === "1") {
+      const key = reconcileCooldownKey(requestId, "apply", applyAttempt.runId)
+      const at = reconcileNoopAt.get(key) ?? 0
+      const remainingMs = Math.max(0, RECONCILE_NOOP_COOLDOWN_MS - (Date.now() - at))
+      console.log("event=sync.reconcile_skipped_cooldown", {
+        kind: "apply",
+        runId: applyAttempt.runId,
+        requestId,
+        remainingMs,
+      })
+    }
+    if (applyEligible && applyAttempt.runId != null && !applyInCooldown) {
       try {
         if (process.env.DEBUG_WEBHOOKS === "1") {
           console.log("event=sync.fetch_run", {
@@ -327,6 +387,17 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
           completed_at: runJson.completed_at,
           head_sha: runJson.head_sha,
         })
+        if (!applyPatch && applyAttempt.runId != null && !isRunPayloadTerminal(runJson)) {
+          setReconcileCooldown(requestId, "apply", applyAttempt.runId)
+          if (process.env.DEBUG_WEBHOOKS === "1") {
+            console.log("event=sync.reconcile_cooldown_set", {
+              kind: "apply",
+              runId: applyAttempt.runId,
+              requestId,
+              reason: "noop + nonterminal payload",
+            })
+          }
+        }
         if (process.env.DEBUG_WEBHOOKS === "1" && applyPatch) {
           console.log("event=sync.patch_run", {
             kind: "apply",
@@ -360,7 +431,38 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
       }
     }
 
-    if (planAttempt?.runId && isAttemptActive(planAttempt)) {
+    // Reconcile plan when we have runId but no conclusion (same invariant as apply/destroy)
+    const planEligible = planAttempt != null && needsReconcile(planAttempt)
+    const planInCooldown =
+      planAttempt?.runId != null && isInReconcileCooldown(requestId, "plan", planAttempt.runId)
+    if (process.env.DEBUG_WEBHOOKS === "1") {
+      console.log("event=sync.plan_reconcile", {
+        requestId,
+        eligible: planEligible,
+        skippedCooldown: planInCooldown,
+        reason: planEligible
+          ? planInCooldown
+            ? "in cooldown after prior noop reconcile"
+            : "runId present, conclusion missing"
+          : !planAttempt
+            ? "no current plan attempt"
+            : planAttempt.runId == null
+              ? "no runId"
+              : "has conclusion",
+      })
+    }
+    if (planInCooldown && planAttempt?.runId != null && process.env.DEBUG_WEBHOOKS === "1") {
+      const key = reconcileCooldownKey(requestId, "plan", planAttempt.runId)
+      const at = reconcileNoopAt.get(key) ?? 0
+      const remainingMs = Math.max(0, RECONCILE_NOOP_COOLDOWN_MS - (Date.now() - at))
+      console.log("event=sync.reconcile_skipped_cooldown", {
+        kind: "plan",
+        runId: planAttempt.runId,
+        requestId,
+        remainingMs,
+      })
+    }
+    if (planEligible && planAttempt.runId != null && !planInCooldown) {
       try {
         if (process.env.DEBUG_WEBHOOKS === "1") {
           console.log("event=sync.fetch_run", {
@@ -389,6 +491,17 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
           completed_at: runJson.completed_at,
           head_sha: runJson.head_sha,
         })
+        if (!planPatch && planAttempt.runId != null && !isRunPayloadTerminal(runJson)) {
+          setReconcileCooldown(requestId, "plan", planAttempt.runId)
+          if (process.env.DEBUG_WEBHOOKS === "1") {
+            console.log("event=sync.reconcile_cooldown_set", {
+              kind: "plan",
+              runId: planAttempt.runId,
+              requestId,
+              reason: "noop + nonterminal payload",
+            })
+          }
+        }
         if (process.env.DEBUG_WEBHOOKS === "1" && planPatch) {
           console.log("event=sync.patch_run", {
             kind: "plan",
@@ -422,7 +535,38 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
       }
     }
 
-    if (destroyAttempt?.runId && isAttemptActive(destroyAttempt)) {
+    // Reconcile destroy when we have runId but no conclusion (same invariant as apply)
+    const destroyEligible = destroyAttempt != null && needsReconcile(destroyAttempt)
+    const destroyInCooldown =
+      destroyAttempt?.runId != null && isInReconcileCooldown(requestId, "destroy", destroyAttempt.runId)
+    if (process.env.DEBUG_WEBHOOKS === "1") {
+      console.log("event=sync.destroy_reconcile", {
+        requestId,
+        eligible: destroyEligible,
+        skippedCooldown: destroyInCooldown,
+        reason: destroyEligible
+          ? destroyInCooldown
+            ? "in cooldown after prior noop reconcile"
+            : "runId present, conclusion missing"
+          : !destroyAttempt
+            ? "no current destroy attempt"
+            : destroyAttempt.runId == null
+              ? "no runId"
+              : "has conclusion",
+      })
+    }
+    if (destroyInCooldown && destroyAttempt?.runId != null && process.env.DEBUG_WEBHOOKS === "1") {
+      const key = reconcileCooldownKey(requestId, "destroy", destroyAttempt.runId)
+      const at = reconcileNoopAt.get(key) ?? 0
+      const remainingMs = Math.max(0, RECONCILE_NOOP_COOLDOWN_MS - (Date.now() - at))
+      console.log("event=sync.reconcile_skipped_cooldown", {
+        kind: "destroy",
+        runId: destroyAttempt.runId,
+        requestId,
+        remainingMs,
+      })
+    }
+    if (destroyEligible && destroyAttempt.runId != null && !destroyInCooldown) {
       try {
         if (process.env.DEBUG_WEBHOOKS === "1") {
           console.log("event=sync.fetch_run", {
@@ -455,6 +599,17 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
             completed_at: runJson.completed_at,
             head_sha: runJson.head_sha,
           })
+          if (!destroyPatch && destroyAttempt.runId != null && !isRunPayloadTerminal(runJson)) {
+            setReconcileCooldown(requestId, "destroy", destroyAttempt.runId)
+            if (process.env.DEBUG_WEBHOOKS === "1") {
+              console.log("event=sync.reconcile_cooldown_set", {
+                kind: "destroy",
+                runId: destroyAttempt.runId,
+                requestId,
+                reason: "noop + nonterminal payload",
+              })
+            }
+          }
           if (process.env.DEBUG_WEBHOOKS === "1" && destroyPatch) {
             console.log("event=sync.patch_run", {
               kind: "destroy",

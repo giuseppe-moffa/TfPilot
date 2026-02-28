@@ -49,7 +49,7 @@ TfPilot is a Terraform self-service platform that turns guided user requests int
 | **S3 request storage** | `requests/<requestId>.json` (optimistic `version`). Destroyed → `history/<requestId>.json`. Lifecycle logs `logs/<requestId>/<ts>.json`. Run index: `webhooks/github/run-index/<kind>/` (see **docs/RUN_INDEX.md**). |
 | **GitHub workflows** | Plan, apply, destroy, cleanup, drift_plan (infra repos). Dispatched by TfPilot; concurrency per env/state group. |
 | **Webhooks** | `pull_request`, `pull_request_review`, `workflow_run` → correlate to request, patch facts only, push SSE event. |
-| **SSE** | Server pushes `{ requestId, updatedAt }` on webhook patches so UI can revalidate without polling. |
+| **SSE** | Single global subscriber in root layout (`RequestStreamRevalidator`). On each request event: mutate `req:${id}` immediately; debounce 300ms and mutate `/api/requests` so list and detail stay fresh. No duplicate subscribers. |
 
 ---
 
@@ -96,7 +96,7 @@ request.runs = {
 
 - **Dispatch:** Plan/apply/destroy routes call `persistDispatchAttempt(...)` to append a new attempt (status `queued`, headSha/ref/actor; runId/url when available) and write the run index when runId is known. Plan attempt is always created at dispatch.
 - **Webhook:** `workflow_run` events are correlated via run index (or head_sha for attempts without runId); the matching attempt is patched (runId/url, status, conclusion, completedAt, headSha). No other run state is written.
-- **Sync:** GET sync **always** fetches GitHub run status when the current attempt has runId and status queued/in_progress, and patches that attempt. Also runs when `needsRepair(request)` or `?repair=1` (e.g. to resolve missing runId). No canonicalization or legacy repair.
+- **Sync:** GET sync fetches the run and patches the attempt when **needsReconcile(attempt)** — i.e. current attempt has runId and no conclusion — for plan, apply, and destroy (status-agnostic). Also runs when `needsRepair(request)` or `?repair=1` (e.g. to resolve missing runId). A noop cooldown (60s, in-memory) applies when a reconcile fetch returns a non-terminal payload and produces no persisted patch. No canonicalization or legacy repair.
 - **Retry:** A retry (e.g. “Retry apply”) creates a new attempt (attempt 2, 3, …); `currentAttempt` moves to the new attempt.
 
 ---
@@ -129,6 +129,33 @@ request.runs = {
 
 ---
 
+## Correctness guarantees
+
+- **Facts-only model** — Only PR, runs (attempts), approval, mergedSha are stored; status is never stored as truth.
+- **Monotonic patching** — Attempt patches never regress (no overwriting completed with in_progress; conclusion never cleared).
+- **Attempts-first lifecycle** — Current attempt = attempt where `attempt === currentAttempt`; terminality is determined by conclusion, not status string.
+- **Reconciliation invariant** — If runId exists and conclusion is missing, the attempt is eligible for reconciliation; sync fetches run and patches monotonic.
+- **Cooldown guard** — Sync noop + non-terminal payload triggers 60s in-memory cooldown per attempt to avoid API hammering.
+- **SSE-driven freshness** — Single global SSE subscriber in root layout; on request event, mutate request key immediately and list key after 300ms debounce.
+- **Stale destroy guard** — runId + no conclusion + past threshold (e.g. 15 min after dispatchedAt) → derived status `failed`; no status string trusted for liveness.
+
+---
+
+## Observability and Insights
+
+- **Insights page** (`/insights`): Dashboard of platform metrics (cached ~60s) and in-memory GitHub API usage. Requires session.
+- **Ops metrics** (`GET /api/metrics/insights`): Aggregates from S3 request data — total requests, apply/plan success rates (7d), failures (24h/7d), status distribution, activity windows, durations (e.g. Created → Plan ready). Served by **lib/observability/ops-metrics.ts**; cached; no DB.
+- **GitHub API usage** (`GET /api/metrics/github`): In-memory only (same process; resets on deploy/restart). Single call-site: **lib/github/client.ts** `ghResponse()` calls `recordGitHubCall()`. Snapshot includes:
+  - **Windows:** 5m and 60m rolling aggregates (calls, rate-limited, success/client/server/fetch errors).
+  - **Last-seen rate limit:** remaining/limit, reset, observedAt.
+  - **Top routes (60m):** Up to 8 normalized routes by call count.
+  - **Hot routes (5m):** Top 5 normalized routes in last 5 minutes.
+  - **Rate-limit burst (5m):** Boolean — true if any rate-limited response in 5m or remaining/limit &lt; 10%.
+  - **Last rate-limit events:** Ring of last 20 events; each event has route, status, remaining/limit/reset, and optional **kindGuess** (best-effort: e.g. `run`, `pr`, `reviews`, `jobs` from path).
+- **lib/observability:** `ops-metrics.ts` (request-based aggregates), `github-metrics.ts` (in-memory GitHub usage, route normalization, `inferKindGuess`), `useInsightsMetrics.ts` / `useGitHubMetrics.ts` (SWR hooks for UI).
+
+---
+
 ## Glossary
 
-See **docs/GLOSSARY.md** for workflow kinds, canonical statuses, and Repair.
+See **docs/GLOSSARY.md** for workflow kinds, canonical statuses, Repair, and observability terms.
