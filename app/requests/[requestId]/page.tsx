@@ -8,6 +8,8 @@ import { useParams } from "next/navigation"
 import { useRequest } from "@/hooks/use-request"
 import { getSyncPollingInterval } from "@/lib/config/polling"
 import { deriveLifecycleStatus, isDestroyRunStale } from "@/lib/requests/deriveLifecycleStatus"
+import { getCurrentAttemptStrict, isAttemptActive } from "@/lib/requests/runsModel"
+import type { RunsState } from "@/lib/requests/runsModel"
 import { normalizeRequestStatus, isActiveStatus } from "@/lib/status/status-config"
 import { getStatusColor, getStatusLabel } from "@/lib/status/status-config"
 import type { CanonicalStatus } from "@/lib/status/status-config"
@@ -401,10 +403,16 @@ function formatEventName(event?: string) {
   const friendly: Record<string, string> = {
     request_created: "Request Created",
     plan_dispatched: "Plan Dispatched",
+    plan_succeeded: "Plan Succeeded",
+    plan_failed: "Plan Failed",
     request_approved: "Request Approved",
     pr_merged: "PR Merged",
     apply_dispatched: "Deploy Dispatched",
+    apply_succeeded: "Deployment Succeeded",
+    apply_failed: "Deployment Failed",
     destroy_dispatched: "Destroy Dispatched",
+    destroy_succeeded: "Destroy Succeeded",
+    destroy_failed: "Destroy Failed",
     configuration_updated: "Configuration Updated",
   }
   return friendly[event] ?? humanize(event)
@@ -414,7 +422,7 @@ function buildLink(key: string, value: string, data?: Record<string, unknown>) {
   if (value.startsWith("http://") || value.startsWith("https://")) return value
   const targetRepo = typeof data?.targetRepo === "string" ? data.targetRepo : undefined
   if (targetRepo) {
-    if (/pr(number)?/i.test(key) && value) {
+    if ((key.toLowerCase() === "prnumber" || key.toLowerCase() === "pr") && value) {
       return `https://github.com/${targetRepo}/pull/${value}`
     }
     if (/sha|commit/i.test(key) && /^[a-fA-F0-9]{7,40}$/.test(value)) {
@@ -423,7 +431,10 @@ function buildLink(key: string, value: string, data?: Record<string, unknown>) {
     if (/branch/i.test(key) && value) {
       return `https://github.com/${targetRepo}/tree/${value}`
     }
-    if (key === "targetRepo") {
+    if ((key === "runId" || key === "RunId") && /^\d+$/.test(value)) {
+      return `https://github.com/${targetRepo}/actions/runs/${value}`
+    }
+    if (key === "targetRepo" || key === "project") {
       return `https://github.com/${targetRepo}`
     }
   }
@@ -549,12 +560,10 @@ function RequestDetailPage() {
 
   const { request, hasSyncedOnce, error: syncError, mutate, revalidate, isSyncing } = useRequest(requestId, initialRequest ?? undefined)
 
-  // Temporary debug: log when rendered request has applyRun (remove after verifying apply fix)
-  React.useEffect(() => {
-    if (typeof console !== "undefined" && process.env.NODE_ENV === "development" && request?.applyRun) {
-      console.log("[apply] rendered request.applyRun:", request.applyRun, "lock:", (request as any)?.lock)
-    }
-  }, [request?.applyRun, (request as any)?.lock])
+  const runs = request?.runs as RunsState | undefined
+  const planAttempt = getCurrentAttemptStrict(runs, "plan")
+  const applyAttempt = getCurrentAttemptStrict(runs, "apply")
+  const destroyAttempt = getCurrentAttemptStrict(runs, "destroy")
 
   const [tabHidden, setTabHidden] = React.useState(
     typeof document !== "undefined" ? document.hidden : false
@@ -573,15 +582,14 @@ function RequestDetailPage() {
     }
   }, [request, panelAssistantState, assistantStateOverride])
 
-  const planRunId = request?.planRun?.runId ?? request?.planRunId
-  const applyRunId =
-    request?.github?.workflows?.apply?.runId ?? request?.applyRun?.runId ?? request?.applyRunId
+  const runIdPlan = planAttempt?.runId
+  const runIdApply = applyAttempt?.runId
   const prNumber = request?.pr?.number ?? request?.pullRequest?.number ?? request?.pr?.number
 
-  const planKey = planRunId && !(request?.plan?.output) ? [`plan-output`, requestId, planRunId] : null
+  const planKey = runIdPlan && !(request?.plan?.output) ? [`plan-output`, requestId, runIdPlan] : null
   const { data: planOutput, isLoading: planOutputLoading } = useSWR(
     planKey,
-    () => fetcher(`/api/github/plan-output?requestId=${requestId}`),
+    () => fetcher(`/api/github/plan-output?requestId=${requestId}`), // requestId only; do not pass runId
     {
       keepPreviousData: true,
       dedupingInterval: 5000,
@@ -601,7 +609,7 @@ function RequestDetailPage() {
     }
   )
 
-  const applyKey = showApplyOutput && applyRunId ? [`apply-output`, requestId, applyRunId] : null
+  const applyKey = showApplyOutput && runIdApply ? [`apply-output`, requestId, runIdApply] : null
   const { data: applyOutput } = useSWR(applyKey, () => fetcher(`/api/github/apply-output?requestId=${requestId}`), {
     keepPreviousData: true,
     dedupingInterval: 5000,
@@ -632,16 +640,6 @@ function RequestDetailPage() {
   // Default to false (disabled) until we know for sure - safer for prod destroy
   const canDestroy = canDestroyData?.canDestroy === true
 
-  const eventOrder: Record<string, number> = {
-    request_created: 0,
-    plan_dispatched: 1,
-    configuration_updated: 2,
-    request_approved: 3,
-    pr_merged: 4,
-    apply_dispatched: 5,
-    destroy_dispatched: 6,
-  }
-
   const updateAllowedFields = React.useMemo(() => {
     const schema = moduleSchemas?.find((s) => s.type === request?.module)
     const fields = schema
@@ -652,13 +650,26 @@ function RequestDetailPage() {
 
   const sortedEvents = React.useMemo(() => {
     if (!logsData?.events) return []
-    return [...logsData.events].sort((a: any, b: any) => {
-      const ao = eventOrder[a?.event ?? ""] ?? 99
-      const bo = eventOrder[b?.event ?? ""] ?? 99
-      if (ao !== bo) return ao - bo
+    const events = logsData.events as Array<{ event?: string; timestamp?: string; data?: { runId?: number; attempt?: number } }>
+    const seen = new Set<string>()
+    const deduped = events.filter((evt: any, idx: number) => {
+      const isCompletion = evt?.data?.runId != null && evt?.data?.attempt != null
+      const key = isCompletion
+        ? `${evt.event ?? ""}-${evt.data.runId}-${evt.data.attempt}`
+        : `other-${idx}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+    return [...deduped].sort((a: any, b: any) => {
+      const aFirst = a?.event === "request_created" ? 0 : 1
+      const bFirst = b?.event === "request_created" ? 0 : 1
+      if (aFirst !== bFirst) return aFirst - bFirst
       const ta = Date.parse(a?.timestamp ?? "")
       const tb = Date.parse(b?.timestamp ?? "")
       if (!Number.isNaN(ta) && !Number.isNaN(tb)) return ta - tb
+      if (!Number.isNaN(ta)) return -1
+      if (!Number.isNaN(tb)) return 1
       return 0
     })
   }, [logsData?.events])
@@ -681,13 +692,12 @@ function RequestDetailPage() {
         if (!Number.isNaN(parsed)) out[stepKey] = formatDate(ts)
       }
     }
-    const destroyRunTs = (request?.github?.workflows?.destroy ?? request?.destroyRun) as { completedAt?: string } | undefined
-    if (destroyRunTs?.completedAt && !out.destroy) {
-      const parsed = Date.parse(destroyRunTs.completedAt)
-      if (!Number.isNaN(parsed)) out.destroy = formatDate(destroyRunTs.completedAt)
+    if (destroyAttempt?.completedAt && !out.destroy) {
+      const parsed = Date.parse(destroyAttempt.completedAt)
+      if (!Number.isNaN(parsed)) out.destroy = formatDate(destroyAttempt.completedAt)
     }
     return out
-  }, [sortedEvents, request?.github?.workflows?.destroy, request?.destroyRun])
+  }, [sortedEvents, destroyAttempt?.completedAt])
 
   React.useEffect(() => {
     return () => {
@@ -738,9 +748,8 @@ function RequestDetailPage() {
   async function handleApplyOnly() {
     if (!requestId || !request) return
     const status = deriveLifecycleStatus(request)
-    const applyRun = request?.github?.workflows?.apply ?? request?.applyRun
     const applyErrorState =
-      applyRun?.conclusion === "failure" || applyRun?.conclusion === "cancelled"
+      applyAttempt?.conclusion === "failure" || applyAttempt?.conclusion === "cancelled"
     const canDeploy =
       status === "merged" || (status === "failed" && applyErrorState)
     if (!canDeploy) return
@@ -754,7 +763,7 @@ function RequestDetailPage() {
         })
         const data = (await res.json().catch(() => ({}))) as {
           error?: string
-          request?: { applyRun?: { status?: string }; lock?: { operation?: string } }
+          request?: { runs?: RunsState; lock?: { operation?: string } }
         }
         if (!res.ok) throw new Error(data?.error ?? "Failed to dispatch apply")
         if (data.request) await mutate(data.request as typeof request, false)
@@ -857,48 +866,68 @@ function RequestDetailPage() {
   }
 
   const requestStatus = request ? deriveLifecycleStatus(request) : "request_created"
-  const planRun = request?.github?.workflows?.plan ?? request?.planRun
-  const applyRun = request?.github?.workflows?.apply ?? request?.applyRun
-  const destroyRun = request?.github?.workflows?.destroy ?? request?.destroyRun
-  const planSucceeded =
-    planRun?.conclusion === "success" || planRun?.status === "completed"
-  const planFailed = planRun?.conclusion === "failure"
-  const planRunStatus = planRun?.status
-  const planRunConclusion = planRun?.conclusion
-  const planRunUrl = planRun?.url
-  const planRunning =
-    planRunStatus === "in_progress" ||
-    planRunStatus === "queued" ||
-    (!!planRunId &&
-      (requestStatus === "planning" || requestStatus === "request_created") &&
-      !planRunConclusion)
+
+  // Canonical UI state per op: attempt-first with pending smoothing. Only currentAttempt (getCurrentAttemptStrict); no historical attempts.
+  const planHasAttempt = !!planAttempt
+  const planActive = planHasAttempt && isAttemptActive(planAttempt)
+  const planCompleted = planHasAttempt && planAttempt.status === "completed"
+  const planSucceeded = planCompleted && planAttempt.conclusion === "success"
+  const planFailed = planCompleted && !!planAttempt.conclusion && planAttempt.conclusion !== "success"
+  const planPending = planHasAttempt && !planCompleted && !planAttempt.conclusion
+  const planFallbackInProgress =
+    !planHasAttempt &&
+    (requestStatus === "planning" || requestStatus === "request_created")
+  const planInProgressUI = planActive || planPending || planFallbackInProgress
+
+  const planStatus = planAttempt?.status
+  const planConclusion = planAttempt?.conclusion
+  const planUrl = planAttempt?.url
   const hasPlanText = !!(
     planOutput?.planText ?? request?.plan?.output ?? request?.pullRequest?.planOutput
   )
   const planFetchingOutput =
-    !!planRunId &&
-    !planRunning &&
+    !!runIdPlan &&
+    !planInProgressUI &&
     !hasPlanText &&
     (planOutputLoading || (!!planKey && !planOutput?.planText))
+
+  const applyHasAttempt = !!applyAttempt
+  const applyActive = applyHasAttempt && isAttemptActive(applyAttempt)
+  const applyCompleted = applyHasAttempt && applyAttempt.status === "completed"
+  const applySucceeded = applyCompleted && applyAttempt.conclusion === "success"
+  const applyFailed = applyCompleted && !!applyAttempt.conclusion && applyAttempt.conclusion !== "success"
+  const applyPending = applyHasAttempt && !applyCompleted && !applyAttempt.conclusion
+  const applyFallbackInProgress = !applyHasAttempt && requestStatus === "applying"
+  const applyInProgressUI = applyActive || applyPending || applyFallbackInProgress
+
+  const applyCancelled = applyAttempt?.conclusion === "cancelled"
+  const applyErrorState = applyFailed || applyCancelled
+  const isApplyingDerived =
+    isApplying || applyInProgressUI || applyStatus === "pending" || applyStatus === "success"
+  const isApplied = applySucceeded
+
+  const destroyHasAttempt = !!destroyAttempt
+  const destroyActive = destroyHasAttempt && isAttemptActive(destroyAttempt)
+  const destroyCompleted = destroyHasAttempt && destroyAttempt.status === "completed"
+  const destroySucceeded = destroyCompleted && destroyAttempt.conclusion === "success"
+  const destroyFailed =
+    destroyCompleted && !!destroyAttempt.conclusion && destroyAttempt.conclusion !== "success"
+  const destroyPending = destroyHasAttempt && !destroyCompleted && !destroyAttempt.conclusion
+  const destroyStale = isDestroyRunStale(request)
+  const destroyFallbackInProgress = !destroyHasAttempt && requestStatus === "destroying"
+  const destroyInProgressUI =
+    (destroyActive || destroyPending || destroyFallbackInProgress) && !destroyStale
+  const destroyErrorState = destroyFailed
+  const showRetryDestroy = destroyFailed
+
   const prMerged =
     request?.pr?.merged === true ||
     !!request?.mergedSha ||
     request?.pullRequest?.merged === true ||
     request?.pullRequest?.open === false
-  const applySucceeded =
-    applyRun?.conclusion === "success" || requestStatus === "applied"
-  const applyFailed = applyRun?.conclusion === "failure"
-  const applyCancelled = applyRun?.conclusion === "cancelled"
-  const applyErrorState = applyFailed || applyCancelled
-
-  const applyRunning =
-    requestStatus === "applying" || applyRun?.status === "in_progress"
-  const isApplyingDerived =
-    isApplying || applyRunning || applyStatus === "pending" || applyStatus === "success"
-  const isApplied = applySucceeded
   const isMerged = prMerged || requestStatus === "merged" || requestStatus === "applying" || isApplied
-  const isDestroying = requestStatus === "destroying"
-  const isDestroyed = requestStatus === "destroyed"
+  const isDestroying = destroyInProgressUI
+  const isDestroyed = destroySucceeded
   const isPlanReady =
     planSucceeded ||
     requestStatus === "plan_ready" ||
@@ -914,17 +943,9 @@ function RequestDetailPage() {
   const isPlanning =
     requestStatus === "planning" || requestStatus === "request_created"
   const isFailed = requestStatus === "failed" || applyErrorState || planFailed
-  const destroyCancelled = destroyRun?.conclusion === "cancelled"
-  const destroyFailed = destroyRun?.conclusion === "failure"
-  const destroyErrorState = destroyCancelled || destroyFailed
-  const destroyStale = isDestroyRunStale(request)
-  const destroyRunActive =
-    (destroyRun?.status === "queued" || destroyRun?.status === "in_progress") &&
-    destroyRun?.conclusion == null &&
-    !destroyStale
 
   const showDestroyStep = Boolean(
-    request?.github?.destroyTriggeredAt ||
+    destroyAttempt ||
     actionProgress?.op === "destroy" ||
     requestStatus === "destroying" ||
     requestStatus === "destroyed" ||
@@ -935,22 +956,19 @@ function RequestDetailPage() {
     if (showDestroyStep) {
       list.push({
         key: "destroy",
-        label: destroyErrorState ? "Destroy failed" : isDestroyed ? "Destroyed" : destroyRunActive ? "Destroying" : "Destroy",
+        label: destroyErrorState ? "Destroy failed" : isDestroyed ? "Destroyed" : destroyInProgressUI ? "Destroying" : "Destroy",
       })
     }
     return list
-  }, [showDestroyStep, destroyErrorState, isDestroyed, destroyRunActive])
+  }, [showDestroyStep, destroyErrorState, isDestroyed, destroyInProgressUI])
 
   const hasLock = !!(request as any)?.lock
-  const applyRunActive =
-    (applyRun?.status === "queued" || applyRun?.status === "in_progress") &&
-    applyRun?.conclusion == null
 
   const activeRunRevalidateInFlightRef = React.useRef(false)
   const ACTIVE_RUN_POLL_INTERVAL_MS = 4_000
   const ACTIVE_RUN_POLL_MAX_MS = 10 * 60 * 1000 // 10 min
   React.useEffect(() => {
-    const active = applyRunActive || destroyRunActive
+    const active = applyInProgressUI || destroyInProgressUI
     if (!active) return
     const startedAt = Date.now()
     const id = setInterval(() => {
@@ -965,7 +983,7 @@ function RequestDetailPage() {
       })
     }, ACTIVE_RUN_POLL_INTERVAL_MS)
     return () => clearInterval(id)
-  }, [applyRunActive, destroyRunActive, isSyncing, revalidate])
+  }, [applyInProgressUI, destroyInProgressUI, isSyncing, revalidate])
 
   function isActionDisabled(action: MutationAction): boolean {
     if (hasLock) return true
@@ -1002,7 +1020,7 @@ function RequestDetailPage() {
         return (
           !!isApplying ||
           requestStatus === "applying" ||
-          applyRunActive ||
+          applyInProgressUI ||
           isApplyingDerived ||
           isDestroying ||
           isDestroyed
@@ -1013,7 +1031,7 @@ function RequestDetailPage() {
         !isMerged ||
         isApplied ||
         requestStatus === "applying" ||
-        applyRunActive ||
+        applyInProgressUI ||
         isApplyingDerived ||
         isDestroying ||
         isDestroyed ||
@@ -1025,7 +1043,7 @@ function RequestDetailPage() {
         destroyInFlight ||
         requestStatus === "destroying" ||
         requestStatus === "destroyed" ||
-        destroyRunActive ||
+        destroyInProgressUI ||
         isDestroying ||
         isDestroyed ||
         !isApplied ||
@@ -1106,7 +1124,7 @@ function RequestDetailPage() {
         key: "applied" as const,
         state: "pending" as const,
         subtitle:
-          applyRunActive || isApplyingDerived || actionProgress?.op === "apply"
+          applyInProgressUI || isApplyingDerived || actionProgress?.op === "apply"
             ? "Deploying…"
             : "Waiting for deploy",
       }
@@ -1184,7 +1202,7 @@ function RequestDetailPage() {
     if (stepKey === "destroy") {
       if (destroyErrorState) return "error"
       if (isDestroyed) return "done"
-      if (destroyRunActive) return "current"
+      if (destroyInProgressUI) return "current"
       return "pending"
     }
     switch (stepKey) {
@@ -1267,7 +1285,7 @@ function RequestDetailPage() {
     if (stepKey === "destroy") {
       if (destroyErrorState) return "Destroy failed"
       if (isDestroyed) return "Destroyed"
-      if (destroyRunActive) return "Destroying"
+      if (destroyInProgressUI) return "Destroying"
       return "Destroy"
     }
     if (state === "done" || stepKey === "submitted") {
@@ -1288,7 +1306,7 @@ function RequestDetailPage() {
     if (stepKey === "applied" && (state === "error" || applyErrorState)) {
       return "Deploy failed"
     }
-    if (stepKey === "applied" && state === "current" && (applyRunActive || isApplyingDerived || actionProgress?.op === "apply")) {
+    if (stepKey === "applied" && state === "current" && (applyInProgressUI || isApplyingDerived || actionProgress?.op === "apply")) {
       return "Deploying…"
     }
     if (stepKey === "applied" && state === "current") {
@@ -1773,7 +1791,7 @@ function RequestDetailPage() {
                     <Loader2 className="size-4 animate-spin" />
                     Destroying…
                   </span>
-                ) : (destroyErrorState || destroyStale) && !destroyRunActive
+                ) : showRetryDestroy
                   ? "Retry destroy"
                   : "Destroy"}
               </Button>
@@ -1810,17 +1828,17 @@ function RequestDetailPage() {
                 )}
             </div>
 
-            {(isDestroying || isDestroyed || destroyErrorState || destroyStale || destroyRun) && (
+            {(isDestroying || isDestroyed || destroyErrorState || destroyStale || destroyAttempt) && (
               <div className="rounded-md bg-muted/30 px-3 py-2 text-sm text-foreground">
                 <div className="flex items-center gap-2">
                   <Badge
                     variant={
-                      isDestroyed ? "success" : isDestroying || destroyRunActive ? "destroying" : "destructive"
+                      isDestroyed ? "success" : isDestroying || destroyInProgressUI ? "destroying" : "destructive"
                     }
                   >
                     {isDestroyed
                       ? "Destroyed"
-                      : isDestroying || destroyRunActive
+                      : isDestroying || destroyInProgressUI
                         ? "Destroying"
                         : destroyStale
                           ? "Status unclear (repair to refresh)"
@@ -1828,9 +1846,9 @@ function RequestDetailPage() {
                             ? "Destroy failed"
                             : "Destroy triggered"}
                   </Badge>
-                  {destroyRun?.url && (
+                  {destroyAttempt?.url && (
                     <a
-                      href={destroyRun.url}
+                      href={destroyAttempt.url}
                       target="_blank"
                       rel="noreferrer"
                       className="inline-flex items-center gap-1 text-primary hover:underline"
@@ -1840,8 +1858,8 @@ function RequestDetailPage() {
                     </a>
                   )}
                 </div>
-                {destroyRun?.runId && (
-                  <p className="text-xs text-muted-foreground">Run ID: {destroyRun.runId}</p>
+                {destroyAttempt?.runId && (
+                  <p className="text-xs text-muted-foreground">Run ID: {destroyAttempt.runId}</p>
                 )}
               </div>
             )}
@@ -1894,13 +1912,13 @@ function RequestDetailPage() {
             <div className="mt-8 rounded-lg bg-muted/30 pl-4 pr-4 pb-4 shadow-sm">
               <div className="py-4 pr-0 flex flex-wrap items-center gap-2">
                 <h3 className="text-lg font-semibold text-foreground">Terraform Plan Output</h3>
-                {planRunning && (
+                {planInProgressUI && (
                   <Badge variant="info" className="font-normal text-xs">
                     Planning…
                   </Badge>
                 )}
                 <p className="mt-0.5 w-full text-sm text-muted-foreground">
-                  {planRunning
+                  {planInProgressUI
                     ? "Review plan output once the workflow completes"
                     : "Review plan output before approve or apply"}
                 </p>
@@ -1908,7 +1926,7 @@ function RequestDetailPage() {
               <div>
                 {initialLoading && !request ? (
                   <p className="text-sm text-muted-foreground">Loading plan...</p>
-                ) : planRunning ? (
+                ) : planInProgressUI ? (
                   <>
                     <div className="mt-3 min-h-[200px] overflow-hidden rounded-lg bg-muted/50 dark:bg-muted/30 border border-border/50 p-4 space-y-2">
                       {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
@@ -1944,10 +1962,10 @@ function RequestDetailPage() {
                     <p className="text-xs text-muted-foreground mt-1">
                       The plan workflow did not complete successfully.
                     </p>
-                    {planRunUrl && (
+                    {planUrl && (
                       <a
                         className="inline-flex items-center gap-1.5 mt-2 text-xs text-primary hover:underline"
-                        href={planRunUrl}
+                        href={planUrl}
                         target="_blank"
                         rel="noreferrer"
                       >
@@ -1956,7 +1974,7 @@ function RequestDetailPage() {
                       </a>
                     )}
                   </div>
-                ) : !planRunId && !hasPlanText ? (
+                ) : !runIdPlan && !hasPlanText ? (
                   <div className="mt-3 rounded-lg border border-border/50 bg-muted/20 dark:bg-muted/10 p-6 text-center">
                     <p className="text-sm text-muted-foreground">
                       Plan will appear once the workflow starts.
@@ -2074,7 +2092,7 @@ function RequestDetailPage() {
             <div className="space-y-2">
               <div className="flex items-center gap-2">
                 <p className="text-sm font-medium text-muted-foreground">Deploy Output</p>
-                <Button size="sm" variant="outline" onClick={() => setShowApplyOutput((v) => !v)} disabled={!applyRunId}>
+                <Button size="sm" variant="outline" onClick={() => setShowApplyOutput((v) => !v)} disabled={!runIdApply}>
                   {showApplyOutput ? "Hide" : "Load"}
                 </Button>
                 {applyOutput?.status && (
@@ -2227,23 +2245,34 @@ function RequestDetailPage() {
                     </div>
                   </div>
                   {evt.data ? (
-                    <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                    <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-muted-foreground sm:grid-cols-3">
                       {Object.entries(evt.data).map(([k, v]) => {
-                        const entry = formatDataEntry(k, v, evt.data)
+                        const dataWithRepo = {
+                          ...evt.data,
+                          targetRepo:
+                            request?.targetOwner && request?.targetRepo
+                              ? `${request.targetOwner}/${request.targetRepo}`
+                              : (evt.data as Record<string, unknown>)?.targetRepo,
+                        }
+                        const entry = formatDataEntry(k, v, dataWithRepo)
                         return (
-                          <div key={k} className="rounded bg-muted/40 px-2 py-1">
-                            <span className="font-medium text-foreground">{entry.label}: </span>
+                          <div
+                            key={k}
+                            className="flex min-w-0 items-baseline gap-1.5 rounded bg-muted/40 px-2 py-1.5"
+                          >
+                            <span className="shrink-0 font-medium text-foreground">{entry.label}:</span>
                             {entry.href ? (
                               <a
-                                className="text-primary hover:underline"
+                                className="min-w-0 truncate text-primary hover:underline"
                                 href={entry.href}
                                 target="_blank"
                                 rel="noreferrer"
+                                title={entry.value}
                               >
                                 {entry.value}
                               </a>
                             ) : (
-                              <span>{entry.value}</span>
+                              <span className="min-w-0 truncate">{entry.value}</span>
                             )}
                           </div>
                         )

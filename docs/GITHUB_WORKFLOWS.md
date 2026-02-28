@@ -48,4 +48,4 @@ TfPilot passes these on dispatch. Run index is written for plan, apply, destroy 
 
 ## Run index and dispatch
 
-- On dispatch, TfPilot persists `github.workflows.<kind>` (runId, status, url) and `destroyTriggeredAt` for destroy, and writes the run index (see **docs/RUN_INDEX.md**). Implemented in `lib/requests/persistWorkflowDispatch.ts` and used by plan/apply/destroy (and drift_plan when runId is available) routes.
+- On dispatch, TfPilot appends the new attempt to `request.runs.<kind>` via `persistDispatchAttempt` in **lib/requests/runsModel.ts** (status `queued`, dispatchedAt, headSha/ref/actor; runId/url optional and filled when available). When runId is known, `putRunIndex` is called (see **docs/RUN_INDEX.md**). Plan/apply/destroy routes (and drift_plan when runId is available) use this; for plan, the attempt is always created at dispatch even if runId is not yet known.

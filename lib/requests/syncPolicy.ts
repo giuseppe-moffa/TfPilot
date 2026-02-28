@@ -1,9 +1,11 @@
 /**
  * When to run repair (GitHub calls) in /sync.
  * Conservative: only true when UI would be blocked without fresh facts.
+ * Reads run state from request.runs only (getCurrentAttemptStrict).
  */
 
 import { isDestroyRunStale, type RequestLike as DeriveRequestLike } from "@/lib/requests/deriveLifecycleStatus"
+import { getCurrentAttemptStrict, type RunsState } from "@/lib/requests/runsModel"
 
 type RequestLike = {
   targetOwner?: string
@@ -11,18 +13,8 @@ type RequestLike = {
   branchName?: string
   mergedSha?: string
   pr?: { number?: number }
-  github?: {
-    pr?: { number?: number }
-    workflows?: {
-      plan?: { runId?: number; status?: string; conclusion?: string }
-      apply?: { runId?: number; status?: string; conclusion?: string }
-      destroy?: { runId?: number; status?: string; conclusion?: string }
-    }
-    destroyTriggeredAt?: string
-  }
-  planRun?: { runId?: number; status?: string; conclusion?: string }
-  applyRun?: { runId?: number; status?: string; conclusion?: string }
-  destroyRun?: { runId?: number; status?: string; conclusion?: string }
+  github?: { pr?: { number?: number } }
+  runs?: RunsState
 }
 
 function hasPr(request: RequestLike): boolean {
@@ -31,18 +23,18 @@ function hasPr(request: RequestLike): boolean {
 }
 
 function hasPlanRun(request: RequestLike): boolean {
-  const run = request.github?.workflows?.plan ?? request.planRun
-  return Boolean(run?.runId ?? run?.status ?? run?.conclusion)
+  const attempt = getCurrentAttemptStrict(request.runs, "plan")
+  return Boolean(attempt?.runId ?? attempt?.status ?? attempt?.conclusion)
 }
 
 function hasApplyRun(request: RequestLike): boolean {
-  const run = request.github?.workflows?.apply ?? request.applyRun
-  return Boolean(run?.runId ?? run?.status ?? run?.conclusion)
+  const attempt = getCurrentAttemptStrict(request.runs, "apply")
+  return Boolean(attempt?.runId ?? attempt?.status ?? attempt?.conclusion)
 }
 
 function hasDestroyRun(request: RequestLike): boolean {
-  const run = request.github?.workflows?.destroy ?? request.destroyRun
-  return Boolean(run?.runId ?? run?.status ?? run?.conclusion)
+  const attempt = getCurrentAttemptStrict(request.runs, "destroy")
+  return Boolean(attempt?.runId ?? attempt?.status ?? attempt?.conclusion)
 }
 
 /**

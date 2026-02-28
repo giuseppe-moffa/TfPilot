@@ -9,7 +9,9 @@ import { withCorrelation } from "@/lib/observability/correlation"
 import { logError, logInfo, logWarn } from "@/lib/observability/logger"
 import { getIdempotencyKey, assertIdempotentOrRecord, ConflictError } from "@/lib/requests/idempotency"
 import { acquireLock, releaseLock, LockConflictError, type RequestDocWithLock } from "@/lib/requests/lock"
-import { buildWorkflowDispatchPatch, persistWorkflowDispatchIndex } from "@/lib/requests/persistWorkflowDispatch"
+import { getCurrentAttemptStrict, patchAttemptRunId, persistDispatchAttempt } from "@/lib/requests/runsModel"
+import type { RunsState } from "@/lib/requests/runsModel"
+import { putRunIndex } from "@/lib/requests/runIndex"
 
 export async function POST(req: NextRequest) {
   const start = Date.now()
@@ -52,11 +54,11 @@ export async function POST(req: NextRequest) {
       })
       if (idem.ok === false && idem.mode === "replay") {
         logInfo("idempotency.replay", { ...correlation, requestId: request.id, operation: "plan" })
-        const planRun = (request as { planRun?: { runId?: number; url?: string } }).planRun
+        const planAttempt = getCurrentAttemptStrict(request.runs as RunsState | undefined, "plan")
         return NextResponse.json({
           ok: true,
-          workflowRunId: planRun?.runId,
-          workflowRunUrl: planRun?.url,
+          workflowRunId: planAttempt?.runId,
+          workflowRunUrl: planAttempt?.url,
         })
       }
       if (idem.ok === true && idem.mode === "recorded") {
@@ -146,23 +148,26 @@ export async function POST(req: NextRequest) {
     }
 
     const [afterPlan] = await updateRequest(request.id, (current) => {
-      const cur = current as { github?: Record<string, unknown>; planRun?: { runId?: number; url?: string; headSha?: string } }
-      const runId = workflowRunId ?? cur.planRun?.runId
-      const patch = runId != null ? buildWorkflowDispatchPatch(current as Record<string, unknown>, "plan", runId, workflowRunUrl ?? cur.planRun?.url) : {}
-      const planPayload = {
-        runId: workflowRunId ?? cur.planRun?.runId,
-        url: workflowRunUrl ?? cur.planRun?.url,
-        headSha: planHeadSha ?? cur.planRun?.headSha,
-        status: "in_progress" as const,
+      const runsPatch = persistDispatchAttempt(current as Record<string, unknown>, "plan", {
+        headSha: planHeadSha ?? getCurrentAttemptStrict(current.runs as RunsState | undefined, "plan")?.headSha,
+        actor: session?.login,
+        ref: request.branchName,
+      })
+      let runs = runsPatch.runs
+      if (workflowRunId != null && workflowRunUrl != null) {
+        const currentAttemptNum = runs.plan?.currentAttempt ?? 0
+        if (currentAttemptNum > 0) {
+          const patched = patchAttemptRunId(runs, "plan", currentAttemptNum, {
+            runId: workflowRunId,
+            url: workflowRunUrl,
+          })
+          if (patched) runs = patched
+        }
       }
       return {
         ...current,
-        ...patch,
-        workflowRunId: workflowRunId ?? (current as { workflowRunId?: number }).workflowRunId,
-        planRunId: workflowRunId ?? (current as { planRunId?: number }).planRunId,
-        planRunUrl: workflowRunUrl ?? (current as { planRunUrl?: string }).planRunUrl,
-        planHeadSha: planHeadSha ?? (current as { planHeadSha?: string }).planHeadSha,
-        planRun: { ...(cur.planRun ?? {}), ...planPayload },
+        runs,
+        updatedAt: runsPatch.updatedAt,
       }
     })
     const releasePatch = releaseLock(afterPlan as RequestDocWithLock, holder)
@@ -170,7 +175,7 @@ export async function POST(req: NextRequest) {
       await updateRequest(request.id, (c) => ({ ...c, ...releasePatch }))
     }
     if (workflowRunId != null) {
-      persistWorkflowDispatchIndex(request.id, "plan", workflowRunId)
+      putRunIndex("plan", workflowRunId, request.id).catch(() => {})
     }
 
     return NextResponse.json({ ok: true, workflowRunId, workflowRunUrl })

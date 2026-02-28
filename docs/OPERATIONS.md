@@ -8,15 +8,15 @@ Short playbook for recovery and common operations. No application logic changes 
 
 | Symptom | What to do |
 |---------|------------|
-| **Stuck “planning” or “applying”** | Webhook may have been missed. Open request → ensure sync runs (or call GET `/api/requests/:id/sync?repair=1`). Sync fetches PR and workflow runs from GitHub and patches the request. |
-| **Stuck “destroying”** | If destroy was triggered but no conclusion for >15 min, status derives to `failed` and `isDestroyRunStale` is true. Use **Repair** (sync with `?repair=1`) to refresh run status. If run actually failed, user can retry destroy. |
+| **Stuck “planning” or “applying”** | Sync always fetches and patches when the current attempt has runId and status queued/in_progress. Open the request so the UI polls (or call GET `/api/requests/:id/sync?repair=1`). Use repair if runId was never set. |
+| **Stuck “destroying”** | Sync always fetches the destroy run when the current destroy attempt has runId and status queued/in_progress, so UI polling converges. If no conclusion for >15 min, status derives to failed; use Repair (sync with ?repair=1) to refresh or retry cleanup. |
 | **List shows stale status** | List uses stored data; detail page uses derived status. Trigger a sync on the request (e.g. open detail) or wait for next list revalidation. |
 
 ---
 
 ## Repair endpoint usage
 
-- **GET** `/api/requests/:requestId/sync?repair=1` — Forces full GitHub fetch and patch (PR, reviews, cleanup PR, plan/apply/destroy runs). Use when you suspect missing facts or stale destroy.
+- **GET** `/api/requests/:requestId/sync?repair=1` — Forces full GitHub fetch and patch (PR, reviews, cleanup PR, and current run attempts by runId). Use when you suspect missing facts or stale destroy.
 - **GET** `/api/requests/:requestId/sync?hydrate=1` — Same as repair for “do GitHub calls” (no semantic difference in current code).
 - Requires session + GitHub token. On success returns `request` with derived `status` and `sync: { mode: "repair" }`.
 
@@ -24,7 +24,7 @@ Short playbook for recovery and common operations. No application logic changes 
 
 ## Re-sync guidance
 
-- Normal sync runs automatically when `needsRepair(request)` is true (missing PR, missing run facts, or stale destroy). No query param needed.
+- Normal sync runs when `needsRepair(request)` is true **or** when any current attempt (plan/apply/destroy) has runId and status queued/in_progress. In the latter case sync always fetches that run and patches the attempt, so "stuck destroying" (or planning/applying) converges without `?repair=1`. No query param needed for that. Use `?repair=1` to force full GitHub fetch (e.g. missing runId resolution, PR/cleanup refresh, stale destroy).
 - To force re-sync even when repair not needed: use `?repair=1` or `?hydrate=1`.
 - After approve/merge/apply/destroy, UI typically revalidates; webhooks also patch. If events were lost, use repair once.
 

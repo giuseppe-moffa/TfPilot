@@ -136,20 +136,22 @@ export async function listRequests(limit = 50) {
   return results
 }
 
-/** Max requests to scan when resolving by destroy runId (webhook correlation). */
+/** Max requests to scan when resolving by destroy runId (fallback only). */
 const LIST_LIMIT_FOR_RUN_ID_LOOKUP = 500
 
 /**
- * Find request id that has the given destroy run id (github.workflows.destroy.runId or destroyRun.runId).
- * Used by workflow_run webhook to prefer runId-based correlation for destroy completions.
+ * Find request id for the given destroy run id.
+ * Prefers run index (getRequestIdByRunId("destroy", runId)); falls back to scanning request.runs.destroy.attempts.
  */
 export async function getRequestIdByDestroyRunId(runId: number): Promise<string | null> {
+  const { getRequestIdByRunId } = await import("@/lib/requests/runIndex")
+  const fromIndex = await getRequestIdByRunId("destroy", runId)
+  if (fromIndex) return fromIndex
   const requests = await listRequests(LIST_LIMIT_FOR_RUN_ID_LOOKUP)
   for (const r of requests) {
-    const destroyRunId =
-      (r as { github?: { workflows?: { destroy?: { runId?: number } } } }).github?.workflows?.destroy?.runId ??
-      (r as { destroyRun?: { runId?: number } }).destroyRun?.runId
-    if (destroyRunId === runId) return (r as { id: string }).id
+    const runs = (r as { runs?: { destroy?: { attempts?: Array<{ runId?: number }> } } }).runs
+    const found = runs?.destroy?.attempts?.some((a) => a.runId === runId)
+    if (found) return (r as { id: string }).id
   }
   return null
 }

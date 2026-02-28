@@ -11,7 +11,7 @@ import { logLifecycleEvent } from "@/lib/logs/lifecycle"
 import { getUserRole } from "@/lib/auth/roles"
 import { getIdempotencyKey, assertIdempotentOrRecord, ConflictError } from "@/lib/requests/idempotency"
 import { acquireLock, releaseLock, LockConflictError, type RequestDocWithLock } from "@/lib/requests/lock"
-import { buildWorkflowDispatchPatch } from "@/lib/requests/persistWorkflowDispatch"
+import { persistDispatchAttempt } from "@/lib/requests/runsModel"
 import { putRunIndex } from "@/lib/requests/runIndex"
 import { resolveApplyRunId } from "@/lib/requests/resolveApplyRunId"
 
@@ -137,8 +137,8 @@ export async function POST(req: NextRequest) {
 
     const RESOLVE_ATTEMPTS = 12
     const BACKOFF_MS = [500, 500, 1000, 1000, 1500, 1500, 2000, 2000, 2000, 2000, 2000, 2000]
-    let applyRunId: number | undefined
-    let applyRunUrl: string | undefined
+    let runIdApply: number | undefined
+    let urlApply: string | undefined
 
     for (let attempt = 0; attempt < RESOLVE_ATTEMPTS; attempt++) {
       if (attempt > 0) {
@@ -157,8 +157,8 @@ export async function POST(req: NextRequest) {
           logContext: { route: "github/apply", correlationId: correlation.correlationId ?? request.id },
         })
         if (result) {
-          applyRunId = result.runId
-          applyRunUrl = result.url
+          runIdApply = result.runId
+          urlApply = result.url
           break
         }
       } catch (err) {
@@ -173,14 +173,14 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    if (applyRunId != null) {
+    if (runIdApply != null) {
       try {
-        await putRunIndex("apply", applyRunId, request.id)
+        await putRunIndex("apply", runIdApply, request.id)
       } catch (err) {
         logWarn("apply.run_index_write_failed", {
           ...correlation,
           requestId: request.id,
-          runId: applyRunId,
+          runId: runIdApply,
           err: String(err),
         })
       }
@@ -188,39 +188,20 @@ export async function POST(req: NextRequest) {
 
     const nowIso = new Date().toISOString()
     const [afterApply] = await updateRequest(request.id, (current) => {
-      const cur = current as { github?: Record<string, unknown>; applyRun?: { runId?: number; url?: string } }
-      const runId = applyRunId ?? undefined
-      const runUrl = applyRunUrl ?? undefined
-      const patch =
-        runId != null
-          ? buildWorkflowDispatchPatch(current as Record<string, unknown>, "apply", runId, runUrl)
+      const runId = runIdApply ?? undefined
+      const runUrl = urlApply ?? undefined
+      const runsPatch =
+        runId != null && runUrl != null
+          ? persistDispatchAttempt(current as Record<string, unknown>, "apply", {
+              runId,
+              url: runUrl,
+              actor: session.login,
+            })
           : {}
-      const patchGithub = (patch as { github?: Record<string, unknown> }).github ?? {}
-      const applyPayload =
-        runId != null
-          ? { runId, url: runUrl, status: "in_progress" as const }
-          : { status: "queued" as const }
       return {
         ...current,
-        ...patch,
-        applyTriggeredAt: (patchGithub.applyTriggeredAt as string) ?? nowIso,
-        applyRunId: runId ?? undefined,
-        applyRunUrl: runUrl ?? undefined,
-        github: {
-          ...cur.github,
-          ...patchGithub,
-          applyTriggeredAt: (patchGithub.applyTriggeredAt as string) ?? nowIso,
-          workflows: {
-            ...(cur.github?.workflows ?? {}),
-            ...(patchGithub.workflows ?? {}),
-            apply:
-              runId != null
-                ? { runId, url: runUrl, status: "in_progress" }
-                : { status: "queued" },
-          },
-        },
-        applyRun: { ...applyPayload },
-        updatedAt: nowIso,
+        ...runsPatch,
+        updatedAt: (runsPatch as { updatedAt?: string })?.updatedAt ?? nowIso,
       }
     })
     const releasePatch = releaseLock(afterApply as RequestDocWithLock, holder)
@@ -234,8 +215,8 @@ export async function POST(req: NextRequest) {
       actor: session.login,
       source: "api/github/apply",
       data: {
-        applyRunId,
-        applyRunUrl,
+        runId: runIdApply,
+        url: urlApply,
         targetRepo: `${owner}/${repo}`,
       },
     })

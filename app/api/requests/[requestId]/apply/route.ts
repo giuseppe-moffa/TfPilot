@@ -16,7 +16,8 @@ import { logLifecycleEvent } from "@/lib/logs/lifecycle"
 import { getUserRole } from "@/lib/auth/roles"
 import { getIdempotencyKey, assertIdempotentOrRecord, ConflictError } from "@/lib/requests/idempotency"
 import { acquireLock, releaseLock, LockConflictError, type RequestDocWithLock } from "@/lib/requests/lock"
-import { buildWorkflowDispatchPatch } from "@/lib/requests/persistWorkflowDispatch"
+import { getCurrentAttemptStrict, persistDispatchAttempt } from "@/lib/requests/runsModel"
+import type { RunsState } from "@/lib/requests/runsModel"
 import { putRunIndex } from "@/lib/requests/runIndex"
 import { resolveApplyRunId } from "@/lib/requests/resolveApplyRunId"
 
@@ -191,9 +192,9 @@ function buildModuleConfig(entry: ModuleRegistryEntry, rawConfig: Record<string,
 function isLocked(request: any) {
   if (request?.locked_reason) return true
   const status = deriveLifecycleStatus(request)
-  const applyRun = request?.github?.workflows?.apply ?? request?.applyRun
-  const applyRunStatus = applyRun?.status
-  return status === "applying" || status === "planning" || applyRunStatus === "in_progress" || applyRunStatus === "queued"
+  const applyAttempt = getCurrentAttemptStrict(request?.runs as RunsState | undefined, "apply")
+  const applyStatus = applyAttempt?.status
+  return status === "applying" || status === "planning" || applyStatus === "in_progress" || applyStatus === "queued"
 }
 
 function applyPatchToConfig(target: Record<string, unknown>, op: PatchOp) {
@@ -314,11 +315,11 @@ export async function POST(req: NextRequest, context: { params: Promise<{ reques
           throw lockErr
         }
         const status = deriveLifecycleStatus(request)
-        const applyRun = request?.github?.workflows?.apply ?? request?.applyRun
+        const applyAttempt = getCurrentAttemptStrict(request?.runs as RunsState | undefined, "apply")
         const applyErrorState =
-          applyRun?.conclusion === "failure" || applyRun?.conclusion === "cancelled"
+          applyAttempt?.conclusion === "failure" || applyAttempt?.conclusion === "cancelled"
         const applyStillRunning =
-          applyRun?.status === "in_progress" || applyRun?.status === "queued"
+          applyAttempt?.status === "in_progress" || applyAttempt?.status === "queued"
         const canDeploy =
           status === "merged" ||
           (status === "failed" && applyErrorState && !applyStillRunning)
@@ -347,8 +348,8 @@ export async function POST(req: NextRequest, context: { params: Promise<{ reques
         })
         const RESOLVE_ATTEMPTS = 12
         const BACKOFF_MS = [500, 500, 1000, 1000, 1500, 1500, 2000, 2000, 2000, 2000, 2000, 2000]
-        let applyRunId: number | undefined
-        let applyRunUrl: string | undefined
+        let runIdApply: number | undefined
+        let urlApply: string | undefined
         for (let attempt = 0; attempt < RESOLVE_ATTEMPTS; attempt++) {
           if (attempt > 0) {
             await new Promise((r) => setTimeout(r, BACKOFF_MS[Math.min(attempt - 1, BACKOFF_MS.length - 1)]))
@@ -365,8 +366,8 @@ export async function POST(req: NextRequest, context: { params: Promise<{ reques
               logContext: { route: "requests/[requestId]/apply", correlationId: correlation.correlationId ?? request.id },
             })
             if (result) {
-              applyRunId = result.runId
-              applyRunUrl = result.url
+              runIdApply = result.runId
+              urlApply = result.url
               break
             }
           } catch (err) {
@@ -380,53 +381,34 @@ export async function POST(req: NextRequest, context: { params: Promise<{ reques
             }
           }
         }
-        if (applyRunId != null) {
+        if (runIdApply != null) {
           try {
-            await putRunIndex("apply", applyRunId, request.id)
+            await putRunIndex("apply", runIdApply, request.id)
           } catch (err) {
             logWarn("apply.run_index_write_failed", {
               ...correlation,
               requestId: request.id,
-              runId: applyRunId,
+              runId: runIdApply,
               err: String(err),
             })
           }
         }
         const nowIso = new Date().toISOString()
         const [afterApply] = await updateRequest(request.id, (current) => {
-          const cur = current as { github?: Record<string, unknown>; applyRun?: { runId?: number; url?: string } }
-          const runId = applyRunId ?? undefined
-          const runUrl = applyRunUrl ?? undefined
-          const patch =
-            runId != null
-              ? buildWorkflowDispatchPatch(current as Record<string, unknown>, "apply", runId, runUrl)
+          const runId = runIdApply ?? undefined
+          const runUrl = urlApply ?? undefined
+          const runsPatch =
+            runId != null && runUrl != null
+              ? persistDispatchAttempt(current as Record<string, unknown>, "apply", {
+                  runId,
+                  url: runUrl,
+                  actor: session.login,
+                })
               : {}
-          const patchGithub = (patch as { github?: Record<string, unknown> }).github ?? {}
-          const applyPayload =
-            runId != null
-              ? { runId, url: runUrl, status: "in_progress" as const }
-              : { status: "queued" as const }
           return {
             ...current,
-            ...patch,
-            applyTriggeredAt: (patchGithub.applyTriggeredAt as string) ?? nowIso,
-            applyRunId: runId ?? undefined,
-            applyRunUrl: runUrl ?? undefined,
-            github: {
-              ...cur.github,
-              ...patchGithub,
-              applyTriggeredAt: (patchGithub.applyTriggeredAt as string) ?? nowIso,
-              workflows: {
-                ...(cur.github?.workflows ?? {}),
-                ...(patchGithub.workflows ?? {}),
-                apply:
-                  runId != null
-                    ? { runId, url: runUrl, status: "in_progress" }
-                    : { status: "queued" },
-              },
-            },
-            applyRun: { ...applyPayload },
-            updatedAt: nowIso,
+            ...runsPatch,
+            updatedAt: (runsPatch as { updatedAt?: string })?.updatedAt ?? nowIso,
           }
         })
         const releasePatch = releaseLock(afterApply as RequestDocWithLock, holder)
@@ -439,8 +421,8 @@ export async function POST(req: NextRequest, context: { params: Promise<{ reques
           actor: session.login,
           source: "api/requests/[requestId]/apply",
           data: {
-            applyRunId,
-            applyRunUrl,
+            runId: runIdApply,
+            url: urlApply,
             targetRepo: `${owner}/${repo}`,
           },
         })

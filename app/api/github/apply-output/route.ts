@@ -3,6 +3,8 @@ import { getGitHubAccessToken } from "@/lib/github/auth"
 import { gh } from "@/lib/github/client"
 import { getRequest } from "@/lib/storage/requestsStore"
 import { getSessionFromCookies } from "@/lib/auth/session"
+import { ensureRuns, getCurrentAttempt } from "@/lib/requests/runsModel"
+import type { RunsState } from "@/lib/requests/runsModel"
 
 async function fetchJobLogs(token: string, owner: string, repo: string, runId: number): Promise<string> {
   const jobsRes = await gh(token, `/repos/${owner}/${repo}/actions/runs/${runId}/jobs`)
@@ -32,8 +34,12 @@ export async function GET(req: NextRequest) {
     }
 
     const match = await getRequest(requestId).catch(() => null)
-    const runId = match?.applyRun?.runId ?? match?.applyRunId
-    if (!match || !runId || !match.targetOwner || !match.targetRepo) {
+    if (!match?.targetOwner || !match?.targetRepo) {
+      return NextResponse.json({ error: "Request not found" }, { status: 404 })
+    }
+    ensureRuns(match as Record<string, unknown>)
+    const runId = getCurrentAttempt(match.runs as RunsState, "apply")?.runId
+    if (!runId) {
       return NextResponse.json({ error: "Apply run not found" }, { status: 404 })
     }
 

@@ -33,5 +33,5 @@ All derived by `deriveLifecycleStatus(request)`; not stored as source of truth (
 ## Repair
 
 - **Meaning:** Sync that performs GitHub API calls to refresh request facts (PR, reviews, workflow runs) and optionally retry cleanup dispatch after destroy success.
-- **When:** Sync runs repair when `needsRepair(request)` is true, or when the client calls sync with `?repair=1` or `?hydrate=1`.
+- **When:** Sync runs GitHub fetch when `needsRepair(request)` is true, when the client calls sync with `?repair=1` or `?hydrate=1`, or when any current attempt (plan/apply/destroy) has runId and status queued/in_progress (so "stuck" states converge without manual repair).
 - **Endpoint:** GET `/api/requests/:requestId/sync` (with optional `repair=1` or `hydrate=1`). Implemented in **app/api/requests/[requestId]/sync/route.ts**; policy in **lib/requests/syncPolicy.ts**.

@@ -4,6 +4,7 @@ import * as SWRModule from "swr"
 import { getSyncPollingInterval } from "@/lib/config/polling"
 
 const globalMutate = (SWRModule as unknown as { mutate: (key: string) => Promise<unknown> }).mutate
+import { getCurrentAttemptStrict, isAttemptActive, type RunsState } from "@/lib/requests/runsModel"
 import {
   subscribeToRequestEvents,
   subscribeToConnectionState,
@@ -49,14 +50,10 @@ const syncFetcher = async (key: string): Promise<SyncResponse> => {
 type RequestLike = Record<string, any> | null
 
 function isApplyOrDestroyRunActive(request: RequestLike): boolean {
-  if (!request) return false
-  const apply = request.applyRun
-  const destroy = request.destroyRun
-  const applyActive =
-    (apply?.status === "queued" || apply?.status === "in_progress") && apply?.conclusion == null
-  const destroyActive =
-    (destroy?.status === "queued" || destroy?.status === "in_progress") && destroy?.conclusion == null
-  return Boolean(applyActive || destroyActive)
+  if (!request?.runs) return false
+  const apply = getCurrentAttemptStrict(request.runs as RunsState, "apply")
+  const destroy = getCurrentAttemptStrict(request.runs as RunsState, "destroy")
+  return isAttemptActive(apply) || isAttemptActive(destroy)
 }
 
 /**

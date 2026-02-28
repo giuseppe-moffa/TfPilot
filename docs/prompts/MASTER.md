@@ -48,7 +48,7 @@ GitHub is the source of truth for:
 
 Create → Plan → Approve → Merge → Apply → Destroy → Cleanup
 
-Requests are immutable lifecycle records. **Status is derived only** (single entrypoint: `deriveLifecycleStatus`). Stored fields are **facts** (e.g. `github.workflows.plan|apply|destroy`, `pr`, `approval`, `mergedSha`); never write optimistic status. Webhooks and sync patch facts only. Run index (S3) gives O(1) runId→requestId for webhooks; correlation order: index → destroy fallback → branch/title. Monotonic guards in `patchWorkflowRun`: concluded runs never regress; runId must match tracked run. See **docs/REQUEST_LIFECYCLE.md**, **docs/WEBHOOKS_AND_CORRELATION.md**.
+Requests are immutable lifecycle records. **Status is derived only** (single entrypoint: `deriveLifecycleStatus`). Run state is stored only in **`request.runs.{plan,apply,destroy}`** (attempt-based); webhooks and sync patch attempt records by runId. Run index (S3) gives O(1) runId→requestId for webhooks; correlation order: index → destroy fallback → branch/title. Monotonic guards in `patchAttemptByRunId`: concluded attempts never regress. See **docs/REQUEST_LIFECYCLE.md**, **docs/WEBHOOKS_AND_CORRELATION.md**, **docs/SYSTEM_OVERVIEW.md** (Run execution model).
 
 ---
 

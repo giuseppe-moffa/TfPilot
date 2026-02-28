@@ -25,7 +25,9 @@ import {
 } from "@/lib/requests/idempotency"
 import { logLifecycleEvent } from "@/lib/logs/lifecycle"
 import { putPrIndex } from "@/lib/requests/prIndex"
-import { buildWorkflowDispatchPatch, persistWorkflowDispatchIndex } from "@/lib/requests/persistWorkflowDispatch"
+import { getCurrentAttemptStrict, patchAttemptRunId, persistDispatchAttempt } from "@/lib/requests/runsModel"
+import type { RunsState } from "@/lib/requests/runsModel"
+import { putRunIndex } from "@/lib/requests/runIndex"
 import { getUserRole } from "@/lib/auth/roles"
 import { ensureAssistantState } from "@/lib/assistant/state"
 
@@ -51,8 +53,6 @@ type StoredRequest = {
   reason?: string
   statusDerivedAt?: string
   plan?: { diff: string }
-  planRun?: { runId?: number; url?: string; status?: string; conclusion?: string; headSha?: string }
-  applyRun?: { runId?: number; url?: string; status?: string; conclusion?: string }
   approval?: { approved?: boolean; approvers?: string[] }
   pr?: { number?: number; url?: string; merged?: boolean; headSha?: string; open?: boolean }
   activePrNumber?: number
@@ -560,8 +560,8 @@ async function createBranchCommitPrAndPlan(
     prUrl: prJson.html_url,
     commitSha: commitJson.sha,
     planHeadSha,
-    planRunId: workflowRunId,
-    planRunUrl: workflowRunUrl,
+    workflowRunId,
+    workflowRunUrl,
     baseSha,
   }
 }
@@ -730,24 +730,25 @@ export async function POST(request: NextRequest) {
     newRequest.targetBase = targetRepo.base
     newRequest.targetEnvPath = targetRepo.envPath
     newRequest.targetFiles = generated.files.map((f) => f.path)
-    newRequest.planRun = {
-      runId: ghResult.planRunId,
-      url: ghResult.planRunUrl,
+    const runsPatch = persistDispatchAttempt(newRequest as Record<string, unknown>, "plan", {
       headSha: ghResult.planHeadSha,
-    }
-    if (ghResult.planRunId != null) {
-      const planPatch = buildWorkflowDispatchPatch(
-        newRequest as Record<string, unknown>,
-        "plan",
-        ghResult.planRunId,
-        ghResult.planRunUrl
-      )
-      Object.assign(newRequest as Record<string, unknown>, planPatch)
-      ;(newRequest as Record<string, unknown>).planRun = {
-        runId: ghResult.planRunId,
-        url: ghResult.planRunUrl,
-        headSha: ghResult.planHeadSha,
-        status: "in_progress",
+      actor: session.login,
+      ref: ghResult.branchName,
+    })
+    ;(newRequest as Record<string, unknown>).runs = runsPatch.runs
+    ;(newRequest as Record<string, unknown>).updatedAt = runsPatch.updatedAt
+
+    if (ghResult.workflowRunId != null && ghResult.workflowRunUrl != null) {
+      const runs = (newRequest as Record<string, unknown>).runs as RunsState
+      const currentAttemptNum = runs?.plan?.currentAttempt ?? 0
+      if (currentAttemptNum > 0) {
+        const patched = patchAttemptRunId(runs, "plan", currentAttemptNum, {
+          runId: ghResult.workflowRunId,
+          url: ghResult.workflowRunUrl,
+        })
+        if (patched) {
+          ;(newRequest as Record<string, unknown>).runs = patched
+        }
       }
     }
 
@@ -757,10 +758,11 @@ export async function POST(request: NextRequest) {
     if (idemKey) recordCreate(idemKey, requestId, newRequestWithAssistant as Record<string, unknown>, now)
 
     await putPrIndex(targetRepo.owner, targetRepo.repo, ghResult.prNumber, requestId).catch(() => {})
-    if (ghResult.planRunId != null) {
-      persistWorkflowDispatchIndex(requestId, "plan", ghResult.planRunId)
+    if (ghResult.workflowRunId != null) {
+      putRunIndex("plan", ghResult.workflowRunId, requestId).catch(() => {})
     }
 
+    const planAttempt = getCurrentAttemptStrict((newRequestWithAssistant as { runs?: RunsState }).runs, "plan")
     await logLifecycleEvent({
       requestId,
       event: "plan_dispatched",
@@ -768,8 +770,8 @@ export async function POST(request: NextRequest) {
       source: "api/requests",
       data: {
         branch: newRequestWithAssistant.branchName,
-        planRunId: newRequestWithAssistant.planRun?.runId,
-        planRunUrl: newRequestWithAssistant.planRun?.url,
+        runId: planAttempt?.runId ?? ghResult.workflowRunId,
+        url: planAttempt?.url ?? ghResult.workflowRunUrl,
         targetRepo: `${targetRepo.owner}/${targetRepo.repo}`,
       },
     })

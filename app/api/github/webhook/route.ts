@@ -12,13 +12,15 @@ import { dispatchCleanup } from "@/lib/github/dispatchCleanup"
 import {
   patchGithubPr,
   patchGithubReviews,
-  patchWorkflowRun,
+  patchRunsAttemptByRunId,
   type PullRequestWebhookPayload,
   type PullRequestReviewWebhookPayload,
   type WorkflowRunWebhookPayload,
 } from "@/lib/requests/patchRequestFacts"
+import { maybeEmitCompletionEvent } from "@/lib/logs/lifecycle"
+import type { RunsState } from "@/lib/requests/runsModel"
 import { getRequestIdByDestroyRunId, updateRequest } from "@/lib/storage/requestsStore"
-import { getRequestIdByRunId, getRequestIdByDestroyRunIdIndexed } from "@/lib/requests/runIndex"
+import { getRequestIdByRunId } from "@/lib/requests/runIndex"
 import { appendStreamEvent } from "@/lib/github/streamState"
 import { env } from "@/lib/config/env"
 
@@ -83,28 +85,63 @@ export async function POST(req: NextRequest) {
   } else if (event === "workflow_run") {
     const kind = classifyWorkflowRun(payload as WorkflowRunWebhookPayload)
     const wr = (payload as WorkflowRunWebhookPayload).workflow_run
+
+    if (process.env.DEBUG_WEBHOOKS === "1") {
+      console.log("event=webhook.workflow_run.incoming", {
+        deliveryId,
+        kind: kind ?? "unknown",
+        runId: wr?.id,
+        status: wr?.status,
+        conclusion: wr?.conclusion ?? null,
+        head_sha: wr?.head_sha ?? null,
+        workflow_name: wr?.name ?? null,
+        display_title: wr?.display_title ?? null,
+      })
+    }
+
     // Prefer runId-based correlation for all kinds (O(1) index first, then fallbacks)
     let correlated: { requestId?: string }
     if (kind != null && wr?.id != null) {
       const requestIdIndexed = await getRequestIdByRunId(kind, wr.id)
-      if (requestIdIndexed != null && process.env.DEBUG_WEBHOOKS === "1") {
-        console.log(
-          "event=webhook.resolve scope=index kind=%s runId=%s requestId=%s",
-          kind,
-          String(wr.id),
-          requestIdIndexed
-        )
+      if (process.env.DEBUG_WEBHOOKS === "1") {
+        if (requestIdIndexed != null) {
+          console.log("event=webhook.correlation path=index_hit", {
+            kind,
+            runId: wr.id,
+            requestId: requestIdIndexed,
+          })
+        } else {
+          console.log("event=webhook.correlation path=index_miss", { kind, runId: wr.id })
+        }
       }
       let requestIdByRunId: string | null = requestIdIndexed
       if (requestIdByRunId == null && kind === "destroy") {
         requestIdByRunId = await getRequestIdByDestroyRunId(wr.id)
       }
-      correlated = requestIdByRunId
-        ? { requestId: requestIdByRunId }
-        : correlateWorkflowRun(payload as WorkflowRunCorrelationPayload)
+      if (requestIdByRunId == null) {
+        const fallback = correlateWorkflowRun(payload as WorkflowRunCorrelationPayload)
+        correlated = fallback
+        if (process.env.DEBUG_WEBHOOKS === "1") {
+          console.log("event=webhook.correlation path=fallback", {
+            kind,
+            runId: wr.id,
+            requestId: fallback.requestId ?? null,
+          })
+        }
+      } else {
+        correlated = { requestId: requestIdByRunId }
+      }
     } else {
       correlated = correlateWorkflowRun(payload as WorkflowRunCorrelationPayload)
+      if (process.env.DEBUG_WEBHOOKS === "1") {
+        console.log("event=webhook.correlation path=fallback", {
+          kind: kind ?? "unknown",
+          runId: wr?.id ?? null,
+          requestId: correlated.requestId ?? null,
+        })
+      }
     }
+
     if (!correlated.requestId) {
       await recordDelivery(deliveryId, event ?? "unknown")
       return NextResponse.json({ ok: true })
@@ -122,16 +159,62 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true })
     }
     try {
-      const [, saved] = await updateRequest(correlated.requestId, (current) => {
-        const patch = patchWorkflowRun(current, kind, payload as WorkflowRunWebhookPayload)
-        return Object.keys(patch).length === 0 ? current : { ...current, ...patch }
+      let patchHadChanges = false
+      const [updated, saved] = await updateRequest(correlated.requestId, (current) => {
+        const runsPatch = patchRunsAttemptByRunId(current, kind, payload as WorkflowRunWebhookPayload)
+        patchHadChanges = Object.keys(runsPatch).length > 0
+        return patchHadChanges ? { ...current, ...runsPatch } : current
       })
+      if (process.env.DEBUG_WEBHOOKS === "1") {
+        console.log("event=webhook.patch.result", {
+          kind,
+          runId: wr?.id,
+          requestId: correlated.requestId,
+          patchHadChanges,
+          saved,
+        })
+      }
+      if (kind != null && correlated.requestId && !patchHadChanges) {
+        console.log(
+          "event=webhook.patch.noop kind=%s runId=%s requestId=%s",
+          kind,
+          String(wr?.id ?? ""),
+          correlated.requestId
+        )
+      }
       if (saved) {
         await appendStreamEvent({
           requestId: correlated.requestId,
           updatedAt: new Date().toISOString(),
           type: event ?? "workflow_run",
         }).catch(() => {})
+      }
+      // Emit completion lifecycle event only for the attempt that matches this runId (we never alter currentAttempt).
+      // If matched attempt is null (e.g. late webhook for attempt 1 after attempt 2 dispatched), do not emit.
+      if (
+        saved &&
+        (kind === "plan" || kind === "apply" || kind === "destroy") &&
+        wr?.status === "completed" &&
+        wr?.conclusion &&
+        wr?.id != null
+      ) {
+        const runs = updated?.runs as RunsState | undefined
+        const attempt = runs?.[kind]?.attempts?.find((a) => a.runId === wr.id)
+        if (attempt != null && attempt.conclusion) {
+          const actor =
+            (wr as { actor?: { login?: string } }).actor?.login ??
+            (payload as { sender?: { login?: string } }).sender?.login ??
+            "github"
+          await maybeEmitCompletionEvent(
+            correlated.requestId,
+            kind,
+            wr.id,
+            attempt.attempt,
+            attempt.conclusion,
+            "webhook",
+            actor
+          ).catch((err) => console.warn("[api/github/webhook] maybeEmitCompletionEvent failed", err))
+        }
       }
       if (
         kind === "destroy" &&

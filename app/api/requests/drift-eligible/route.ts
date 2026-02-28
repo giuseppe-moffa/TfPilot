@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 
 import { listRequests } from "@/lib/storage/requestsStore"
 import { deriveLifecycleStatus } from "@/lib/requests/deriveLifecycleStatus"
+import { getCurrentAttemptStrict } from "@/lib/requests/runsModel"
+import type { RunsState } from "@/lib/requests/runsModel"
 
 /**
  * Basic rate limiting check - simple in-memory counter (for production, use Redis or similar)
@@ -96,20 +98,22 @@ export async function GET(req: NextRequest) {
         return false
       }
 
-      // Must be successfully applied (derived status applied or applyRun success; destroyed/destroying already excluded above)
+      // Must be successfully applied (derived status applied or current apply attempt success; destroyed/destroying already excluded above)
+      const applyAttempt = getCurrentAttemptStrict(request.runs as RunsState | undefined, "apply")
       const isComplete =
-        status === "applied" || request.applyRun?.conclusion === "success"
+        status === "applied" || applyAttempt?.conclusion === "success"
 
       if (!isComplete) {
         return false
       }
 
       // Must not be currently planning/applying/destroying
+      const planAttempt = getCurrentAttemptStrict(request.runs as RunsState | undefined, "plan")
       const isActive =
-        request.planRun?.status === "in_progress" ||
-        request.planRun?.status === "queued" ||
-        request.applyRun?.status === "in_progress" ||
-        request.applyRun?.status === "queued" ||
+        planAttempt?.status === "in_progress" ||
+        planAttempt?.status === "queued" ||
+        applyAttempt?.status === "in_progress" ||
+        applyAttempt?.status === "queued" ||
         status === "planning" ||
         status === "applying"
 

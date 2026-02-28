@@ -10,7 +10,7 @@ You are responsible for frontend/UI: request list, request detail, new request f
 * New request form (project/env/module + config); assistant drawer and suggestion panel
 * **Display status from `deriveLifecycleStatus(request)` only** — never use stored `status` for UI logic; use lib/status/status-config for labels/colors
 * SWR + SSE: subscribe to request events (streamClient); revalidate on event; polling fallback (docs/POLLING.md)
-* Buttons and timeline driven by request facts (pr, planRun, applyRun, destroyRun, approval)
+* Buttons and timeline driven by request facts (pr, current run attempts from `request.runs`, approval)
 
 ## You SHOULD
 

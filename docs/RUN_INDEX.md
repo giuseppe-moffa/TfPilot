@@ -53,8 +53,8 @@ GitHub’s `workflow_dispatch` API does **not** return the new run’s `runId`; 
 
 ## Implementation
 
-- **Write:** `putRunIndex(kind, runId, requestId)` in `lib/requests/runIndex.ts`, called from plan/apply/destroy (and drift_plan when runId is available) dispatch via `lib/requests/persistWorkflowDispatch.ts` (fire-and-forget). Cleanup is not indexed on dispatch (GitHub dispatch API does not return runId). Drift-plan is often dispatched externally; index is written only when TfPilot has runId.
-- **See also:** **docs/GITHUB_WORKFLOWS.md**, **docs/WEBHOOKS_AND_CORRELATION.md**.
+- **Write:** `putRunIndex(kind, runId, requestId)` in `lib/requests/runIndex.ts`, called from plan/apply/destroy (and drift_plan when runId is available) dispatch routes (fire-and-forget). For **plan**, a run attempt is always created at dispatch (with headSha, ref, actor); runId/url may be missing until the GitHub runs list returns. When runId becomes available (create/update flow or sync repair), `patchAttemptRunId` attaches runId/url to the current attempt and `putRunIndex` is called. Cleanup is not indexed on dispatch (GitHub dispatch API does not return runId). Drift-plan is often dispatched externally; index is written only when TfPilot has runId.
+- **See also:** **docs/GITHUB_WORKFLOWS.md**, **docs/WEBHOOKS_AND_CORRELATION.md**, **docs/SYSTEM_OVERVIEW.md** (Run execution model).
 - **Read:** `getRequestIdByRunId(kind, runId)`; webhook tries this first for all kinds. If null, destroy falls back to list-based lookup; all kinds fall back to branch/title correlation.
-- **Patch guard:** `patchWorkflowRun` only updates a request when the incoming `workflow_run.id` matches the request’s tracked runId for that kind (prevents cross-request updates).
+- **After resolve:** Once requestId is known, the webhook patches only the **attempt record** in `request.runs[kind]` that matches the incoming `workflow_run.id` (via `patchRunsAttemptByRunId`). No other run state is written; there is no legacy run state or canonicalization.
 - **Backwards compatibility:** `putDestroyRunIndex` / `getRequestIdByDestroyRunIdIndexed` remain as wrappers around the generic API.

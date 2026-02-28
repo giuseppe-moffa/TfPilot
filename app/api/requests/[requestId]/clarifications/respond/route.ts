@@ -5,6 +5,8 @@ import { ensureAssistantState, isAllowedPatchPath } from "@/lib/assistant/state"
 import { getSessionFromCookies } from "@/lib/auth/session"
 import { getRequest, updateRequest } from "@/lib/storage/requestsStore"
 import { deriveLifecycleStatus } from "@/lib/requests/deriveLifecycleStatus"
+import { getCurrentAttemptStrict } from "@/lib/requests/runsModel"
+import type { RunsState } from "@/lib/requests/runsModel"
 import { buildResourceName } from "@/lib/requests/naming"
 import { env } from "@/lib/config/env"
 import { normalizeName, validateResourceName } from "@/lib/validation/resourceName"
@@ -180,9 +182,9 @@ function buildModuleConfig(entry: ModuleRegistryEntry, rawConfig: Record<string,
 function isLocked(request: any) {
   if (request?.locked_reason) return true
   const status = deriveLifecycleStatus(request)
-  const applyRun = request?.github?.workflows?.apply ?? request?.applyRun
-  const applyRunStatus = applyRun?.status
-  return status === "applying" || status === "planning" || applyRunStatus === "in_progress" || applyRunStatus === "queued"
+  const applyAttempt = getCurrentAttemptStrict(request?.runs as RunsState | undefined, "apply")
+  const applyStatus = applyAttempt?.status
+  return status === "applying" || status === "planning" || applyStatus === "in_progress" || applyStatus === "queued"
 }
 
 function applyPatchToConfig(target: Record<string, unknown>, op: PatchOp) {

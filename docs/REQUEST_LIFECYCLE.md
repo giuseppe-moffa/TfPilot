@@ -4,37 +4,37 @@ End-to-end flow and status rules. Source of truth: **lib/requests/deriveLifecycl
 
 ---
 
-## Lifecycle stages
+## Lifecycle stages (attempt-based)
 
 | Stage | Description |
 |-------|-------------|
-| **Create** | POST `/api/requests`: persist to S3, create branch `request/<requestId>`, open PR, dispatch plan. |
-| **Plan** | GitHub Actions run plan (`-lock=false`). Run index written; webhook/sync patch `planRun`. |
+| **Create** | POST `/api/requests`: persist to S3, create branch `request/<requestId>`, open PR, dispatch plan. A plan attempt is **always** created (attempt 1, status `queued`, headSha/ref/actor). RunId/url may be filled when the GitHub runs list returns or later via webhook/sync; run index written when runId is available. |
+| **Plan** | GitHub Actions runs plan (`-lock=false`). Webhook/sync patch the plan attempt by runId (status, conclusion, completedAt); if an attempt exists without runId, webhook can attach runId by matching head_sha. Status derived → `planning` then `plan_ready`. |
 | **Approve** | User/approver approves → POST approve route → `approval.approved` + approvers. |
 | **Merge** | PR merged (UI or API) → merge route sets `mergedSha`; webhook can patch `pr.merged`. |
-| **Apply** | User triggers apply → dispatch apply workflow; run index written; webhook/sync patch `applyRun`. |
-| **Destroy** | User triggers destroy → dispatch cleanup (fire-and-forget), dispatch destroy, set `destroyRun` + `destroyTriggeredAt`. Cleanup PR strips TfPilot block; after destroy success, request archived to `history/`. |
+| **Apply** | User triggers apply → dispatch apply workflow; run index written; `request.runs.apply` gets attempt 1 (or next attempt on retry). Webhook/sync patch that attempt. Derived → `applying` → `applied`. |
+| **Destroy** | User triggers destroy → cleanup workflow dispatched (fire-and-forget), destroy workflow dispatched; `request.runs.destroy` gets attempt 1 (or next). Cleanup PR strips TfPilot block; after destroy success, request archived to `history/`. Webhook on destroy success may trigger cleanup dispatch. |
 | **Cleanup** | Workflow runs on cleanup branch; cleanup PR state patched via sync/webhook. |
+
+**Retry:** Retry apply or retry destroy creates a **new attempt** (e.g. attempt 2). `currentAttempt` is updated; the new attempt is the only one used for “current” state. Previous attempts remain in `attempts[]` for audit.
 
 ---
 
 ## Status derivation (canonical)
 
-Status is **not** stored as authoritative (except conceptually for destroy). It is computed by `deriveLifecycleStatus(request)` from:
+Status is **not** stored as authoritative. It is computed by `deriveLifecycleStatus(request)` from:
 
 - `pr` or `github.pr`
-- `planRun` or `github.workflows.plan`
-- `applyRun` or `github.workflows.apply`
-- `destroyRun` or `github.workflows.destroy`
+- **Current attempts only:** `getCurrentAttempt(request.runs, "plan"|"apply"|"destroy")` — i.e. the attempt where `attempt === currentAttempt`
 - `approval`, `mergedSha`
 
 **Priority order (exact from code):**
 
-1. Destroy run failed conclusion → `failed`
-2. Destroy run success → `destroyed`
-3. Destroy in progress (and not stale) → `destroying`; if stale (no conclusion for >15 min after `destroyTriggeredAt`) → `failed`
-4. Apply run failed → `failed`
-5. Plan run failed → `failed`
+1. Destroy current attempt failed conclusion → `failed`
+2. Destroy current attempt success → `destroyed`
+3. Destroy in progress (and not stale) → `destroying`; if stale (no conclusion for >15 min after latest attempt’s `dispatchedAt`) → `failed`
+4. Apply current attempt failed → `failed`
+5. Plan current attempt failed → `failed`
 6. Apply running → `applying`
 7. Apply success → `applied`
 8. PR merged or `mergedSha` → `merged`
@@ -45,6 +45,8 @@ Status is **not** stored as authoritative (except conceptually for destroy). It 
 
 **Canonical status set** (see `lib/status/status-config.ts`): `request_created`, `planning`, `plan_ready`, `approved`, `merged`, `applying`, `applied`, `destroying`, `destroyed`, `failed`.
 
+**Late webhooks:** Only the **current** attempt is authoritative for derivation. If a webhook arrives out of order (e.g. “completed” after we already have a newer attempt), the patch is applied to the attempt record that matches the webhook’s runId. Monotonic rules in `patchAttemptByRunId` prevent regressing a completed attempt to in_progress; duplicate status/conclusion writes are no-ops. So late webhooks cannot regress derived state.
+
 ---
 
 ## Failure modes and retry/repair
@@ -52,16 +54,16 @@ Status is **not** stored as authoritative (except conceptually for destroy). It 
 | Situation | Behavior |
 |-----------|----------|
 | **State lock** | Apply/destroy workflows use concurrency group per env (state); plan uses per-request group. Lock contention is in GitHub, not TfPilot. |
-| **Webhook loss** | Sync runs when `needsRepair(request)` (missing PR, missing run facts, or stale destroy). GET `/api/requests/:id/sync?repair=1` forces full GitHub fetch + patch. |
-| **Stale destroy** | If destroy was triggered but no conclusion for >15 min, `deriveLifecycleStatus` returns `failed` and `isDestroyRunStale(request)` is true. UI can show “Repair” / “Retry destroy”. Sync repair refreshes run; optional re-dispatch destroy. |
+| **Webhook loss** | Sync **always** fetches and patches when the current attempt (plan/apply/destroy) has runId and status `queued` or `in_progress`. So when the UI polls sync (e.g. on the request detail page), the attempt is updated to completed without manual repair. Sync also runs when `needsRepair(request)` or with `?repair=1` for other cases (e.g. missing runId resolution, PR cleanup). GET `/api/requests/:id/sync?repair=1` forces full GitHub fetch and patches. |
+| **Stale destroy** | If destroy was dispatched but no conclusion for >15 min after the current attempt’s `dispatchedAt`, `deriveLifecycleStatus` returns `failed` and `isDestroyRunStale(request)` is true. UI can show “Repair” / “Retry destroy”. Sync repair refreshes the attempt from GitHub; optional re-dispatch creates a new attempt. |
 | **Cleanup dispatch failed** | After destroy success, webhook may trigger cleanup dispatch. If that fails, sync with `?repair=1` re-attempts cleanup dispatch and updates `cleanupDispatchStatus`. |
 
-**Repair:** Sync with `?repair=1` (or `hydrate=1`) forces GitHub calls and re-patches request facts. When `needsRepair(request)` is true, sync does the same without the query param. See **docs/OPERATIONS.md**.
+**Repair:** Sync with `?repair=1` (or `hydrate=1`) forces GitHub calls and re-patches request facts (PR, reviews, cleanup PR, and **run attempts** by runId). When `needsRepair(request)` is true, sync does the same without the query param. In addition, sync **always** performs GitHub run fetch for any current attempt (plan/apply/destroy) that has runId and status queued or in_progress, so "stuck destroying" (or planning/applying) converges within 1–2 poll intervals without manual repair. See **docs/OPERATIONS.md**.
 
 ---
 
 ## Stale destroy handling (code)
 
 - `DESTROY_STALE_MINUTES = 15` in `deriveLifecycleStatus.ts`.
-- `isDestroyRunStale(request)` is true when `destroyTriggeredAt` is set, run is in_progress/queued with no conclusion, and >15 min have passed.
+- `isDestroyRunStale(request)` is true when the current destroy attempt exists, is in_progress/queued with no conclusion, and more than 15 minutes have passed since that attempt’s `dispatchedAt`.
 - UI uses this to show “Repair” and treat as not actively destroying.

@@ -15,7 +15,9 @@ import { withCorrelation } from "@/lib/observability/correlation"
 import { logError, logInfo, logWarn } from "@/lib/observability/logger"
 import { logLifecycleEvent } from "@/lib/logs/lifecycle"
 import { putPrIndex } from "@/lib/requests/prIndex"
-import { buildWorkflowDispatchPatch, persistWorkflowDispatchIndex } from "@/lib/requests/persistWorkflowDispatch"
+import { getCurrentAttemptStrict, patchAttemptRunId, persistDispatchAttempt } from "@/lib/requests/runsModel"
+import type { RunsState } from "@/lib/requests/runsModel"
+import { putRunIndex } from "@/lib/requests/runIndex"
 import { getIdempotencyKey, assertIdempotentOrRecord, ConflictError } from "@/lib/requests/idempotency"
 import { acquireLock, releaseLock, LockConflictError, type RequestDocWithLock } from "@/lib/requests/lock"
 import { buildResourceName } from "@/lib/requests/naming"
@@ -404,8 +406,8 @@ async function createBranchCommitPrAndPlan(
     prUrl: prJson.html_url,
     commitSha: commitJson.sha,
     planHeadSha,
-    planRunId: workflowRunId,
-    planRunUrl: workflowRunUrl,
+    workflowRunId,
+    workflowRunUrl,
     baseSha,
   }
 }
@@ -449,9 +451,9 @@ async function closeSupersededPr(params: {
 
 function isApplyRunning(request: any) {
   const status = deriveLifecycleStatus(request)
-  const applyRun = request?.github?.workflows?.apply ?? request?.applyRun
-  const applyRunStatus = applyRun?.status
-  return status === "applying" || applyRunStatus === "in_progress" || applyRunStatus === "queued"
+  const applyAttempt = getCurrentAttemptStrict(request?.runs as RunsState | undefined, "apply")
+  const applyStatus = applyAttempt?.status
+  return status === "applying" || applyStatus === "in_progress" || applyStatus === "queued"
 }
 
 export async function POST(req: NextRequest) {
@@ -500,12 +502,13 @@ export async function POST(req: NextRequest) {
       })
       if (idem.ok === false && idem.mode === "replay") {
         logInfo("idempotency.replay", { ...correlation, requestId: current.id, operation: "update" })
+        const planAttempt = getCurrentAttemptStrict((current as { runs?: RunsState }).runs, "plan")
         return NextResponse.json({
           success: true,
           requestId: current.id,
           revision: typeof current.revision === "number" ? current.revision : 1,
           prUrl: (current as { prUrl?: string }).prUrl,
-          planRunId: (current as { planRun?: { runId?: number } }).planRun?.runId,
+          runId: planAttempt?.runId,
         })
       }
       if (idem.ok === true && idem.mode === "recorded") {
@@ -643,12 +646,29 @@ export async function POST(req: NextRequest) {
       rendererVersion: RENDERER_VERSION,
     }
 
+    const planRunsPatch = persistDispatchAttempt(current as Record<string, unknown>, "plan", {
+      headSha: ghResult.planHeadSha,
+      actor: session.login,
+      ref: ghResult.branchName,
+    })
+    let planRuns = planRunsPatch.runs
+    if (ghResult.workflowRunId != null && ghResult.workflowRunUrl != null) {
+      const currentAttemptNum = planRuns.plan?.currentAttempt ?? 0
+      if (currentAttemptNum > 0) {
+        const patched = patchAttemptRunId(planRuns, "plan", currentAttemptNum, {
+          runId: ghResult.workflowRunId,
+          url: ghResult.workflowRunUrl,
+        })
+        if (patched) planRuns = patched
+      }
+    }
+
     const updatedRequest = {
       ...current,
       ...(idemPatch ?? {}),
       config: finalConfig,
       revision: revisionNext,
-      updatedAt: new Date().toISOString(),
+      updatedAt: planRunsPatch.updatedAt,
       branchName: ghResult.branchName,
       prNumber: ghResult.prNumber,
       prUrl: ghResult.prUrl,
@@ -667,14 +687,7 @@ export async function POST(req: NextRequest) {
       targetBase,
       targetEnvPath,
       targetFiles: [targetFile],
-      planRun: {
-        runId: ghResult.planRunId,
-        url: ghResult.planRunUrl,
-        headSha: ghResult.planHeadSha,
-      },
-      ...(ghResult.planRunId != null
-        ? buildWorkflowDispatchPatch(current as Record<string, unknown>, "plan", ghResult.planRunId, ghResult.planRunUrl)
-        : {}),
+      runs: planRuns,
       moduleRef: current.moduleRef ?? {
         repo: `${targetOwner}/${targetRepo}`,
         path: `modules/${current.module}`,
@@ -701,8 +714,8 @@ export async function POST(req: NextRequest) {
     )
 
     await putPrIndex(targetOwner, targetRepo, ghResult.prNumber, current.id).catch(() => {})
-    if (ghResult.planRunId != null) {
-      persistWorkflowDispatchIndex(current.id, "plan", ghResult.planRunId)
+    if (ghResult.workflowRunId != null) {
+      putRunIndex("plan", ghResult.workflowRunId, current.id).catch(() => {})
     }
 
     const afterSave = await getRequest(current.id)
@@ -720,7 +733,7 @@ export async function POST(req: NextRequest) {
         fromRevision: revisionPrev,
         toRevision: revisionNext,
         prNumber: ghResult.prNumber,
-        planRunId: ghResult.planRunId,
+        runId: ghResult.workflowRunId,
         supersededPr: superseded ? previousPrNumber : undefined,
       },
     })
@@ -730,7 +743,7 @@ export async function POST(req: NextRequest) {
       requestId: current.id,
       revision: revisionNext,
       prUrl: ghResult.prUrl,
-      planRunId: ghResult.planRunId,
+      runId: ghResult.workflowRunId,
     })
   } catch (error) {
     logError("request.update_failed", error, { ...correlation, duration_ms: Date.now() - start })

@@ -42,8 +42,8 @@ After that, go to [tfpilot.com](https://tfpilot.com) (or your instance URL), cli
 **Status** (derived, not stored): `request_created` → `planning` → `plan_ready` → `approved` → `merged` → `applying` → `applied` (or `failed`). Destroy: `destroying` → `destroyed`. See [docs/REQUEST_LIFECYCLE.md](docs/REQUEST_LIFECYCLE.md), [docs/GLOSSARY.md](docs/GLOSSARY.md).
 
 ### Workflows (core/payments repos)
-- **Plan**: Concurrency per env+request; `-lock=false`. Uploads plan artifact; run index + webhook/sync patch request. Infracost (when TF files changed) uploads to S3 `cost/<requestId>/`; needs `INFRACOST_API_KEY` and `request_id` on dispatch.
-- **Apply / Destroy**: Serialized per env (state group); prod-guarded. Run index written on dispatch; webhook/sync patch run result. Destroy: cleanup workflow strips TfPilot block first; request archived to `history/` on success.
+- **Plan**: Concurrency per env+request; `-lock=false`. Uploads plan artifact; run index written on dispatch; webhook/sync patch the plan attempt in `request.runs.plan`. Infracost (when TF files changed) uploads to S3 `cost/<requestId>/`; needs `INFRACOST_API_KEY` and `request_id` on dispatch.
+- **Apply / Destroy**: Serialized per env (state group); prod-guarded. Run index written on dispatch; webhook/sync patch the apply or destroy attempt in `request.runs`. Destroy: cleanup workflow strips TfPilot block first; request archived to `history/` on success.
 - **Cleanup**: Branch `cleanup/<requestId>`; strips only TfPilot block; can auto-merge in dev.
 - **Drift-Plan**: Plan on base branch for drift (dev); nightly drift-check dispatches per request. See [docs/GITHUB_WORKFLOWS.md](docs/GITHUB_WORKFLOWS.md).
 
@@ -103,7 +103,7 @@ Ensure env vars above are set (buckets/region, workflow filenames, session secre
 - Separate prod destroy allowlist (`TFPILOT_DESTROY_PROD_ALLOWED_USERS`) for additional protection against accidental prod resource destruction.
 - All request/chat data in S3; chat logs enforced SSE-S3.
 - S3 module supports `block_public_access` and `enable_lifecycle` toggles.
-- Audit export: Downloadable JSON audit logs for each request (request metadata, lifecycle events, workflow runs).
+- Audit export: Downloadable JSON audit logs for each request (request metadata, lifecycle events, run attempts from `request.runs`). Multiple destroy attempts preserved; completion derived from attempt records.
 
 ### AI Assistant Flow
 - **Schema-driven**: Assistant uses module registry schema to understand required/optional fields, types, defaults, and constraints.

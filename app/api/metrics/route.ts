@@ -2,6 +2,8 @@ import { NextResponse } from "next/server"
 
 import { getSessionFromCookies } from "@/lib/auth/session"
 import { deriveLifecycleStatus } from "@/lib/requests/deriveLifecycleStatus"
+import { getCurrentAttempt } from "@/lib/requests/runsModel"
+import type { RunsState } from "@/lib/requests/runsModel"
 import { listRequests } from "@/lib/storage/requestsStore"
 
 type MetricsResponse = {
@@ -39,9 +41,10 @@ export async function GET() {
     if (status === "failed") failureCount += 1
     if (status === "destroyed") destroyedCount += 1
 
-    if (req.applyTriggeredAt && req.appliedAt) {
-      const start = Date.parse(req.applyTriggeredAt)
-      const end = Date.parse(req.appliedAt)
+    const latestApply = getCurrentAttempt(req.runs as RunsState | undefined, "apply")
+    if (latestApply?.dispatchedAt && latestApply?.completedAt) {
+      const start = Date.parse(latestApply.dispatchedAt)
+      const end = Date.parse(latestApply.completedAt)
       if (!Number.isNaN(start) && !Number.isNaN(end) && end > start) {
         applyDurations.push(toSeconds(end - start))
       }

@@ -19,13 +19,13 @@ TfPilot is an AI-assisted Terraform self-service platform. Users create requests
 
 ## 2) End-to-end flow
 
-1. **Create** — POST `/api/requests`: persist to S3, branch `request/<requestId>`, open PR, dispatch plan. Run index written (runId → requestId).
-2. **Plan** — Workflow runs `terraform plan -lock=false`; webhook/sync patch `planRun` (or `github.workflows.plan`). Status derived → `planning` then `plan_ready`.
+1. **Create** — POST `/api/requests`: persist to S3, branch `request/<requestId>`, open PR, dispatch plan. Plan attempt always created (attempt 1, queued, headSha/ref/actor); run index written when runId is available.
+2. **Plan** — Workflow runs `terraform plan -lock=false`; webhook/sync patch the plan attempt (by runId or by head_sha if runId missing). Status derived → `planning` then `plan_ready`.
 3. **Approve** — User approves; POST approve writes `approval.approved` + approvers (facts only).
 4. **Merge** — PR merged; merge route sets `mergedSha`; webhook can patch `pr.merged`. Derived → `merged`.
-5. **Apply** — User triggers apply; dispatch apply workflow; run index written; webhook/sync patch `applyRun`. Derived → `applying` → `applied`.
-6. **Destroy** — User triggers destroy; cleanup workflow dispatched (fire-and-forget), destroy workflow dispatched; `destroyRun` + `destroyTriggeredAt` set. Cleanup PR strips TfPilot block; after destroy success, request archived to `history/`. Webhook on destroy success may trigger cleanup dispatch.
-7. **Facts stored:** `pr` / `github.pr`, `planRun` / `github.workflows.plan`, `applyRun` / `github.workflows.apply`, `destroyRun` / `github.workflows.destroy`, `approval`, `mergedSha`, `timeline`. **Status is never authoritative**; it is always derived by `deriveLifecycleStatus(request)`.
+5. **Apply** — User triggers apply; dispatch apply workflow; run index written; `request.runs.apply` gets new attempt; webhook/sync patch that attempt. Derived → `applying` → `applied`.
+6. **Destroy** — User triggers destroy; cleanup workflow dispatched (fire-and-forget), destroy workflow dispatched; `request.runs.destroy` gets new attempt. Cleanup PR strips TfPilot block; after destroy success, request archived to `history/`. Webhook on destroy success may trigger cleanup dispatch.
+7. **Facts stored:** `pr` / `github.pr`, `request.runs.{plan,apply,destroy}` (attempt-based), `approval`, `mergedSha`, `timeline`. **Status is never authoritative**; it is always derived by `deriveLifecycleStatus(request)` from current attempts only.
 
 ---
 
@@ -107,12 +107,24 @@ TfPilot is an AI-assisted Terraform self-service platform. Users create requests
   "targetFiles": [
     "envs/dev/tfpilot.s3.tf"
   ],
-  "planRun": {
-    "runId": 22456244688,
-    "status": "completed",
-    "conclusion": "success",
-    "headSha": "c02cef273d1a05b15dc52c354a3e1db53de23dc3",
-    "url": "https://github.com/giuseppe-moffa/core-terraform/actions/runs/22456244688"
+  "runs": {
+    "plan": {
+      "currentAttempt": 1,
+      "attempts": [
+        {
+          "attempt": 1,
+          "runId": 22456244688,
+          "url": "https://github.com/giuseppe-moffa/core-terraform/actions/runs/22456244688",
+          "status": "completed",
+          "conclusion": "success",
+          "dispatchedAt": "2026-02-26T18:45:10.000Z",
+          "completedAt": "2026-02-26T18:50:00.000Z",
+          "headSha": "c02cef273d1a05b15dc52c354a3e1db53de23dc3"
+        }
+      ]
+    },
+    "apply": { "currentAttempt": 0, "attempts": [] },
+    "destroy": { "currentAttempt": 0, "attempts": [] }
   },
   "assistant_state": {
     "last_suggestions_hash": null,
@@ -142,10 +154,10 @@ TfPilot is an AI-assisted Terraform self-service platform. Users create requests
 
 **Authoritative fields:**
 
-- **Workflow runs (facts are canonical):** Canonical workflow facts live under `github.workflows[kind]` (plan, apply, destroy, cleanup). Top-level `planRun`, `applyRun`, `destroyRun` are **legacy compatibility** fields and may be removed in a future version. Derivation prefers `request.github?.workflows?.[kind] ?? request.planRun` etc.
-- **TriggeredAt:** `github.destroyTriggeredAt` (and similar for other kinds in dispatch code) — used for stale destroy (15 min timeout).
+- **Run execution:** All workflow execution state lives under `request.runs.{plan,apply,destroy}`. Each has `currentAttempt` and `attempts: AttemptRecord[]`. Current attempt = `attempts.find(a => a.attempt === currentAttempt)`. Helpers: `getCurrentAttemptStrict(request.runs, "plan"|"apply"|"destroy")` in **lib/requests/runsModel.ts**. Attempts may have optional runId/url (e.g. plan at dispatch); webhook/sync can attach runId by head_sha. Sync **always** fetches and patches when current attempt has runId and status queued/in_progress. No legacy run state.
+- **Stale destroy:** If the current destroy attempt has no conclusion for >15 min after `dispatchedAt`, `isDestroyRunStale(request)` is true and derivation returns `failed`.
 - **PR + merge:** `pr` or `github.pr` (number, url, merged, headSha, open). `mergedSha` set by merge route when GitHub merge succeeds.
-- **Status:** Not authoritative. UI/API use `deriveLifecycleStatus(request)`. Stored `status` is legacy/informational; `statusDerivedAt` may exist but derivation ignores it.
+- **Status:** Not authoritative. UI/API use `deriveLifecycleStatus(request)`. Derivation reads current attempts only.
 - **Timeline:** Array of steps (e.g. "Cleanup PR opened"); sync appends when cleanup PR discovered.
 
 ---
@@ -155,40 +167,17 @@ TfPilot is an AI-assisted Terraform self-service platform. Users create requests
 ### Status derivation — `lib/requests/deriveLifecycleStatus.ts`
 
 - **Purpose:** Single entrypoint; status = pure function of request facts.
-- **Key:** `deriveLifecycleStatus(request)`; reads `github?.pr ?? pr`, `github?.workflows?.plan ?? planRun`, same for apply/destroy, `approval`, `mergedSha`.
-- **Priority (abridged):** destroy failed → failed; destroy success → destroyed; destroy in progress (and not stale) → destroying; destroy stale (>15 min no conclusion) → failed; apply failed → failed; plan failed → failed; apply running → applying; apply success → applied; pr.merged or mergedSha → merged; approval → approved; plan success → plan_ready; plan running / pr.open → planning; else request_created.
+- **Key:** `deriveLifecycleStatus(request)`; reads `github?.pr ?? pr`, **current attempts** via `getCurrentAttemptStrict(request.runs, "plan"|"apply"|"destroy")`, `approval`, `mergedSha`.
+- **Priority (abridged):** destroy current attempt failed → failed; destroy success → destroyed; destroy in progress (and not stale) → destroying; destroy stale (>15 min after current attempt’s dispatchedAt, no conclusion) → failed; apply failed → failed; plan failed → failed; apply running → applying; apply success → applied; pr.merged or mergedSha → merged; approval → approved; plan success → plan_ready; plan running / pr.open → planning; else request_created.
 - **Exports:** `DESTROY_STALE_MINUTES = 15`, `isDestroyRunFailed(request)`, `isDestroyRunStale(request)`.
 - **Used:** Sync response, list derivation, UI `deriveLifecycleStatus(request)`, metrics.
 
-```ts
-// Priority tail (excerpt)
-if (pr?.merged) return "merged"
-if (request.mergedSha) return "merged"
-if (approval?.approved) return "approved"
-if (planRun?.conclusion === "success") return "plan_ready"
-if (planRun?.status === "in_progress" || planRun?.status === "queued") return "planning"
-if (pr?.open) return "planning"
-return "request_created"
-```
+### Workflow run patching (attempts only) — `lib/requests/patchRequestFacts.ts`
 
-### Workflow run patching + runId guard + idempotency — `lib/requests/patchRequestFacts.ts`
-
-- **Purpose:** Patch request from webhook payloads; facts only (github, approval, updatedAt). Never remove existing workflow facts.
-- **runId guard:** `patchWorkflowRun` only applies when `workflow_run.id === trackedRunId` (tracked = `github.workflows[kind].runId` or legacy `planRun`/`applyRun`/`destroyRun.runId`). If runId differs, returns no-op patch so no cross-request pollution.
-- **Idempotency:** If `existing.status === runFact.status && existing.conclusion === runFact.conclusion && existing.runId === runFact.runId`, returns `{}`. Caller does `next === current` → no S3 write → no SSE.
-- **Monotonic:** Never overwrite concluded run with null conclusion; never overwrite completed with in_progress/queued; never overwrite with older `updated_at` when existing is active.
-
-```ts
-// runId guard (excerpt)
-const trackedRunId = cur.github?.workflows?.[kind]?.runId ?? (kind === "plan" ? cur.planRun?.runId : ...)
-if (run?.id != null && trackedRunId != null && trackedRunId !== run.id) {
-  return { github: { ...current.github, workflows: { ...current.github?.workflows } }, updatedAt }
-}
-// Idempotency
-if (existing?.status === runFact.status && existing?.conclusion === runFact.conclusion && existing?.runId === runFact.runId) {
-  return {}
-}
-```
+- **Purpose:** For `workflow_run` webhooks, patch only the **attempt record** in `request.runs[kind]` that matches `workflow_run.id` (`patchRunsAttemptByRunId`). No other run state is written.
+- **Match:** The attempt with `runId === workflow_run.id` is updated (status, conclusion, completedAt, headSha). If no match by runId but an attempt exists with matching head_sha and no runId, runId/url are attached then status/conclusion patched. If no match, no-op; DEBUG_WEBHOOKS=1 logs noop_reason.
+- **Monotonic (in lib/requests/runsModel.ts `patchAttemptByRunId`):** Never overwrite completed with in_progress/queued; never clear conclusion. Duplicate status/conclusion returns null (no S3 write).
+- **Idempotency:** Empty patch → no S3 write → no SSE.
 
 ### Workflow classification — `lib/github/workflowClassification.ts`
 
@@ -211,11 +200,11 @@ return null
 - **Purpose:** O(1) S3 lookup runId → requestId for webhook correlation.
 - **Key:** `webhooks/github/run-index/<kind>/run-<runId>.json`. Value: `{ kind, runId, requestId, createdAt, expiresAt }`. `expiresAt` = createdAt + 90 days (metadata only unless S3 lifecycle rule).
 - **Functions:** `putRunIndex(kind, runId, requestId)`, `getRequestIdByRunId(kind, runId)`.
-- **Used:** Webhook workflow_run (index first); dispatch routes via `persistWorkflowDispatch.ts`.
+- **Used:** Webhook workflow_run (index first); dispatch routes append attempt via `persistDispatchAttempt` (lib/requests/runsModel.ts) and write run index via `putRunIndex` when runId is available (see **RUN_INDEX.md**).
 
 ### Webhook handler — `app/api/github/webhook/route.ts`
 
-- **Flow:** Verify signature → delivery idempotency (`hasDelivery`) → parse event. For `workflow_run`: classify kind → resolve requestId (see order below) → if no requestId, record delivery, return 200. Then `updateRequest(..., current => patchWorkflowRun(...)); if (saved) appendStreamEvent(...).`
+- **Flow:** Verify signature → delivery idempotency (`hasDelivery`) → parse event. For `workflow_run`: classify kind → resolve requestId (see order below) → if no requestId, record delivery, return 200. Then `updateRequest(..., current => patchRunsAttemptByRunId(current, kind, payload)); if (saved) appendStreamEvent(...).`
 - **Resolution order for workflow_run:**
   1. `getRequestIdByRunId(kind, runId)` — S3 run index, O(1).
   2. Destroy-only fallback: `getRequestIdByDestroyRunId(runId)` — legacy list-based lookup.
@@ -231,8 +220,8 @@ if (kind != null && wr?.id != null) {
   ...
 }
 const [, saved] = await updateRequest(correlated.requestId, (current) => {
-  const patch = patchWorkflowRun(current, kind, payload)
-  return Object.keys(patch).length === 0 ? current : { ...current, ...patch }
+  const next = patchRunsAttemptByRunId(current, kind, payload)
+  return next === current ? current : next
 })
 if (saved) await appendStreamEvent(...)
 ```
@@ -240,7 +229,7 @@ if (saved) await appendStreamEvent(...)
 ### Requests store — `lib/storage/requestsStore.ts`
 
 - **Purpose:** S3 CRUD for request JSON; optimistic locking via `version`.
-- **Critical:** `updateRequest(requestId, mutate)` returns `[request, saved]`. If `mutate(current) === current` (same reference), **no write**, `saved === false`. So idempotent patch (empty object from `patchWorkflowRun`) → no S3 write → no SSE.
+- **Critical:** `updateRequest(requestId, mutate)` returns `[request, saved]`. If `mutate(current) === current` (same reference), **no write**, `saved === false`. So idempotent patch (unchanged request from `patchRunsAttemptByRunId`) → no S3 write → no SSE.
 - **Paths:** `requests/<requestId>.json`, `history/<requestId>.json` (archive).
 
 ```ts
@@ -1078,8 +1067,8 @@ jobs:
 
 ## 6) Operational invariants (hard rules)
 
-- **RunId guard:** Never patch a request from a `workflow_run` unless `workflow_run.id` matches the request’s tracked runId for that kind (enforced in `patchWorkflowRun`).
-- **Monotonic workflow facts:** Once a run reaches `status: completed` or has a non-null `conclusion`, it can never regress to `in_progress` or `queued`, and a concluded run can never be overwritten by an event with `conclusion: null`. Enforced in `patchWorkflowRun`. Protects against out-of-order webhook delivery.
+- **RunId guard:** Only patch the attempt in `request.runs[kind]` whose `runId === workflow_run.id` (enforced in `patchRunsAttemptByRunId` / `patchAttemptByRunId`).
+- **Monotonic attempt state:** Once an attempt reaches `status: completed` or has a non-null `conclusion`, it never regresses; a concluded attempt is never overwritten by an event with `conclusion: null`. Enforced in runs model. Protects against out-of-order webhook delivery.
 - **Run index TTL:** `expiresAt` is metadata only; S3 does not auto-delete until a lifecycle rule is added on prefix `webhooks/github/run-index/`.
 - **SSE only on write:** SSE events are emitted only when a request document was actually written (saved === true); idempotent no-op patch → no write → no SSE.
 - **Apply/Destroy serialized per env:** Concurrency group is `*-state-${{ inputs.environment }}` to avoid DynamoDB state lock collisions; do not run concurrent apply or destroy in the same env.
@@ -1092,9 +1081,9 @@ jobs:
 | Failure | Mitigation |
 |--------|------------|
 | **State lock errors** when multiple apply/destroy in same env | Concurrency group forces serialization per env; document in runbook that only one apply/destroy per env at a time. |
-| **Stale/incorrect "destroying"** (no conclusion or wrong correlation) | `destroyTriggeredAt` + 15 min → derive "failed"; `isDestroyRunStale(request)`; UI shows Repair. Sync with `?repair=1` refreshes run. Run index + runId guard avoid wrong request. |
-| **Duplicate webhook deliveries** causing write spam | Delivery idempotency (`hasDelivery`); `patchWorkflowRun` returns `{}` when status/conclusion/runId unchanged → `updateRequest` gets same ref → no write. |
-| **Cross-request patching** when branch shared | runId guard: patch applied only if `workflow_run.id === trackedRunId`. Run index gives correct requestId for the run that was dispatched. |
+| **Stale/incorrect "destroying"** (no conclusion or wrong correlation) | Current destroy attempt’s `dispatchedAt` + 15 min → derive "failed"; `isDestroyRunStale(request)`; UI shows Repair. Sync with `?repair=1` refreshes that attempt. Run index + runId guard avoid wrong request. |
+| **Duplicate webhook deliveries** causing write spam | Delivery idempotency (`hasDelivery`); `patchRunsAttemptByRunId` returns same request when attempt state unchanged → `updateRequest` gets same ref → no write. |
+| **Cross-request patching** when branch shared | RunId guard: patch applied only to the attempt whose `runId === workflow_run.id`. Run index gives correct requestId for the run that was dispatched. |
 
 ---
 

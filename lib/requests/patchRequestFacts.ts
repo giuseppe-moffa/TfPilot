@@ -1,10 +1,11 @@
 /**
  * Patch request document with GitHub webhook payloads.
- * Patches are shaped so only specific keys are updated (github, approval, updatedAt).
- * Never removes existing workflow facts (planRun, applyRun, destroyRun).
+ * Patches are shaped so only specific keys are updated (github, approval, updatedAt, runs).
+ * Run state is stored only in request.runs (attempts); webhook updates attempts via patchRunsAttemptByRunId.
  */
 
 import type { WorkflowKind } from "@/lib/github/workflowClassification"
+import { ensureRuns, patchAttemptByRunId, patchAttemptRunId, type RunKind, type RunsState } from "@/lib/requests/runsModel"
 
 function nowIso(): string {
   return new Date().toISOString()
@@ -28,20 +29,6 @@ type GithubPrShape = {
   open?: boolean
 }
 
-/** Normalized run fact stored under github.workflows[kind]. */
-export type RunFact = {
-  runId?: number
-  status?: string
-  conclusion?: string
-  headSha?: string
-  createdAt?: string
-  updatedAt?: string
-  htmlUrl?: string
-  attempt?: number
-  /** Optional: e.g. display_title from webhook when run is cancelled (for concurrency tooltip). */
-  message?: string
-}
-
 /** Cleanup dispatch state (retry-safe). */
 export type CleanupDispatchStatus = "pending" | "dispatched" | "error"
 
@@ -55,7 +42,6 @@ export type CleanupDispatchState = {
 type CurrentRequest = {
   github?: {
     pr?: GithubPrShape
-    workflows?: Partial<Record<WorkflowKind, RunFact>>
     cleanupTriggeredForDestroyRunId?: number
     cleanupDispatchStatus?: CleanupDispatchStatus
     cleanupDispatchLastError?: string
@@ -165,125 +151,105 @@ export type WorkflowRunWebhookPayload = {
     head_sha?: string
     created_at?: string
     updated_at?: string
+    completed_at?: string
     html_url?: string
     run_attempt?: number
   }
 }
 
-/** Partial request update: github.workflows[kind] + updatedAt. Merge as-is. Empty object = no-op (idempotent). */
-export type PatchWorkflowRunResult =
-  | { github: { workflows: Partial<Record<WorkflowKind, RunFact>> }; updatedAt: string }
-  | Record<string, never>
+const RUN_KINDS: RunKind[] = ["plan", "apply", "destroy"]
 
-function parseIso(iso: string | undefined): number {
-  if (!iso) return 0
-  const t = new Date(iso).getTime()
-  return isNaN(t) ? 0 : t
+/** No-op reasons for DEBUG-only logging when patch returns {}. */
+export const PATCH_NOOP_REASONS = {
+  kind_not_handled: "kind not in plan/apply/destroy",
+  no_run_id: "workflow_run.id missing",
+  no_attempt_by_run_id: "no attempt matched by runId",
+  no_pending_attempt_by_head_sha: "no attempt with matching head_sha and missing runId",
+  patch_no_change: "attempt found but patch would not change state (monotonic or identical)",
+} as const
+
+function logNoopReason(
+  kind: WorkflowKind,
+  runId: number | undefined,
+  requestId: string | undefined,
+  head_sha: string | undefined,
+  reason: keyof typeof PATCH_NOOP_REASONS
+): void {
+  if (process.env.DEBUG_WEBHOOKS !== "1") return
+  console.log("event=webhook.patch.noop_reason", {
+    kind,
+    runId: runId ?? null,
+    requestId: requestId ?? null,
+    head_sha: head_sha ?? null,
+    reason: PATCH_NOOP_REASONS[reason],
+  })
 }
 
+/** Partial request update: runs (attempt record matched by runId) + updatedAt. Empty object = no-op. */
+export type PatchRunsAttemptResult =
+  | { runs: RunsState; updatedAt: string }
+  | Record<string, never>
+
 /**
- * Returns a partial update with github.workflows[kind] set from payload.
- * Monotonic guards (no regression from out-of-order webhooks):
- * - If existing.conclusion != null: ignore incoming event where conclusion == null.
- * - If existing.status === "completed": ignore incoming status in_progress or queued.
- * - If existing in_progress/queued and incoming is older (by updated_at): keep existing.
- * Always allowed: null → in_progress, null → completed, in_progress → completed.
+ * Patch the attempt record in request.runs[kind].attempts that matches workflow_run.id.
+ * If no attempt matches by runId (e.g. attempt was created without runId at dispatch), try to attach runId
+ * to the current attempt that has matching head_sha and no runId, then patch status/conclusion.
  */
-export function patchWorkflowRun(
-  current: CurrentRequest,
+export function patchRunsAttemptByRunId(
+  current: CurrentRequest & { runs?: RunsState; id?: string },
   kind: WorkflowKind,
   payload: WorkflowRunWebhookPayload
-): PatchWorkflowRunResult {
+): PatchRunsAttemptResult {
   const run = payload?.workflow_run
-  const updatedAt = nowIso()
-  const existing = current.github?.workflows?.[kind]
+  const requestId = current.id
 
-  // Only write onto the request when runId matches tracked run (prevents cross-request pollution for all kinds)
-  const cur = current as {
-    github?: { workflows?: Partial<Record<WorkflowKind, RunFact>> }
-    planRun?: { runId?: number }
-    applyRun?: { runId?: number }
-    destroyRun?: { runId?: number }
-  }
-  const trackedRunId =
-    cur.github?.workflows?.[kind]?.runId ??
-    (kind === "plan" ? cur.planRun?.runId : kind === "apply" ? cur.applyRun?.runId : kind === "destroy" ? cur.destroyRun?.runId : undefined)
-  if (run?.id != null && trackedRunId != null && trackedRunId !== run.id) {
-    return {
-      github: { ...current.github, workflows: { ...current.github?.workflows } },
-      updatedAt,
-    }
-  }
-
-  const runFact: RunFact = {
-    runId: run?.id ?? existing?.runId,
-    status: run?.status ?? existing?.status,
-    conclusion: run?.conclusion ?? existing?.conclusion ?? undefined,
-    headSha: run?.head_sha ?? existing?.headSha,
-    createdAt: run?.created_at ?? existing?.createdAt,
-    updatedAt: run?.updated_at ?? existing?.updatedAt,
-    htmlUrl: run?.html_url ?? existing?.htmlUrl,
-    attempt: run?.run_attempt ?? existing?.attempt,
-    message: run?.display_title ?? (existing as RunFact)?.message,
-  }
-
-  const incomingActive =
-    runFact.status === "in_progress" || runFact.status === "queued"
-
-  // Monotonic: never overwrite a concluded run with an event that has no conclusion (out-of-order)
-  if (existing?.conclusion != null && run?.conclusion == null) {
-    return {
-      github: { ...current.github, workflows: { ...current.github?.workflows } },
-      updatedAt,
-    }
-  }
-
-  // Monotonic: never overwrite completed with in_progress or queued (out-of-order webhook)
-  if (existing?.status === "completed" && incomingActive) {
-    return {
-      github: { ...current.github, workflows: { ...current.github?.workflows } },
-      updatedAt,
-    }
-  }
-
-  const incomingUpdated = parseIso(run?.updated_at)
-  const existingUpdated = parseIso(existing?.updatedAt)
-  const existingActive =
-    existing?.status === "in_progress" || existing?.status === "queued"
-  const existingCompleted = existing?.status === "completed"
-  const sameRunId = existing?.runId != null && run?.id != null && existing.runId === run.id
-
-  if (
-    existingActive &&
-    !incomingActive &&
-    incomingUpdated > 0 &&
-    existingUpdated > 0 &&
-    incomingUpdated < existingUpdated
-  ) {
-    return {
-      github: { ...current.github, workflows: { ...current.github?.workflows } },
-      updatedAt,
-    }
-  }
-  if (existingCompleted && incomingActive && sameRunId) {
-    return {
-      github: { ...current.github, workflows: { ...current.github?.workflows } },
-      updatedAt,
-    }
-  }
-
-  // Idempotency: skip write when status, conclusion, runId already match (duplicate webhook delivery)
-  if (
-    existing?.status === runFact.status &&
-    existing?.conclusion === runFact.conclusion &&
-    existing?.runId === runFact.runId
-  ) {
+  if (!RUN_KINDS.includes(kind as RunKind)) {
+    logNoopReason(kind, run?.id, requestId, run?.head_sha, "kind_not_handled")
     return {}
   }
-
-  const workflows = { ...current.github?.workflows, [kind]: runFact }
-  return {
-    github: { ...current.github, workflows },
-    updatedAt,
+  if (run?.id == null) {
+    logNoopReason(kind, undefined, requestId, run?.head_sha, "no_run_id")
+    return {}
   }
+  ensureRuns(current as Record<string, unknown>)
+  let runs = current.runs as RunsState
+  let updated = patchAttemptByRunId(runs, kind as RunKind, run.id, {
+    status: run.status,
+    conclusion: run.conclusion ?? undefined,
+    completed_at: run.completed_at,
+    head_sha: run.head_sha,
+  })
+  if (!updated && run.head_sha) {
+    const op = runs[kind as RunKind]
+    const pendingAttempt = op?.attempts?.find(
+      (a) => a.runId == null && a.headSha === run.head_sha
+    )
+    if (pendingAttempt) {
+      const withRunId = patchAttemptRunId(runs, kind as RunKind, pendingAttempt.attempt, {
+        runId: run.id,
+        url: run.html_url,
+      })
+      if (withRunId) {
+        runs = withRunId
+        updated = patchAttemptByRunId(runs, kind as RunKind, run.id, {
+          status: run.status,
+          conclusion: run.conclusion ?? undefined,
+          completed_at: run.completed_at,
+          head_sha: run.head_sha,
+        })
+      }
+    }
+  }
+  if (!updated) {
+    const op = runs[kind as RunKind]
+    const byRunId = op?.attempts?.some((a) => a.runId === run.id)
+    const reason = byRunId
+      ? "patch_no_change"
+      : run.head_sha
+        ? "no_pending_attempt_by_head_sha"
+        : "no_attempt_by_run_id"
+    logNoopReason(kind, run.id, requestId, run.head_sha, reason)
+    return {}
+  }
+  return { runs: updated, updatedAt: nowIso() }
 }

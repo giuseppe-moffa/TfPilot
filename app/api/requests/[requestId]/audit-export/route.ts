@@ -1,54 +1,25 @@
 import { NextRequest, NextResponse } from "next/server"
-import { GetObjectCommand, ListObjectsV2Command, S3Client } from "@aws-sdk/client-s3"
+import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3"
 
 import { getSessionFromCookies } from "@/lib/auth/session"
 import { env } from "@/lib/config/env"
+import { fetchLifecycleEvents } from "@/lib/logs/lifecycle"
 import { deriveLifecycleStatus } from "@/lib/requests/deriveLifecycleStatus"
+import { getCurrentAttemptStrict, type AttemptRecord, type RunsState } from "@/lib/requests/runsModel"
 import { getRequest } from "@/lib/storage/requestsStore"
 
 const s3 = new S3Client({ region: env.TFPILOT_DEFAULT_REGION })
 const BUCKET = env.TFPILOT_REQUESTS_BUCKET
 const HISTORY_PREFIX = "history/"
 
-async function streamToString(stream: any): Promise<string> {
-  return await new Promise((resolve, reject) => {
+async function streamToString(stream: unknown): Promise<string> {
+  if (!stream || typeof (stream as NodeJS.ReadableStream).on !== "function") return ""
+  return new Promise((resolve, reject) => {
     const chunks: Buffer[] = []
-    stream.on("data", (chunk: Buffer) => chunks.push(chunk))
-    stream.on("error", reject)
-    stream.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")))
+    ;(stream as NodeJS.ReadableStream).on("data", (chunk: Buffer) => chunks.push(chunk))
+    ;(stream as NodeJS.ReadableStream).on("error", reject)
+    ;(stream as NodeJS.ReadableStream).on("end", () => resolve(Buffer.concat(chunks).toString("utf8")))
   })
-}
-
-async function fetchLifecycleEvents(requestId: string) {
-  const prefix = `logs/${requestId}/`
-  try {
-    const listed = await s3.send(
-      new ListObjectsV2Command({
-        Bucket: BUCKET,
-        Prefix: prefix,
-        MaxKeys: 100,
-      })
-    )
-    const contents = (listed.Contents ?? []).sort(
-      (a, b) => (a.LastModified?.getTime() || 0) - (b.LastModified?.getTime() || 0)
-    )
-
-    const events = []
-    for (const obj of contents) {
-      if (!obj.Key) continue
-      const res = await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: obj.Key }))
-      const text = await streamToString(res.Body as any)
-      try {
-        events.push(JSON.parse(text))
-      } catch {
-        events.push({ raw: text })
-      }
-    }
-    return events
-  } catch (error) {
-    console.error("[api/requests/audit-export] failed to fetch lifecycle events", error)
-    return []
-  }
 }
 
 async function fetchRequestFromHistory(requestId: string) {
@@ -87,8 +58,31 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ req
       return NextResponse.json({ error: "Request not found" }, { status: 404 })
     }
 
-    // Fetch lifecycle events
-    const lifecycleEvents = await fetchLifecycleEvents(requestId)
+    // Fetch lifecycle events and sort ascending by timestamp
+    const lifecycleEventsRaw = await fetchLifecycleEvents(requestId)
+    const lifecycleEvents = [...lifecycleEventsRaw].sort(
+      (a, b) =>
+        new Date((a as { timestamp?: string }).timestamp ?? 0).getTime() -
+        new Date((b as { timestamp?: string }).timestamp ?? 0).getTime()
+    )
+
+    const runs = request.runs as RunsState | undefined
+
+    /** Serialize attempt for export (only include optional fields when present). */
+    function toAttemptExport(a: AttemptRecord) {
+      const out: Record<string, unknown> = {
+        attempt: a.attempt,
+        runId: a.runId,
+        url: a.url,
+        status: a.status,
+        conclusion: a.conclusion ?? undefined,
+        dispatchedAt: a.dispatchedAt,
+        completedAt: a.completedAt,
+      }
+      if (a.headSha != null) out.headSha = a.headSha
+      if (a.actor != null) out.actor = a.actor
+      return out
+    }
 
     // Build audit export payload
     const auditExport = {
@@ -106,30 +100,40 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ req
         revision: request.revision,
       },
       lifecycleEvents,
-      workflowRuns: {
-        planRun: request.planRun
-          ? {
-              runId: request.planRun.runId,
-              url: request.planRun.url,
-              status: request.planRun.status,
-              conclusion: request.planRun.conclusion,
-              headSha: request.planRun.headSha,
-            }
-          : null,
-        applyRun: request.applyRun
-          ? {
-              runId: request.applyRun.runId,
-              url: request.applyRun.url,
-              status: request.applyRun.status,
-              conclusion: request.applyRun.conclusion,
-            }
-          : null,
-        destroyRun: request.destroyRun
-          ? {
-              runId: request.destroyRun.runId,
-              url: request.destroyRun.url,
-            }
-          : null,
+      workflowRuns: (() => {
+        const planAttempt = getCurrentAttemptStrict(runs, "plan")
+        const applyAttempt = getCurrentAttemptStrict(runs, "apply")
+        const destroyAttempt = getCurrentAttemptStrict(runs, "destroy")
+        return {
+          plan: planAttempt
+            ? {
+                runId: planAttempt.runId,
+                url: planAttempt.url,
+                status: planAttempt.status,
+                conclusion: planAttempt.conclusion,
+                headSha: planAttempt.headSha,
+              }
+            : null,
+          apply: applyAttempt
+            ? {
+                runId: applyAttempt.runId,
+                url: applyAttempt.url,
+                status: applyAttempt.status,
+                conclusion: applyAttempt.conclusion,
+              }
+            : null,
+          destroy: destroyAttempt
+            ? {
+                runId: destroyAttempt.runId,
+                url: destroyAttempt.url,
+              }
+            : null,
+        }
+      })(),
+      workflowAttempts: {
+        plan: (runs?.plan?.attempts ?? []).map(toAttemptExport),
+        apply: (runs?.apply?.attempts ?? []).map(toAttemptExport),
+        destroy: (runs?.destroy?.attempts ?? []).map(toAttemptExport),
       },
       exportedAt: new Date().toISOString(),
     }

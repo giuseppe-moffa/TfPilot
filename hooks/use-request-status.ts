@@ -165,7 +165,7 @@ export function useRequestStatus(requestId?: string, initial?: RequestLike) {
     })
   }
 
-  /** Patch current and next (nonce+1) SWR keys so after forceSync() the UI keeps showing the patched request (e.g. applyRun/lock). */
+  /** Patch current and next (nonce+1) SWR keys so after forceSync() the UI keeps showing the patched request (e.g. runs/lock). */
   async function patchCurrentAndNextKey(patched: RequestLike): Promise<void> {
     if (!patched || !requestId) return
     if (!globalMutateRef.current) {

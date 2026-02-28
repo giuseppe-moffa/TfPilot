@@ -62,6 +62,7 @@ type RequestRow = {
 
 type DisplayStatus = "submitted" | "planned" | "approved" | "merged" | "applied" | "destroyed"
 
+/** Status in list is derived server-side from currentAttempt only (deriveLifecycleStatus). Active/Failed/Destroyed reflect current attempt only. */
 function computeStatus(row: RequestRow): {
   step: DisplayStatus
   state: "completed" | "pending"

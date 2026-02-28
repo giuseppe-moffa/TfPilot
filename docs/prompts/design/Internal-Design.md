@@ -12,11 +12,11 @@ TfPilot is an AI-assisted Terraform self-service platform. **AI collects inputs;
 4. **Apply** — User triggers apply; workflow runs; run index + webhook/sync update apply run. Status → applying → applied (or failed).
 5. **Destroy** (optional) — Cleanup workflow strips tfpilot blocks; destroy workflow runs. Request archived to `history/` on success.
 
-**Status is derived only** (single entrypoint: `deriveLifecycleStatus`). Stored fields are facts (e.g. `github.workflows.plan|apply|destroy`, `pr`, `approval`). Webhooks and sync patch facts; they do not write status.
+**Status is derived only** (single entrypoint: `deriveLifecycleStatus`). Run state is stored in `request.runs.{plan,apply,destroy}` (attempt-based); webhooks and sync patch attempt records by runId. Webhooks and sync patch facts only; they do not write status.
 
 ## Sync and webhooks
 
-- **Webhook-first:** GitHub sends pull_request, pull_request_review, workflow_run to `/api/github/webhook`. Handler correlates (run index first, then fallbacks), patches request via `patchRequestFacts`, appends to SSE stream. RunId guard: only patch when workflow_run.id matches tracked run.
+- **Webhook-first:** GitHub sends pull_request, pull_request_review, workflow_run to `/api/github/webhook`. Handler correlates (run index first, then fallbacks), patches request via `patchRequestFacts` (PR/approval) or `patchRunsAttemptByRunId` (workflow_run → attempt record), appends to SSE stream.
 - **Run index:** S3 `webhooks/github/run-index/<kind>/run-<runId>.json` for O(1) runId→requestId. Written on plan/apply/destroy dispatch.
 - **Sync/repair:** GET `/api/requests/:id/sync` (optional `?repair=1`) fetches from GitHub when `needsRepair(request)` or forced; patches facts. No optimistic status.
 - **SSE:** Server pushes events when a request doc is written; UI subscribes and revalidates SWR. Polling is fallback (see docs/POLLING.md).
@@ -30,7 +30,7 @@ TfPilot is an AI-assisted Terraform self-service platform. **AI collects inputs;
 ## Storage and invariants
 
 - **S3:** Requests `requests/<id>.json`; history `history/<id>.json`; run index; stream state; lifecycle logs.
-- **Invariants:** RunId guard; monotonic workflow facts (no regression of concluded runs); status derived; SSE only on write; apply/destroy serialized per env.
+- **Invariants:** Only patch attempt matching runId; monotonic attempt updates (no regression of concluded attempts); status derived; SSE only on write; apply/destroy serialized per env.
 
 ## Security and RBAC
 

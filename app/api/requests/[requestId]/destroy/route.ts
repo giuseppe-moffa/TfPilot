@@ -12,7 +12,8 @@ import { getUserRole } from "@/lib/auth/roles"
 import { getIdempotencyKey, assertIdempotentOrRecord, ConflictError } from "@/lib/requests/idempotency"
 import { acquireLock, releaseLock, LockConflictError, type RequestDocWithLock } from "@/lib/requests/lock"
 import { getEnvTargetFile, getModuleType } from "@/lib/infra/moduleType"
-import { buildWorkflowDispatchPatch } from "@/lib/requests/persistWorkflowDispatch"
+import { getCurrentAttemptStrict, persistDispatchAttempt } from "@/lib/requests/runsModel"
+import type { RunsState } from "@/lib/requests/runsModel"
 import { putRunIndex } from "@/lib/requests/runIndex"
 import { resolveDestroyRunId } from "@/lib/requests/resolveDestroyRunId"
 
@@ -59,10 +60,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
       })
       if (idem.ok === false && idem.mode === "replay") {
         logInfo("idempotency.replay", { ...correlation, requestId: request.id, operation: "destroy" })
+        const destroyAttempt = getCurrentAttemptStrict(request.runs as RunsState | undefined, "destroy")
         return NextResponse.json({
           ok: true,
-          destroyRunId: (request as { destroyRun?: { runId?: number } }).destroyRun?.runId,
-          destroyRunUrl: (request as { destroyRun?: { url?: string } }).destroyRun?.url,
+          runId: destroyAttempt?.runId,
+          url: destroyAttempt?.url,
           request,
         })
       }
@@ -179,11 +181,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
       route: "requests/[requestId]/destroy",
     })
 
+    const planAttempt = getCurrentAttemptStrict(request.runs as RunsState | undefined, "plan")
     const candidateShas = new Set(
       [
         request.mergedSha,
         request.commitSha,
-        (request as { planRun?: { headSha?: string } }).planRun?.headSha,
+        planAttempt?.headSha,
         (request as { pr?: { headSha?: string } }).pr?.headSha,
       ].filter(Boolean) as string[]
     )
@@ -191,8 +194,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
 
     const RESOLVE_ATTEMPTS = 12
     const BACKOFF_MS = [500, 500, 1000, 1000, 1500, 1500, 2000, 2000, 2000, 2000, 2000, 2000]
-    let destroyRunId: number | undefined
-    let destroyRunUrl: string | undefined
+    let runIdDestroy: number | undefined
+    let urlDestroy: string | undefined
 
     for (let attempt = 0; attempt < RESOLVE_ATTEMPTS; attempt++) {
       if (attempt > 0) {
@@ -212,8 +215,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
           logContext: { route: "requests/[requestId]/destroy", correlationId: correlation.correlationId ?? request.id },
         })
         if (result) {
-          destroyRunId = result.runId
-          destroyRunUrl = result.url
+          runIdDestroy = result.runId
+          urlDestroy = result.url
           break
         }
       } catch (err) {
@@ -223,45 +226,32 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
       }
     }
 
-    if (destroyRunId != null) {
+    if (runIdDestroy != null) {
       try {
-        await putRunIndex("destroy", destroyRunId, request.id)
+        await putRunIndex("destroy", runIdDestroy, request.id)
       } catch (err) {
-        logWarn("destroy.run_index_write_failed", { ...correlation, requestId: request.id, runId: destroyRunId, err: String(err) })
+        logWarn("destroy.run_index_write_failed", { ...correlation, requestId: request.id, runId: runIdDestroy, err: String(err) })
       }
     }
 
     const nowIso = new Date().toISOString()
-    const dispatchTimeIso = dispatchTime.toISOString()
 
     const [updated] = await updateRequest(request.id, (current) => {
-      const cur = current as { github?: Record<string, unknown>; destroyRun?: { runId?: number; url?: string; status?: string }; cleanupPr?: unknown }
-      const runId = destroyRunId ?? cur.destroyRun?.runId
-      const runUrl = destroyRunUrl ?? cur.destroyRun?.url
-      const patch =
-        runId != null
-          ? buildWorkflowDispatchPatch(current as Record<string, unknown>, "destroy", runId, runUrl)
+      const destroyAttempt = getCurrentAttemptStrict(current.runs as RunsState | undefined, "destroy")
+      const runId = runIdDestroy ?? destroyAttempt?.runId
+      const runUrl = urlDestroy ?? destroyAttempt?.url ?? ""
+      const runsPatch =
+        runId != null && runUrl
+          ? persistDispatchAttempt(current as Record<string, unknown>, "destroy", { runId, url: runUrl })
           : {}
-      const patchGithub = (patch as { github?: Record<string, unknown> }).github ?? {}
+      const cur = current as { cleanupPr?: unknown; github?: Record<string, unknown> }
       return {
         ...current,
         ...(idemPatch ?? {}),
-        ...patch,
+        ...runsPatch,
         statusDerivedAt: nowIso,
-        github: {
-          ...cur.github,
-          ...patchGithub,
-          destroyTriggeredAt: dispatchTimeIso,
-          workflows: {
-            ...(cur.github?.workflows ?? {}),
-            ...(patchGithub.workflows ?? {}),
-            ...(runId != null ? { destroy: { runId, url: runUrl ?? cur.destroyRun?.url, status: "in_progress" } } : {}),
-          },
-        },
-        destroyRun:
-          runId != null ? { runId, url: runUrl ?? cur.destroyRun?.url, status: "in_progress" as const } : { ...cur.destroyRun },
         cleanupPr: cur.cleanupPr ?? { status: "pending" },
-        updatedAt: nowIso,
+        updatedAt: (runsPatch as { updatedAt?: string })?.updatedAt ?? nowIso,
       }
     })
     const releasePatch = releaseLock(updated as RequestDocWithLock, holder)
@@ -275,8 +265,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
       actor: session.login,
       source: "api/requests/[requestId]/destroy",
       data: {
-        destroyRunId: destroyRunId ?? request.destroyRun?.runId,
-        destroyRunUrl: destroyRunUrl ?? request.destroyRun?.url,
+        runId: runIdDestroy ?? getCurrentAttemptStrict(updated.runs as RunsState | undefined, "destroy")?.runId,
+        url: urlDestroy ?? getCurrentAttemptStrict(updated.runs as RunsState | undefined, "destroy")?.url,
         targetRepo: `${request.targetOwner}/${request.targetRepo}`,
       },
     })
@@ -288,7 +278,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
       console.error("[api/requests/destroy] archive failed", archiveError)
     }
 
-    return NextResponse.json({ ok: true, destroyRunId, destroyRunUrl, request: updated })
+    return NextResponse.json({ ok: true, runId: runIdDestroy ?? undefined, url: urlDestroy ?? undefined, request: updated })
   } catch (error) {
     logError("github.dispatch_failed", error, { ...correlation, requestId, duration_ms: Date.now() - start })
     try {

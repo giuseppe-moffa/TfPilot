@@ -1,9 +1,11 @@
 /**
  * Ops metrics builder: computes KPIs from a bounded list of request documents.
- * Data source: S3 request JSON only. No unbounded scans. Used by /api/metrics/insights.
+ * Data source: S3 request JSON only. Run state from request.runs (getCurrentAttempt).
  */
 
 import { deriveLifecycleStatus } from "@/lib/requests/deriveLifecycleStatus"
+import { getCurrentAttempt } from "@/lib/requests/runsModel"
+import type { RunsState } from "@/lib/requests/runsModel"
 
 /** Canonical display statuses for counts (from deriveLifecycleStatus). */
 export type DisplayStatus =
@@ -18,18 +20,14 @@ export type DisplayStatus =
   | "destroyed"
   | "failed"
 
-/** Minimal request-like shape from storage (only fields we need). */
+/** Minimal request-like shape from storage (only fields we need). Run state from runs only. */
 export type RequestRow = {
   id?: string
   status?: string
   receivedAt?: string
   updatedAt?: string
   statusDerivedAt?: string
-  applyTriggeredAt?: string
-  appliedAt?: string
-  planRun?: { conclusion?: string; status?: string }
-  applyRun?: { conclusion?: string; status?: string }
-  destroyRun?: { conclusion?: string; status?: string }
+  runs?: RunsState
   pr?: { merged?: boolean; open?: boolean }
   approval?: { approved?: boolean }
 }
@@ -42,13 +40,13 @@ export type OpsMetricsPayload = {
   /** Failures: count of requests with status failed in window (by updatedAt). */
   failuresLast24h: number
   failuresLast7d: number
-  /** Applies: count of requests with apply success and applyTriggeredAt in window. */
+  /** Applies: count of requests with apply success and current attempt dispatchedAt in window. */
   appliesLast24h: number
   appliesLast7d: number
   /** Destroys: count of requests destroyed/destroying with updatedAt in window. */
   destroysLast24h: number
   destroysLast7d: number
-  /** Apply duration (seconds). From applyTriggeredAt → appliedAt when both present. */
+  /** Apply duration (seconds). From runs.apply current attempt dispatchedAt → completedAt. */
   avgApplySecondsLast7d: number | null
   p95ApplySecondsLast7d: number | null
   /** created → plan_ready: not reliably stored; null unless we add a field later. */
@@ -100,27 +98,30 @@ export function buildOpsMetrics(requests: RequestRow[], generatedAt: string): Op
     statusCounts[status] = (statusCounts[status] ?? 0) + 1
 
     const updatedAt = row.updatedAt || row.statusDerivedAt || row.receivedAt
-    const triggerAt = row.applyTriggeredAt
+    const latestApply = getCurrentAttempt(row.runs, "apply")
+    const latestPlan = getCurrentAttempt(row.runs, "plan")
+    const triggerAt = latestApply?.dispatchedAt
+    const completedAt = latestApply?.completedAt
 
     if (status === "failed") {
       if (inWindow(updatedAt, MS_24H, now)) failures24h += 1
       if (inWindow(updatedAt, MS_7D, now)) failures7d += 1
     }
 
-    if (row.applyRun?.conclusion === "success" && triggerAt) {
+    if (latestApply?.conclusion === "success" && triggerAt) {
       if (inWindow(triggerAt, MS_24H, now)) applies24h += 1
       if (inWindow(triggerAt, MS_7D, now)) {
         applies7d += 1
         applySuccess7d += 1
-        if (row.appliedAt) {
+        if (completedAt) {
           const start = Date.parse(triggerAt)
-          const end = Date.parse(row.appliedAt)
+          const end = Date.parse(completedAt)
           if (!Number.isNaN(start) && !Number.isNaN(end) && end > start) {
             applyDurations7d.push(Math.round((end - start) / 1000))
           }
         }
       }
-    } else if (row.applyRun?.conclusion && ["failure", "cancelled", "timed_out"].includes(row.applyRun.conclusion)) {
+    } else if (latestApply?.conclusion && ["failure", "cancelled", "timed_out"].includes(latestApply.conclusion)) {
       if (inWindow(updatedAt, MS_7D, now)) applyFail7d += 1
     }
 
@@ -129,8 +130,8 @@ export function buildOpsMetrics(requests: RequestRow[], generatedAt: string): Op
       if (inWindow(updatedAt, MS_7D, now)) destroys7d += 1
     }
 
-    if (row.planRun?.conclusion === "success" && inWindow(updatedAt, MS_7D, now)) planSuccess7d += 1
-    if (row.planRun?.conclusion && ["failure", "cancelled", "timed_out"].includes(row.planRun.conclusion) && inWindow(updatedAt, MS_7D, now)) {
+    if (latestPlan?.conclusion === "success" && inWindow(updatedAt, MS_7D, now)) planSuccess7d += 1
+    if (latestPlan?.conclusion && ["failure", "cancelled", "timed_out"].includes(latestPlan.conclusion) && inWindow(updatedAt, MS_7D, now)) {
       planFail7d += 1
     }
   }
