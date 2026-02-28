@@ -17,7 +17,7 @@ import {
   patchAttemptRunId,
 } from "@/lib/requests/runsModel"
 import type { RunsState } from "@/lib/requests/runsModel"
-import { isLockExpired } from "@/lib/requests/lock"
+import { isLockExpired, type RequestLock } from "@/lib/requests/lock"
 import { needsRepair } from "@/lib/requests/syncPolicy"
 import { getRequestIdByRunId, putRunIndex } from "@/lib/requests/runIndex"
 import { getRequest, updateRequest } from "@/lib/storage/requestsStore"
@@ -123,7 +123,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
     ensureRuns(request as Record<string, unknown>)
 
     // Clear expired lock so actions are not blocked; persist only if changed
-    const lock = request.lock as { expiresAt?: string } | undefined
+    const lock = request.lock as RequestLock | undefined
     if (lock && isLockExpired(lock, new Date())) {
       const [updated, saved] = await updateRequest(requestId, (c) => ({
         ...c,
