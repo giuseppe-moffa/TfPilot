@@ -50,6 +50,17 @@ export function isLockExpired(lock: RequestLock | undefined, now: Date): boolean
 }
 
 /**
+ * Returns true if lock exists, has valid expiresAt, and expiresAt is in the future.
+ * Use this to treat expired locks as inactive (do not disable actions).
+ */
+export function isLockActive(lock: RequestLock | undefined, now: Date = new Date()): boolean {
+  if (!lock?.expiresAt) return false
+  const t = Date.parse(lock.expiresAt)
+  if (Number.isNaN(t)) return false
+  return now.getTime() < t
+}
+
+/**
  * Attempt to acquire a lock on the request for the given operation and holder.
  * - No lock or expired lock → return { ok: true, patch } to set the new lock.
  * - Same holder already holds (non-expired) lock → return { ok: true, patch: null }.

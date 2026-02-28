@@ -351,6 +351,12 @@ export function InsightsDashboard() {
         <p className="text-sm text-muted-foreground">Platform metrics (cached ~60s)</p>
       </header>
 
+      {/* GitHub API Usage */}
+      <section className="space-y-3">
+        <h2 className="text-lg font-medium">GitHub API Usage</h2>
+        <GitHubApiUsageCard />
+      </section>
+
       {/* At a glance */}
       <section className="space-y-3">
         <h2 className="text-lg font-medium">At a glance</h2>
@@ -482,12 +488,6 @@ export function InsightsDashboard() {
             </TableBody>
           </Table>
         </Card>
-      </section>
-
-      {/* GitHub API Usage */}
-      <section className="space-y-3">
-        <h2 className="text-lg font-medium">GitHub API Usage</h2>
-        <GitHubApiUsageCard />
       </section>
     </div>
   )

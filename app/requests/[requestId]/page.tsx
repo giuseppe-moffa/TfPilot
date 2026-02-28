@@ -8,6 +8,7 @@ import { useParams } from "next/navigation"
 import { useRequest } from "@/hooks/use-request"
 import { getSyncPollingInterval } from "@/lib/config/polling"
 import { deriveLifecycleStatus, isDestroyRunStale } from "@/lib/requests/deriveLifecycleStatus"
+import { isLockActive, type RequestLock } from "@/lib/requests/lock"
 import { getCurrentAttemptStrict, isAttemptActive } from "@/lib/requests/runsModel"
 import type { RunsState } from "@/lib/requests/runsModel"
 import { normalizeRequestStatus, isActiveStatus } from "@/lib/status/status-config"
@@ -962,7 +963,7 @@ function RequestDetailPage() {
     return list
   }, [showDestroyStep, destroyErrorState, isDestroyed, destroyInProgressUI])
 
-  const hasLock = !!(request as any)?.lock
+  const hasActiveLock = isLockActive(request?.lock as RequestLock | undefined)
 
   const activeRunRevalidateInFlightRef = React.useRef(false)
   const ACTIVE_RUN_POLL_INTERVAL_MS = 4_000
@@ -986,7 +987,7 @@ function RequestDetailPage() {
   }, [applyInProgressUI, destroyInProgressUI, isSyncing, revalidate])
 
   function isActionDisabled(action: MutationAction): boolean {
-    if (hasLock) return true
+    if (hasActiveLock) return true
     if (actionProgress?.state === "running") return true
     if (actionProgress?.op === action) return true
     if (action === "approve") {

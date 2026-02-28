@@ -11,7 +11,8 @@ import { logLifecycleEvent } from "@/lib/logs/lifecycle"
 import { getUserRole } from "@/lib/auth/roles"
 import { getIdempotencyKey, assertIdempotentOrRecord, ConflictError } from "@/lib/requests/idempotency"
 import { acquireLock, releaseLock, LockConflictError, type RequestDocWithLock } from "@/lib/requests/lock"
-import { persistDispatchAttempt } from "@/lib/requests/runsModel"
+import { getCurrentAttemptStrict, patchAttemptRunId, persistDispatchAttempt } from "@/lib/requests/runsModel"
+import type { RunsState } from "@/lib/requests/runsModel"
 import { putRunIndex } from "@/lib/requests/runIndex"
 import { resolveApplyRunId } from "@/lib/requests/resolveApplyRunId"
 
@@ -114,6 +115,93 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Request missing target repo info" }, { status: 400 })
     }
 
+    const candidateShas = new Set(
+      [
+        (request as { mergedSha?: string }).mergedSha,
+        (request as { commitSha?: string }).commitSha,
+      ].filter(Boolean) as string[]
+    )
+    const applyAttempt = getCurrentAttemptStrict(request.runs as RunsState | undefined, "apply")
+    const inFlightApply = applyAttempt && (applyAttempt.conclusion == null || applyAttempt.conclusion === undefined)
+
+    if (inFlightApply) {
+      // Idempotency: already have an in-flight apply attempt; do not create another or dispatch again. Try to resolve runId and attach.
+      const dispatchTime = applyAttempt.dispatchedAt ? new Date(applyAttempt.dispatchedAt) : new Date()
+      const RESOLVE_ATTEMPTS = 12
+      const BACKOFF_MS = [500, 500, 1000, 1000, 1500, 1500, 2000, 2000, 2000, 2000, 2000, 2000]
+      let runIdApply: number | undefined
+      let urlApply: string | undefined
+      for (let attempt = 0; attempt < RESOLVE_ATTEMPTS; attempt++) {
+        if (attempt > 0) {
+          await new Promise((r) => setTimeout(r, BACKOFF_MS[Math.min(attempt - 1, BACKOFF_MS.length - 1)]))
+        }
+        try {
+          const result = await resolveApplyRunId({
+            token,
+            owner,
+            repo,
+            workflowFile: env.GITHUB_APPLY_WORKFLOW_FILE,
+            branch: applyRef,
+            requestId: request.id,
+            dispatchTime,
+            candidateShas,
+            logContext: { route: "github/apply", correlationId: correlation.correlationId ?? request.id },
+          })
+          if (result) {
+            runIdApply = result.runId
+            urlApply = result.url
+            break
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+      if (runIdApply != null && urlApply != null) {
+        try {
+          await putRunIndex("apply", runIdApply, request.id)
+        } catch (err) {
+          logWarn("apply.run_index_write_failed", { ...correlation, requestId: request.id, runId: runIdApply, err: String(err) })
+        }
+        const [afterApply] = await updateRequest(request.id, (current) => {
+          const patched = patchAttemptRunId(current.runs as RunsState, "apply", applyAttempt.attempt, {
+            runId: runIdApply!,
+            url: urlApply,
+          })
+          if (!patched) return current
+          return { ...current, runs: patched, updatedAt: new Date().toISOString() }
+        })
+        const releasePatch = releaseLock(afterApply as RequestDocWithLock, holder)
+        if (releasePatch) await updateRequest(request.id, (c) => ({ ...c, ...releasePatch }))
+        return NextResponse.json({ ok: true, request: afterApply })
+      }
+      const current = await getRequest(request.id).catch(() => request)
+      const releasePatch = releaseLock(current as RequestDocWithLock, holder)
+      if (releasePatch) await updateRequest(request.id, (c) => ({ ...c, ...releasePatch }))
+      return NextResponse.json({ ok: true, request: current })
+    }
+
+    const nowIso = new Date().toISOString()
+    const [afterPersist] = await updateRequest(request.id, (current) => {
+      const headSha =
+        (request as { pullRequest?: { headSha?: string } }).pullRequest?.headSha ??
+        (request as { pr?: { headSha?: string } }).pr?.headSha ??
+        (request as { mergedSha?: string }).mergedSha
+      const runsPatch = persistDispatchAttempt(current as Record<string, unknown>, "apply", {
+        actor: session.login,
+        headSha: headSha ?? undefined,
+        ref: applyRef,
+      })
+      if (process.env.DEBUG_WEBHOOKS === "1") {
+        const nextAttempt = ((current.runs as RunsState)?.apply?.currentAttempt ?? 0) + 1
+        console.log("event=apply.attempt_persisted_without_runid", {
+          requestId: request.id,
+          attempt: nextAttempt,
+          dispatchedAt: runsPatch.updatedAt,
+        })
+      }
+      return { ...current, ...runsPatch, updatedAt: runsPatch.updatedAt }
+    })
+
     const dispatchTime = new Date()
     const dispatchBody = {
       ref: applyRef,
@@ -127,13 +215,6 @@ export async function POST(req: NextRequest) {
       method: "POST",
       body: JSON.stringify(dispatchBody),
     })
-
-    const candidateShas = new Set(
-      [
-        (request as { mergedSha?: string }).mergedSha,
-        (request as { commitSha?: string }).commitSha,
-      ].filter(Boolean) as string[]
-    )
 
     const RESOLVE_ATTEMPTS = 12
     const BACKOFF_MS = [500, 500, 1000, 1000, 1500, 1500, 2000, 2000, 2000, 2000, 2000, 2000]
@@ -186,23 +267,18 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const nowIso = new Date().toISOString()
+    const applyAttemptAfter = getCurrentAttemptStrict(afterPersist.runs as RunsState, "apply")
     const [afterApply] = await updateRequest(request.id, (current) => {
-      const runId = runIdApply ?? undefined
-      const runUrl = urlApply ?? undefined
-      const runsPatch =
-        runId != null && runUrl != null
-          ? persistDispatchAttempt(current as Record<string, unknown>, "apply", {
-              runId,
-              url: runUrl,
-              actor: session.login,
-            })
-          : {}
-      return {
-        ...current,
-        ...runsPatch,
-        updatedAt: (runsPatch as { updatedAt?: string })?.updatedAt ?? nowIso,
+      if (runIdApply != null && urlApply != null && applyAttemptAfter != null) {
+        const patched = patchAttemptRunId(current.runs as RunsState, "apply", applyAttemptAfter.attempt, {
+          runId: runIdApply,
+          url: urlApply,
+        })
+        if (patched) {
+          return { ...current, runs: patched, updatedAt: new Date().toISOString() }
+        }
       }
+      return current
     })
     const releasePatch = releaseLock(afterApply as RequestDocWithLock, holder)
     if (releasePatch) {

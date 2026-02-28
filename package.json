@@ -10,7 +10,8 @@
     "validate:registry": "tsx scripts/validate-module-registry.ts",
     "validate:tags": "tsx scripts/validate-server-tags.ts",
     "validate:sync-reconcile": "tsx scripts/validate-sync-reconcile.ts",
-    "validate:derive-status": "tsx scripts/validate-derive-status.ts"
+    "validate:derive-status": "tsx scripts/validate-derive-status.ts",
+    "validate:lock": "tsx scripts/validate-lock-expired.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.485.0",

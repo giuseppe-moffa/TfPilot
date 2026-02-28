@@ -66,13 +66,15 @@ export function deriveLifecycleStatus(request: RequestLike | null | undefined): 
   if (currentDestroy?.conclusion === "success") {
     return "destroyed"
   }
-  // Destroy in-flight: runId present and no conclusion (status-agnostic); stale → failed
-  if (
-    currentDestroy?.runId != null &&
-    (currentDestroy?.conclusion == null || currentDestroy?.conclusion === undefined)
-  ) {
+  // Destroy in-flight: attempt exists and no conclusion (runId optional; sync may discover runId later). Stale → failed when runId present and past threshold.
+  if (currentDestroy && (currentDestroy.conclusion == null || currentDestroy.conclusion === undefined)) {
     const dispatchedMs = currentDestroy.dispatchedAt ? new Date(currentDestroy.dispatchedAt).getTime() : 0
-    if (dispatchedMs && !isNaN(dispatchedMs) && Date.now() - dispatchedMs > DESTROY_STALE_MINUTES * 60 * 1000) {
+    if (
+      currentDestroy.runId != null &&
+      dispatchedMs &&
+      !isNaN(dispatchedMs) &&
+      Date.now() - dispatchedMs > DESTROY_STALE_MINUTES * 60 * 1000
+    ) {
       return "failed"
     }
     return "destroying"
@@ -86,11 +88,8 @@ export function deriveLifecycleStatus(request: RequestLike | null | undefined): 
   if (currentPlan?.conclusion && FAILED_CONCLUSIONS.includes(currentPlan.conclusion as any)) {
     return "failed"
   }
-  // 4. Apply in-flight: runId present and no conclusion yet (covers queued, in_progress, unknown, etc.)
-  if (
-    currentApply?.runId != null &&
-    (currentApply?.conclusion == null || currentApply?.conclusion === undefined)
-  ) {
+  // 4. Apply in-flight: attempt exists and no conclusion (runId optional; sync may discover runId later)
+  if (currentApply && (currentApply.conclusion == null || currentApply.conclusion === undefined)) {
     return "applying"
   }
   // 5. Apply success → applied
