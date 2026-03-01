@@ -1,6 +1,6 @@
 # TfPilot context pack (new chat paste)
 
-Tight reference for continuing work: lifecycle, webhooks, SSE, status derivation, workflows. Valid docs: **docs/DOCS_INDEX.md**, **docs/SYSTEM_OVERVIEW.md**, **docs/REQUEST_LIFECYCLE.md**, **docs/GITHUB_WORKFLOWS.md**, **docs/WEBHOOKS_AND_CORRELATION.md**, **docs/OPERATIONS.md**, **docs/RUN_INDEX.md**, **docs/GLOSSARY.md**.
+Tight reference for continuing work: lifecycle, webhooks, SSE, status derivation, workflows. Valid docs: **docs/DOCS_INDEX.md**, **docs/SYSTEM_OVERVIEW.md**, **docs/REQUEST_LIFECYCLE.md**, **docs/INVARIANTS.md**, **docs/GITHUB_WORKFLOWS.md**, **docs/WEBHOOKS_AND_CORRELATION.md**, **docs/OPERATIONS.md**, **docs/RUN_INDEX.md**, **docs/GLOSSARY.md**.
 
 ---
 

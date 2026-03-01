@@ -4,6 +4,13 @@ Canonical docs only. For archived/retired docs see `docs/archive/`.
 
 ---
 
+## Doc add (INVARIANTS.md) — 2026-02-28
+
+**What changed**
+- **docs/INVARIANTS.md** added: formal lifecycle invariants (Chunk 1). Documents MUST/SHOULD/MUST NOT rules for core lifecycle, reconciliation, completion time, locking, audit/timeline, and UI disablement; violation examples; enforcement points (file/function refs); test checklist (~10 tests). No code changes.
+
+---
+
 ## Doc refresh (completion time + needsReconcile) — 2026-02-28
 
 **What changed**
@@ -89,6 +96,7 @@ Canonical docs only. For archived/retired docs see `docs/archive/`.
 | `docs/WEBHOOKS_AND_CORRELATION.md` | Webhook types, correlation order, runId guard, idempotency | **KEEP** | — | New |
 | `docs/RUN_INDEX.md` | Run index: kinds, key format, value schema, retention | **KEEP** | — | Current |
 | `docs/OPERATIONS.md` | Recovery playbook: stuck states, repair, re-sync, dev reset | **KEEP** | — | New |
+| `docs/INVARIANTS.md` | Formal lifecycle invariants (MUST/SHOULD/MUST NOT), violation examples, enforcement points, test checklist | **KEEP** | — | Current |
 | `docs/POLLING.md` | Request-detail polling env vars and behavior | **KEEP** | — | Current |
 | `docs/GLOSSARY.md` | Terminology: workflow kinds, statuses, Repair, observability | **KEEP** | — | Current |
 | `docs/CONTEXT_PACK.md` | New-chat context pack: paste into new thread for lifecycle/webhook/SSE debugging | **KEEP** | — | New |

@@ -2,6 +2,8 @@
 
 End-to-end flow and status rules. Source of truth: **lib/requests/deriveLifecycleStatus.ts**.
 
+> The lifecycle behavior described here is formally specified in [docs/INVARIANTS.md](INVARIANTS.md) and enforced by automated invariant tests.
+
 ---
 
 ## Lifecycle stages (attempt-based)

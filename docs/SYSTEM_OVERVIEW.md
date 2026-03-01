@@ -112,6 +112,12 @@ request.runs = {
 
 ---
 
+## Lifecycle guarantees
+
+The lifecycle engine enforces **monotonic patching** (no regressing completed state), **deterministic reconciliation** (reconcile eligibility and fetch rules), and **derived, replayable audit** (events from request facts only). These guarantees are formally specified in **[docs/INVARIANTS.md](INVARIANTS.md)** and enforced by the **invariant test suite** (`tests/invariants/`, `npm run test:invariants`). See that doc for the full contract and test checklist.
+
+---
+
 ## Repositories
 
 - **Platform repo (TfPilot):** This app. Next.js, API, S3, GitHub API, webhooks, SSE.

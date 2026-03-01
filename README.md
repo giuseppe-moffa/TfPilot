@@ -91,6 +91,14 @@ Ensure env vars above are set (buckets/region, workflow filenames, session secre
 - GitHub OAuth app credentials
 - OpenAI API key (if using the AI assistant)
 
+## Running invariant tests
+
+```bash
+npm run test:invariants
+```
+
+Runs the lifecycle invariant suite (`tests/invariants/`). Must pass before merging lifecycle or sync changes. See [docs/INVARIANTS.md](docs/INVARIANTS.md).
+
 ### Scripts
 - `npm run dev` — start Next.js dev server
 - `npm run build` / `npm run start` — production build and start
