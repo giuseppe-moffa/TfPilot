@@ -40,7 +40,7 @@ The codebase is organized so that **top-level folders and route shapes reflect t
 
 ### `lib/` — Domain and shared logic (no UI)
 
-- **`lib/requests/`** — Request domain: `deriveLifecycleStatus`, `patchRequestFacts`, `persistWorkflowDispatch`, run index, sync policy, naming, id, lock, idempotency, tags.
+- **`lib/requests/`** — Request domain: `deriveLifecycleStatus`, `patchRequestFacts`, `persistWorkflowDispatch`, run index, sync policy, naming, id, lock (acquire/release, `isLockExpired`/`isLockActive`; expired = inactive; sync clears expired), idempotency, tags.
 - **`lib/github/`** — GitHub domain: client, webhook (verify, idempotency), correlation, workflow classification, dispatch/cleanup, stream state, rate limiting, updateBranch.
 - **`lib/storage/`** — S3 request store (read/write requests, history, optimistic locking).
 - **`lib/status/`** — Canonical status config (labels, colors); consumed by UI and by `deriveLifecycleStatus`.

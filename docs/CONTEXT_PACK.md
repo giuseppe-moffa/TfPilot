@@ -154,7 +154,8 @@ TfPilot is an AI-assisted Terraform self-service platform. Users create requests
 
 **Authoritative fields:** (Status in the example JSON above is for illustration only; it is derived by `deriveLifecycleStatus(request)`, not stored as truth.)
 
-- **Run execution:** All workflow execution state lives under `request.runs.{plan,apply,destroy}`. Each has `currentAttempt` and `attempts: AttemptRecord[]`. Current attempt = `attempts.find(a => a.attempt === currentAttempt)`. Helpers: `getCurrentAttemptStrict(request.runs, "plan"|"apply"|"destroy")` in **lib/requests/runsModel.ts**. Attempts may have optional runId/url (e.g. plan at dispatch); webhook/sync can attach runId by head_sha. Sync fetches and patches when current attempt satisfies **needsReconcile** (runId present, conclusion missing); noop cooldown 60s in-memory when reconcile returns non-terminal payload with no patch. No legacy run state.
+- **Run execution:** All workflow execution state lives under `request.runs.{plan,apply,destroy}`. Each has `currentAttempt` and `attempts: AttemptRecord[]`. Current attempt = `attempts.find(a => a.attempt === currentAttempt)`. Helpers: `getCurrentAttemptStrict(request.runs, "plan"|"apply"|"destroy")` in **lib/requests/runsModel.ts**. Attempts may have optional runId/url (e.g. plan at dispatch); webhook/sync can attach runId by head_sha. Completion time (completedAt) is set in `patchAttemptByRunId` from `completed_at ?? updated_at` when status=completed (GitHub run API has updated_at, not completed_at). Sync fetches and patches when current attempt satisfies **needsReconcile** (runId present, conclusion or completedAt missing); reconcile run fetch uses bypassCache; noop cooldown 60s in-memory when reconcile returns non-terminal payload with no patch. No legacy run state.
+- **Request lock:** `request.lock` (holder, operation, expiresAt) prevents concurrent mutations; default TTL 2 min. **Expired locks are inactive:** UI uses `isLockActive(lock)` so only active lock disables actions; `acquireLock` treats expired lock as no lock. Sync clears expired locks (persist only if changed); with DEBUG_WEBHOOKS=1 logs `event=sync.lock_cleared_expired`.
 - **Stale destroy:** If the current destroy attempt has no conclusion for >15 min after `dispatchedAt`, `isDestroyRunStale(request)` is true and derivation returns `failed`.
 - **PR + merge:** `pr` or `github.pr` (number, url, merged, headSha, open). `mergedSha` set by merge route when GitHub merge succeeds.
 - **Status:** Not authoritative. UI/API use `deriveLifecycleStatus(request)`. Derivation reads current attempts only.
@@ -175,7 +176,7 @@ TfPilot is an AI-assisted Terraform self-service platform. Users create requests
 ### Workflow run patching (attempts only) — `lib/requests/patchRequestFacts.ts`
 
 - **Purpose:** For `workflow_run` webhooks, patch only the **attempt record** in `request.runs[kind]` that matches `workflow_run.id` (`patchRunsAttemptByRunId`). No other run state is written.
-- **Match:** The attempt with `runId === workflow_run.id` is updated (status, conclusion, completedAt, headSha). If no match by runId but an attempt exists with matching head_sha and no runId, runId/url are attached then status/conclusion patched. If no match, no-op; DEBUG_WEBHOOKS=1 logs noop_reason.
+- **Match:** The attempt with `runId === workflow_run.id` is updated (status, conclusion, completedAt, headSha). completedAt is set in patchAttemptByRunId from completed_at ?? updated_at when status=completed. If no match by runId but an attempt exists with matching head_sha and no runId, runId/url are attached then status/conclusion patched. If no match, no-op; DEBUG_WEBHOOKS=1 logs noop_reason.
 - **Monotonic (in lib/requests/runsModel.ts `patchAttemptByRunId`):** Never overwrite completed with in_progress/queued; never clear conclusion. Duplicate status/conclusion returns null (no S3 write).
 - **Idempotency:** Empty patch → no S3 write → no SSE.
 
@@ -209,7 +210,7 @@ return null
   1. `getRequestIdByRunId(kind, runId)` — S3 run index, O(1).
   2. Destroy-only fallback: `getRequestIdByDestroyRunId(runId)` — legacy list-based lookup.
   3. `correlateWorkflowRun(payload)` — branch/title fallback.
-- **DEBUG_WEBHOOKS:** Set `process.env.DEBUG_WEBHOOKS === "1"` to log index hits: `event=webhook.resolve scope=index kind= runId= requestId=`, and unknown workflow_run: `event=webhook.workflow_run.unknown runId= name= displayTitle=`.
+- **DEBUG_WEBHOOKS:** Set `process.env.DEBUG_WEBHOOKS === "1"` to log index hits: `event=webhook.resolve scope=index kind= runId= requestId=`, unknown workflow_run: `event=webhook.workflow_run.unknown runId= name= displayTitle=`, and when sync clears an expired request lock: `event=sync.lock_cleared_expired requestId=`.
 
 ```ts
 if (kind != null && wr?.id != null) {
@@ -1089,7 +1090,7 @@ jobs:
 
 ## 8) How to debug fast
 
-- **DEBUG_WEBHOOKS:** Set env `DEBUG_WEBHOOKS=1` (e.g. in `.env.local` or ECS). Webhook handler logs index resolution (`event=webhook.resolve scope=index kind= runId= requestId=`) and unknown workflow_run (`event=webhook.workflow_run.unknown runId= name= displayTitle=`).
+- **DEBUG_WEBHOOKS:** Set env `DEBUG_WEBHOOKS=1` (e.g. in `.env.local` or ECS). Webhook handler logs index resolution (`event=webhook.resolve scope=index kind= runId= requestId=`) and unknown workflow_run (`event=webhook.workflow_run.unknown runId= name= displayTitle=`). Sync logs `event=sync.lock_cleared_expired` when it clears an expired request lock.
 - **S3 prefixes (requests bucket):**  
   - Request docs: `requests/<requestId>.json`.  
   - Run index: `webhooks/github/run-index/<kind>/run-<runId>.json`.  

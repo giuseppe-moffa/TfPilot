@@ -107,6 +107,12 @@ function mapGhStatus(gh: string | undefined): AttemptRecord["status"] {
   return "unknown"
 }
 
+/** Return non-empty trimmed string or undefined. */
+function nonEmpty(s: string | undefined | null): string | undefined {
+  const t = typeof s === "string" ? s.trim() : ""
+  return t || undefined
+}
+
 /**
  * Attach runId/url to an existing attempt by attempt number (e.g. after GitHub runs list returns).
  * Only updates the matching attempt; does not change currentAttempt. If the attempt already has runId and it differs, logs warning and no-op.
@@ -145,14 +151,22 @@ export function patchAttemptRunId(
 /**
  * Patch a single attempt in runs[kind].attempts by runId from GitHub run payload.
  * Does NOT modify runs[kind].currentAttempt (preserves op; only updates the matching attempt in attempts[]).
- * Same monotonic rules as webhook: no regression from completed → in_progress/queued; don't clear conclusion.
+ * Completion time: single-source — if existing.completedAt set keep it; else when status=completed
+ * use gh.completed_at ?? gh.updated_at (GitHub run API has updated_at, not completed_at). Never clear completedAt.
+ * Monotonic: no regression from completed → in_progress/queued; don't clear conclusion.
  * Returns updated runs or null if attempt not found or no change.
  */
 export function patchAttemptByRunId(
   runs: RunsState,
   kind: RunKind,
   runId: number,
-  gh: { status?: string; conclusion?: string | null; completed_at?: string; head_sha?: string }
+  gh: {
+    status?: string
+    conclusion?: string | null
+    completed_at?: string
+    updated_at?: string
+    head_sha?: string
+  }
 ): RunsState | null {
   const op = runs[kind]
   const idx = op?.attempts?.findIndex((a) => a.runId === runId) ?? -1
@@ -160,7 +174,6 @@ export function patchAttemptByRunId(
   const existing = op.attempts[idx]
   const status = mapGhStatus(gh.status)
   const conclusion = gh.conclusion ?? undefined
-  const completedAt = gh.completed_at ?? existing.completedAt
   const headSha = gh.head_sha ?? existing.headSha
 
   // Monotonic: don't overwrite completed with in_progress/queued
@@ -171,12 +184,25 @@ export function patchAttemptByRunId(
   if (existing.conclusion != null && conclusion == null) {
     return null
   }
+  // Single-source completion time: keep existing; else when status=completed use completed_at ?? updated_at (GitHub run has updated_at)
+  const finalCompletedAt =
+    existing.completedAt ??
+    (gh.status === "completed" ? (nonEmpty(gh.completed_at) ?? nonEmpty(gh.updated_at)) : undefined)
+
+  if (process.env.DEBUG_WEBHOOKS === "1") {
+    console.log("event=runsModel.patch_completed_at", {
+      kind,
+      runId,
+      updated_at: gh.updated_at ?? null,
+      finalCompletedAt: finalCompletedAt ?? null,
+    })
+  }
 
   const next: AttemptRecord = {
     ...existing,
     status,
     ...(conclusion != null && { conclusion: conclusion as AttemptRecord["conclusion"] }),
-    ...(completedAt != null && { completedAt }),
+    ...(finalCompletedAt != null && finalCompletedAt !== "" && { completedAt: finalCompletedAt }),
     ...(headSha != null && { headSha }),
   }
   if (
@@ -249,14 +275,17 @@ export function isAttemptActive(attempt: AttemptRecord | null | undefined): bool
 }
 
 /**
- * True when the attempt needs reconciliation: we have a runId but no terminal conclusion.
- * Use for sync: fetch run from GitHub and patch status/conclusion/completedAt/headSha.
- * Does NOT depend on status — so attempts stuck as "unknown" (or any status) without
- * conclusion are still reconciled and can converge to applied/failed.
+ * True when the attempt needs reconciliation: we have a runId but are missing a terminal field
+ * (conclusion or completedAt). Use for sync: fetch run from GitHub and patch
+ * status/conclusion/completedAt/headSha. Allows backfilling completedAt when conclusion
+ * was set without completed_at from the payload.
  */
 export function needsReconcile(attempt: AttemptRecord | null | undefined): boolean {
   if (!attempt) return false
-  return attempt.runId != null && (attempt.conclusion == null || attempt.conclusion === undefined)
+  return (
+    attempt.runId != null &&
+    (attempt.conclusion == null || attempt.conclusion === undefined || attempt.completedAt == null)
+  )
 }
 
 /**

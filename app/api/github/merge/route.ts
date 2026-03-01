@@ -218,6 +218,7 @@ export async function POST(req: NextRequest) {
         open: false,
         state: "closed",
         mergedAt: nowIso,
+        mergedBy: session.login,
         ...(mergedSha && { mergeCommitSha: mergedSha }),
       },
       prNumber: current.prNumber ?? request.prNumber,

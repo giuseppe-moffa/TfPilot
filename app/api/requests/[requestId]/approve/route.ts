@@ -90,6 +90,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
     }
 
     const nowIso = new Date().toISOString()
+    const existingApprovers = existing.approval?.approvers ?? []
+    const approvers =
+      existingApprovers.includes(session.login)
+        ? existingApprovers
+        : [...existingApprovers, session.login]
     const nextTimeline = Array.isArray(existing.timeline) ? [...existing.timeline] : []
     nextTimeline.push({
       step: "Approved",
@@ -100,7 +105,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
 
     const [updated] = await updateRequest(requestId, (current) => ({
       ...current,
-      approval: { approved: true, approvers: current.approval?.approvers ?? [] },
+      approval: {
+        approved: true,
+        approvedAt: nowIso,
+        approvers: current.approval?.approvers?.includes(session.login)
+          ? current.approval.approvers
+          : [...(current.approval?.approvers ?? []), session.login],
+      },
       statusDerivedAt: nowIso,
       updatedAt: nowIso,
       timeline: nextTimeline,

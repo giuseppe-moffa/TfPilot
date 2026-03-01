@@ -75,6 +75,11 @@ export type GithubRequestOpts<T> = {
   path: string
   method?: "GET" | "HEAD"
   /**
+   * When true: do not read from cache and do not write to cache; always perform direct GitHub API call.
+   * Use for reconcile run fetches so completed_at is not served from stale cache.
+   */
+  bypassCache?: boolean
+  /**
    * Parse response body to T. Default: res.json().
    * Use (r) => r.text() for text endpoints.
    */
@@ -92,17 +97,18 @@ export async function githubRequest<T>(opts: GithubRequestOpts<T>): Promise<T> {
     token,
     key,
     ttlMs,
-  path,
-  method = "GET",
-  parseResponse = (res) => res.json() as Promise<T>,
-  context,
-} = opts
+    path,
+    method = "GET",
+    bypassCache = false,
+    parseResponse = (res) => res.json() as Promise<T>,
+    context,
+  } = opts
 
   const logData = (extra?: Record<string, unknown>) =>
     ({ ...context, ...extra }) as { correlationId?: string; route?: string; [k: string]: unknown }
 
-  // Cache hit (no conditional request in Phase 1 for simplicity; optional ETag below)
-  if (ttlMs > 0) {
+  // Cache hit (skip when bypassCache: e.g. reconcile run fetch for fresh completed_at)
+  if (ttlMs > 0 && !bypassCache) {
     const cached = getFromCache<T>(key)
     if (cached) {
       logInfo("github.cache_hit", logData({ key }))
@@ -125,7 +131,21 @@ export async function githubRequest<T>(opts: GithubRequestOpts<T>): Promise<T> {
     if (status === 200 || status === 201) {
       const body = await parseResponse(lastRes)
       const etag = lastRes.headers.get("etag") ?? undefined
-      if (ttlMs > 0) setCache(key, body, ttlMs, etag)
+      if (ttlMs > 0 && !bypassCache) setCache(key, body, ttlMs, etag)
+      if (
+        process.env.DEBUG_WEBHOOKS === "1" &&
+        opts.path.includes("actions/runs/")
+      ) {
+        const b = body as Record<string, unknown>
+        console.log("event=github.run_response_snippet", {
+          path: opts.path,
+          status,
+          completed_at: b?.completed_at ?? null,
+          status_field: b?.status ?? null,
+          conclusion: b?.conclusion ?? null,
+          rawSnippet: JSON.stringify(body).slice(0, 400),
+        })
+      }
       return body
     }
 

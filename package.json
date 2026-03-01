@@ -11,7 +11,10 @@
     "validate:tags": "tsx scripts/validate-server-tags.ts",
     "validate:sync-reconcile": "tsx scripts/validate-sync-reconcile.ts",
     "validate:derive-status": "tsx scripts/validate-derive-status.ts",
-    "validate:lock": "tsx scripts/validate-lock-expired.ts"
+    "validate:lock": "tsx scripts/validate-lock-expired.ts",
+    "validate:audit": "tsx scripts/validate-audit-events.ts",
+    "validate:attempt-completedAt": "tsx scripts/validate-attempt-completedAt.ts",
+    "validate:needsReconcile-completedAt": "tsx scripts/validate-needsReconcile-completedAt.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.485.0",

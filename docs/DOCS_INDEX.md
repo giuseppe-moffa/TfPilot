@@ -4,6 +4,30 @@ Canonical docs only. For archived/retired docs see `docs/archive/`.
 
 ---
 
+## Doc refresh (completion time + needsReconcile) — 2026-02-28
+
+**What changed**
+- **Completion time (completedAt):** Single-source rule in `patchAttemptByRunId` (lib/requests/runsModel.ts): if existing.completedAt is set it is kept; else when `status === "completed"` use `completed_at ?? updated_at`. The GitHub Actions run API (GET run by id) returns `updated_at`, not `completed_at`, so completion time for audit and duration comes from `updated_at` when the run is completed.
+- **needsReconcile:** Now true when runId is present and **either** conclusion **or** completedAt is missing (allows backfilling completedAt for attempts that have conclusion but no completion timestamp). Reconcile run fetch uses `bypassCache: true` so payload is fresh.
+- **REQUEST_LIFECYCLE.md:** Plan row and Webhook loss/Repair bullets updated for completion-time rule and needsReconcile (conclusion or completedAt missing).
+- **WEBHOOKS_AND_CORRELATION.md:** Patching run state describes completedAt single-source and monotonic completedAt; sync section describes needsReconcile (conclusion or completedAt missing), bypassCache for reconcile fetch, and completion from updated_at.
+- **GLOSSARY.md:** Repair "When" uses needsReconcile (runId present, conclusion or completedAt missing).
+- **CONTEXT_PACK.md:** Run execution and Match bullets updated for completedAt from completed_at ?? updated_at and needsReconcile (conclusion or completedAt missing), bypassCache.
+- **OPERATIONS.md:** Stuck-state table and re-sync bullet use needsReconcile (runId present, conclusion or completedAt missing).
+
+---
+
+## Doc refresh (request lock / expired) — 2026-02-28
+
+**What changed**
+- **Request lock:** Expired locks are treated as inactive (UI: `isLockActive`; backend: `acquireLock` already did not throw). Sync clears expired `request.lock` and persists; with `DEBUG_WEBHOOKS=1` sync logs `event=sync.lock_cleared_expired`. Validation script: `npm run validate:lock` (**scripts/validate-lock-expired.ts**).
+- **REQUEST_LIFECYCLE.md:** New failure-mode row "Request lock (stale/expired)".
+- **WEBHOOKS_AND_CORRELATION.md:** Sync section notes lock clearing and debug log.
+- **GLOSSARY.md:** New "Request lock" subsection (active vs expired, sync clearing).
+- **CONTEXT_PACK.md:** Request lock bullet; DEBUG_WEBHOOKS extended with sync.lock_cleared_expired.
+
+---
+
 ## Doc refresh (correctness invariants / alignment) — 2026-02-28
 
 **What changed**

@@ -211,12 +211,33 @@ export function patchRunsAttemptByRunId(
     logNoopReason(kind, undefined, requestId, run?.head_sha, "no_run_id")
     return {}
   }
+  if (process.env.DEBUG_WEBHOOKS === "1") {
+    console.log("event=webhook.run_payload_shape", {
+      kind,
+      runId: run.id,
+      requestId,
+      keys: Object.keys(run as object).slice(0, 40),
+      updated_at: (run as Record<string, unknown>).updated_at,
+      status: (run as Record<string, unknown>).status,
+      conclusion: (run as Record<string, unknown>).conclusion,
+    })
+  }
   ensureRuns(current as Record<string, unknown>)
   let runs = current.runs as RunsState
+  if (process.env.DEBUG_WEBHOOKS === "1") {
+    console.log("event=webhook.patch_run", {
+      kind,
+      runId: run.id,
+      status: run.status,
+      conclusion: run.conclusion ?? null,
+      updated_at: run.updated_at ?? null,
+    })
+  }
   let updated = patchAttemptByRunId(runs, kind as RunKind, run.id, {
     status: run.status,
     conclusion: run.conclusion ?? undefined,
     completed_at: run.completed_at,
+    updated_at: run.updated_at,
     head_sha: run.head_sha,
   })
   if (!updated && run.head_sha) {
@@ -231,10 +252,20 @@ export function patchRunsAttemptByRunId(
       })
       if (withRunId) {
         runs = withRunId
+        if (process.env.DEBUG_WEBHOOKS === "1") {
+          console.log("event=webhook.patch_run_after_attach", {
+            kind,
+            runId: run.id,
+            status: run.status,
+            conclusion: run.conclusion ?? null,
+            updated_at: run.updated_at ?? null,
+          })
+        }
         updated = patchAttemptByRunId(runs, kind as RunKind, run.id, {
           status: run.status,
           conclusion: run.conclusion ?? undefined,
           completed_at: run.completed_at,
+          updated_at: run.updated_at,
           head_sha: run.head_sha,
         })
       }

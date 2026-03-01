@@ -196,6 +196,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
     if (request.pr?.number) {
       const prJson = await githubRequest<{
         merged?: boolean
+        merged_at?: string | null
+        merged_by?: { login?: string } | null
         head?: { sha?: string }
         state?: string
         html_url?: string
@@ -216,6 +218,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
         merged: prJson.merged,
         headSha: prJson.head?.sha,
         open: prJson.state === "open",
+        ...(prJson.merged_at != null && { mergedAt: prJson.merged_at }),
+        ...(prJson.merged_by?.login != null && { mergedBy: prJson.merged_by.login }),
       }
       if (prJson.merged && prJson.merge_commit_sha && !request.mergedSha) {
         request.mergedSha = prJson.merge_commit_sha
@@ -231,6 +235,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
         headSha: request.pr.headSha,
         open: request.pr.open,
         status: prJson.state ?? request.pullRequest?.status,
+        ...(prJson.merged_at != null && { mergedAt: prJson.merged_at }),
+        ...(prJson.merged_by?.login != null && { mergedBy: prJson.merged_by.login }),
       }
 
       try {
@@ -338,6 +344,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
               head_sha?: string
               html_url?: string
               completed_at?: string
+              updated_at?: string
             }>({
               token,
               key: `gh:run:${request.targetOwner}:${request.targetRepo}:${firstRun.id}`,
@@ -345,10 +352,20 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
               path: `/repos/${request.targetOwner}/${request.targetRepo}/actions/runs/${firstRun.id}`,
               context: { route: "requests/[requestId]/sync", correlationId: requestId },
             })
+            if (process.env.DEBUG_WEBHOOKS === "1") {
+              console.log("event=sync.patch_run", {
+                kind: "plan",
+                runId: firstRun.id,
+                status: runJson.status,
+                conclusion: runJson.conclusion ?? null,
+                updated_at: (runJson as Record<string, unknown>).updated_at ?? null,
+              })
+            }
             const planPatch = patchAttemptByRunId(request.runs as RunsState, "plan", firstRun.id, {
               status: runJson.status,
               conclusion: runJson.conclusion ?? undefined,
               completed_at: runJson.completed_at,
+              updated_at: runJson.updated_at,
               head_sha: runJson.head_sha,
             })
             if (planPatch) request.runs = planPatch
@@ -479,12 +496,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
         reason: applyEligible
           ? applyInCooldown
             ? "in cooldown after prior noop reconcile"
-            : "runId present, conclusion missing"
+            : "runId present, conclusion or completedAt missing"
           : !applyAttempt
             ? "no current apply attempt"
             : applyAttempt.runId == null
               ? "no runId"
-              : "has conclusion",
+              : "has conclusion and completedAt",
       })
     }
     if (applyInCooldown && applyAttempt?.runId != null && process.env.DEBUG_WEBHOOKS === "1") {
@@ -508,6 +525,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
             requestId,
             status_before: currentApply.status,
           })
+          console.log("event=sync.fetch_run_fresh", { kind: "apply", runId: currentApply.runId })
         }
         const runJson = await githubRequest<{
           status?: string
@@ -515,17 +533,38 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
           head_sha?: string
           html_url?: string
           completed_at?: string
+          updated_at?: string
         }>({
           token,
           key: `gh:run:${request.targetOwner}:${request.targetRepo}:${currentApply.runId}`,
           ttlMs: 10_000,
+          bypassCache: true,
           path: `/repos/${request.targetOwner}/${request.targetRepo}/actions/runs/${currentApply.runId}`,
           context: { route: "requests/[requestId]/sync", correlationId: requestId },
         })
+        if (process.env.DEBUG_WEBHOOKS === "1") {
+          console.log("event=sync.run_payload_shape", {
+            kind: "apply",
+            runId: currentApply.runId,
+            requestId,
+            keys: Object.keys(runJson as object).slice(0, 40),
+            updated_at: (runJson as Record<string, unknown>).updated_at,
+            status: (runJson as Record<string, unknown>).status,
+            conclusion: (runJson as Record<string, unknown>).conclusion,
+          })
+          console.log("event=sync.patch_run", {
+            kind: "apply",
+            runId: currentApply.runId,
+            status: runJson.status,
+            conclusion: runJson.conclusion ?? null,
+            updated_at: (runJson as Record<string, unknown>).updated_at ?? null,
+          })
+        }
         const applyPatch = patchAttemptByRunId(request.runs as RunsState, "apply", currentApply.runId!, {
           status: runJson.status,
           conclusion: runJson.conclusion ?? undefined,
           completed_at: runJson.completed_at,
+          updated_at: runJson.updated_at,
           head_sha: runJson.head_sha,
         })
         if (!applyPatch && currentApply.runId != null && !isRunPayloadTerminal(runJson)) {
@@ -584,12 +623,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
         reason: planEligible
           ? planInCooldown
             ? "in cooldown after prior noop reconcile"
-            : "runId present, conclusion missing"
+            : "runId present, conclusion or completedAt missing"
           : !planAttempt
             ? "no current plan attempt"
             : planAttempt.runId == null
               ? "no runId"
-              : "has conclusion",
+              : "has conclusion and completedAt",
       })
     }
     if (planInCooldown && planAttempt?.runId != null && process.env.DEBUG_WEBHOOKS === "1") {
@@ -612,6 +651,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
             requestId,
             status_before: planAttempt.status,
           })
+          console.log("event=sync.fetch_run_fresh", { kind: "plan", runId: planAttempt.runId })
         }
         const runJson = await githubRequest<{
           status?: string
@@ -619,17 +659,38 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
           head_sha?: string
           html_url?: string
           completed_at?: string
+          updated_at?: string
         }>({
           token,
           key: `gh:run:${request.targetOwner}:${request.targetRepo}:${planAttempt.runId}`,
           ttlMs: 10_000,
+          bypassCache: true,
           path: `/repos/${request.targetOwner}/${request.targetRepo}/actions/runs/${planAttempt.runId}`,
           context: { route: "requests/[requestId]/sync", correlationId: requestId },
         })
+        if (process.env.DEBUG_WEBHOOKS === "1") {
+          console.log("event=sync.run_payload_shape", {
+            kind: "plan",
+            runId: planAttempt.runId,
+            requestId,
+            keys: Object.keys(runJson as object).slice(0, 40),
+            updated_at: (runJson as Record<string, unknown>).updated_at,
+            status: (runJson as Record<string, unknown>).status,
+            conclusion: (runJson as Record<string, unknown>).conclusion,
+          })
+          console.log("event=sync.patch_run", {
+            kind: "plan",
+            runId: planAttempt.runId,
+            status: runJson.status,
+            conclusion: runJson.conclusion ?? null,
+            updated_at: (runJson as Record<string, unknown>).updated_at ?? null,
+          })
+        }
         const planPatch = patchAttemptByRunId(request.runs as RunsState, "plan", planAttempt.runId, {
           status: runJson.status,
           conclusion: runJson.conclusion ?? undefined,
           completed_at: runJson.completed_at,
+          updated_at: runJson.updated_at,
           head_sha: runJson.head_sha,
         })
         if (!planPatch && planAttempt.runId != null && !isRunPayloadTerminal(runJson)) {
@@ -772,12 +833,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
         reason: destroyEligible
           ? destroyInCooldown
             ? "in cooldown after prior noop reconcile"
-            : "runId present, conclusion missing"
+            : "runId present, conclusion or completedAt missing"
           : !destroyAttempt
             ? "no current destroy attempt"
             : destroyAttempt.runId == null
               ? "no runId"
-              : "has conclusion",
+              : "has conclusion and completedAt",
       })
     }
     if (destroyInCooldown && destroyAttempt?.runId != null && process.env.DEBUG_WEBHOOKS === "1") {
@@ -801,6 +862,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
             requestId,
             status_before: currentDestroy.status,
           })
+          console.log("event=sync.fetch_run_fresh", { kind: "destroy", runId: currentDestroy.runId })
         }
         const runJson = await githubRequest<{
           status?: string
@@ -808,21 +870,44 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
           head_sha?: string
           html_url?: string
           completed_at?: string
+          updated_at?: string
           path?: string
           name?: string
         }>({
           token,
           key: `gh:run:${request.targetOwner}:${request.targetRepo}:${currentDestroy.runId}`,
           ttlMs: 10_000,
+          bypassCache: true,
           path: `/repos/${request.targetOwner}/${request.targetRepo}/actions/runs/${currentDestroy.runId}`,
           context: { route: "requests/[requestId]/sync", correlationId: requestId },
         })
+        if (process.env.DEBUG_WEBHOOKS === "1") {
+          console.log("event=sync.run_payload_shape", {
+            kind: "destroy",
+            runId: currentDestroy.runId,
+            requestId,
+            keys: Object.keys(runJson as object).slice(0, 40),
+            updated_at: (runJson as Record<string, unknown>).updated_at,
+            status: (runJson as Record<string, unknown>).status,
+            conclusion: (runJson as Record<string, unknown>).conclusion,
+          })
+        }
         const isDestroy = isDestroyWorkflowRun(runJson.path, env.GITHUB_DESTROY_WORKFLOW_FILE)
         if (isDestroy) {
+          if (process.env.DEBUG_WEBHOOKS === "1") {
+            console.log("event=sync.patch_run", {
+              kind: "destroy",
+              runId: currentDestroy.runId,
+              status: runJson.status,
+              conclusion: runJson.conclusion ?? null,
+              updated_at: (runJson as Record<string, unknown>).updated_at ?? null,
+            })
+          }
           const destroyPatch = patchAttemptByRunId(request.runs as RunsState, "destroy", currentDestroy.runId!, {
             status: runJson.status,
             conclusion: runJson.conclusion ?? undefined,
             completed_at: runJson.completed_at,
+            updated_at: runJson.updated_at,
             head_sha: runJson.head_sha,
           })
           if (!destroyPatch && currentDestroy.runId != null && !isRunPayloadTerminal(runJson)) {

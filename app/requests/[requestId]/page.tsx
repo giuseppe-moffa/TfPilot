@@ -1,12 +1,12 @@
 "use client"
 
 import * as React from "react"
-import { ChevronDown, ChevronUp, Copy, Github, Info, Loader2, Link as LinkIcon, Download } from "lucide-react"
+import { ChevronDown, ChevronUp, Copy, Github, Info, Loader2, Link as LinkIcon, Download, RefreshCw } from "lucide-react"
 import useSWR from "swr"
 import { useParams } from "next/navigation"
 
 import { useRequest } from "@/hooks/use-request"
-import { getSyncPollingInterval } from "@/lib/config/polling"
+import { buildAuditEvents } from "@/lib/requests/auditEvents"
 import { deriveLifecycleStatus, isDestroyRunStale } from "@/lib/requests/deriveLifecycleStatus"
 import { isLockActive, type RequestLock } from "@/lib/requests/lock"
 import { getCurrentAttemptStrict, isAttemptActive } from "@/lib/requests/runsModel"
@@ -357,6 +357,15 @@ function formatDate(iso: string) {
   })
 }
 
+function formatDurationMs(ms: number): string {
+  if (ms < 1000) return `${ms}ms`
+  const sec = Math.floor(ms / 1000)
+  const min = Math.floor(sec / 60)
+  if (min === 0) return `${sec}s`
+  const s = sec % 60
+  return s > 0 ? `${min}m ${s}s` : `${min}m`
+}
+
 function getServiceName(config?: Record<string, unknown>) {
   if (!config) return null
   const keys = ["name", "serviceName"]
@@ -399,26 +408,6 @@ function humanize(text?: string) {
     .replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
-function formatEventName(event?: string) {
-  if (!event) return "Event"
-  const friendly: Record<string, string> = {
-    request_created: "Request Created",
-    plan_dispatched: "Plan Dispatched",
-    plan_succeeded: "Plan Succeeded",
-    plan_failed: "Plan Failed",
-    request_approved: "Request Approved",
-    pr_merged: "PR Merged",
-    apply_dispatched: "Deploy Dispatched",
-    apply_succeeded: "Deployment Succeeded",
-    apply_failed: "Deployment Failed",
-    destroy_dispatched: "Destroy Dispatched",
-    destroy_succeeded: "Destroy Succeeded",
-    destroy_failed: "Destroy Failed",
-    configuration_updated: "Configuration Updated",
-  }
-  return friendly[event] ?? humanize(event)
-}
-
 function buildLink(key: string, value: string, data?: Record<string, unknown>) {
   if (value.startsWith("http://") || value.startsWith("https://")) return value
   const targetRepo = typeof data?.targetRepo === "string" ? data.targetRepo : undefined
@@ -449,6 +438,12 @@ function formatDataEntry(key: string, value: unknown, data?: Record<string, unkn
     const strVal = String(value)
     const href = buildLink(key, strVal, data)
     return { label, value: strVal, href }
+  }
+  if (Array.isArray(value)) {
+    const display = value.every((x) => typeof x === "string" || typeof x === "number")
+      ? value.join(", ")
+      : JSON.stringify(value)
+    return { label, value: display }
   }
   try {
     return { label, value: JSON.stringify(value) }
@@ -617,18 +612,6 @@ function RequestDetailPage() {
     revalidateOnFocus: false,
   })
 
-  const logsKey = requestId ? [`request-logs`, requestId] : null
-  const { data: logsData, isLoading: logsLoading, mutate: mutateLogs } = useSWR(
-    logsKey,
-    () => fetcher(`/api/requests/${requestId}/logs`),
-    {
-      keepPreviousData: true,
-      revalidateOnFocus: true,
-      refreshInterval: () => getSyncPollingInterval(request ?? null, tabHidden),
-      revalidateOnReconnect: true,
-    }
-  )
-
   const canDestroyKey = requestId ? [`can-destroy`, requestId] : null
   const { data: canDestroyData, isLoading: canDestroyLoading } = useSWR(
     canDestroyKey,
@@ -641,6 +624,9 @@ function RequestDetailPage() {
   // Default to false (disabled) until we know for sure - safer for prod destroy
   const canDestroy = canDestroyData?.canDestroy === true
 
+  const { data: meData } = useSWR("auth-me", () => fetcher("/api/auth/me"), { revalidateOnFocus: false })
+  const isAdmin = meData?.role === "admin"
+
   const updateAllowedFields = React.useMemo(() => {
     const schema = moduleSchemas?.find((s) => s.type === request?.module)
     const fields = schema
@@ -649,45 +635,27 @@ function RequestDetailPage() {
     return fields
   }, [moduleSchemas, request?.module, request?.config])
 
-  const sortedEvents = React.useMemo(() => {
-    if (!logsData?.events) return []
-    const events = logsData.events as Array<{ event?: string; timestamp?: string; data?: { runId?: number; attempt?: number } }>
-    const seen = new Set<string>()
-    const deduped = events.filter((evt: any, idx: number) => {
-      const isCompletion = evt?.data?.runId != null && evt?.data?.attempt != null
-      const key = isCompletion
-        ? `${evt.event ?? ""}-${evt.data.runId}-${evt.data.attempt}`
-        : `other-${idx}`
-      if (seen.has(key)) return false
-      seen.add(key)
-      return true
-    })
-    return [...deduped].sort((a: any, b: any) => {
-      const aFirst = a?.event === "request_created" ? 0 : 1
-      const bFirst = b?.event === "request_created" ? 0 : 1
-      if (aFirst !== bFirst) return aFirst - bFirst
-      const ta = Date.parse(a?.timestamp ?? "")
-      const tb = Date.parse(b?.timestamp ?? "")
-      if (!Number.isNaN(ta) && !Number.isNaN(tb)) return ta - tb
-      if (!Number.isNaN(ta)) return -1
-      if (!Number.isNaN(tb)) return 1
-      return 0
-    })
-  }, [logsData?.events])
+  const auditEvents = React.useMemo(
+    () => buildAuditEvents(request ?? null),
+    [request]
+  )
 
   const eventToStep: Record<string, BaseStepKey | "destroy"> = {
     request_created: "submitted",
     plan_dispatched: "planned",
+    plan_succeeded: "planned",
     request_approved: "approved",
     pr_merged: "merged",
     apply_dispatched: "applied",
+    apply_succeeded: "applied",
     destroy_dispatched: "destroy",
+    destroy_succeeded: "destroy",
   }
   const stepTimestamps = React.useMemo(() => {
     const out: Partial<Record<BaseStepKey | "destroy", string>> = {}
-    for (const evt of sortedEvents) {
-      const stepKey = eventToStep[evt?.event ?? ""]
-      const ts = evt?.timestamp
+    for (const evt of auditEvents) {
+      const stepKey = eventToStep[evt?.type ?? ""]
+      const ts = evt?.at
       if (stepKey && ts && !out[stepKey]) {
         const parsed = Date.parse(ts)
         if (!Number.isNaN(parsed)) out[stepKey] = formatDate(ts)
@@ -698,7 +666,7 @@ function RequestDetailPage() {
       if (!Number.isNaN(parsed)) out.destroy = formatDate(destroyAttempt.completedAt)
     }
     return out
-  }, [sortedEvents, destroyAttempt?.completedAt])
+  }, [auditEvents, destroyAttempt?.completedAt])
 
   React.useEffect(() => {
     return () => {
@@ -1476,6 +1444,40 @@ function RequestDetailPage() {
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
+            {isAdmin && (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={repairInFlight || actionProgress?.state === "running"}
+                onClick={async () => {
+                  if (!requestId) return
+                  setRepairInFlight(true)
+                  try {
+                    const res = await fetch(`/api/requests/${requestId}/sync?repair=1`, { cache: "no-store" })
+                    const json = (await res.json().catch(() => ({}))) as { request?: unknown; sync?: Record<string, unknown> }
+                    if (res.ok && json.request) {
+                      await mutate({ success: true, request: json.request, sync: json.sync ?? {} } as { success: true; request: typeof request; sync: Record<string, unknown> }, false)
+                    } else {
+                      await revalidate()
+                    }
+                  } finally {
+                    setRepairInFlight(false)
+                  }
+                }}
+              >
+                {repairInFlight ? (
+                  <span className="inline-flex items-center gap-2">
+                    <Loader2 className="size-4 animate-spin" />
+                    Syncing…
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-2">
+                    <RefreshCw className="size-4" />
+                    Sync
+                  </span>
+                )}
+              </Button>
+            )}
             <Button
               size="sm"
               variant="outline"
@@ -2225,37 +2227,65 @@ function RequestDetailPage() {
           </div>
         </CardHeader>
         <CardContent className="px-5 pt-1 pb-4">
-          {logsLoading && sortedEvents.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Loading logs...</p>
-          ) : sortedEvents.length === 0 ? (
+          {initialLoading && auditEvents.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Loading...</p>
+          ) : auditEvents.length === 0 ? (
             <p className="text-sm text-muted-foreground">No lifecycle events recorded yet.</p>
           ) : (
+            <TooltipProvider delayDuration={0}>
             <ul className="space-y-4">
-              {sortedEvents.map((evt: any, idx: number) => (
-                <li
-                  key={`${evt.timestamp ?? idx}-${idx}`}
-                  className="border-b border-muted last:border-b-0 pt-4 pb-4 first:pt-0 last:pb-0 text-sm"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex flex-col gap-0.5">
-                      <span className="font-semibold text-foreground">{formatEventName(evt.event)}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {evt.actor ? `by ${evt.actor}` : "System"}
-                        {evt.timestamp ? ` · ${formatDate(evt.timestamp)}` : ""}
-                      </span>
+              {(() => {
+                const maxEvents = 200
+                const displayEvents =
+                  auditEvents.length > maxEvents ? auditEvents.slice(-maxEvents) : auditEvents
+                return displayEvents.map((evt, idx) => (
+                  <li
+                    key={`${evt.at}-${evt.type}-${idx}`}
+                    className="border-b border-muted last:border-b-0 pt-4 pb-4 first:pt-0 last:pb-0 text-sm"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex flex-col gap-0.5">
+                        <span className="font-semibold text-foreground">{evt.summary}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {evt.meta.missingCompletedAt === true &&
+                          evt.type !== "plan_succeeded" &&
+                          evt.type !== "plan_failed" ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="cursor-help border-b border-dotted border-muted-foreground/50">
+                                  {evt.actor ? `by ${evt.actor}` : ""}
+                                  {evt.actor && evt.at ? " · " : ""}
+                                  {evt.at ? formatDate(evt.at) : ""}
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent>Completion time inferred (completedAt missing)</TooltipContent>
+                            </Tooltip>
+                          ) : (
+                            <>
+                              {evt.actor ? `by ${evt.actor}` : ""}
+                              {evt.actor && evt.at ? " · " : ""}
+                              {evt.at ? formatDate(evt.at) : ""}
+                            </>
+                          )}
+                        </span>
+                      </div>
                     </div>
-                  </div>
-                  {evt.data ? (
+                  {Object.keys(evt.meta).filter((k) => k !== "missingCompletedAt").length > 0 ? (
                     <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-muted-foreground sm:grid-cols-3">
-                      {Object.entries(evt.data).map(([k, v]) => {
+                      {Object.entries(evt.meta)
+                        .filter(([k]) => k !== "missingCompletedAt")
+                        .map(([k, v]) => {
                         const dataWithRepo = {
-                          ...evt.data,
+                          ...evt.meta,
                           targetRepo:
                             request?.targetOwner && request?.targetRepo
                               ? `${request.targetOwner}/${request.targetRepo}`
-                              : (evt.data as Record<string, unknown>)?.targetRepo,
+                              : (evt.meta as Record<string, unknown>)?.targetRepo,
                         }
-                        const entry = formatDataEntry(k, v, dataWithRepo)
+                        const entry =
+                          k === "durationMs" && typeof v === "number"
+                            ? { label: "Duration", value: formatDurationMs(v), href: undefined as string | undefined }
+                            : formatDataEntry(k, v, dataWithRepo)
                         return (
                           <div
                             key={k}
@@ -2281,8 +2311,10 @@ function RequestDetailPage() {
                     </div>
                   ) : null}
                 </li>
-              ))}
+                ));
+              })()}
             </ul>
+            </TooltipProvider>
           )}
         </CardContent>
       </Card>

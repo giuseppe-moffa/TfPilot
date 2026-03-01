@@ -33,8 +33,16 @@ All derived by `deriveLifecycleStatus(request)`; not stored as source of truth (
 ## Repair
 
 - **Meaning:** Sync that performs GitHub API calls to refresh request facts (PR, reviews, workflow runs) and optionally retry cleanup dispatch after destroy success.
-- **When:** Sync runs GitHub fetch when `needsRepair(request)` is true, when the client calls sync with `?repair=1` or `?hydrate=1`, or when any current attempt (plan/apply/destroy) satisfies **needsReconcile** (runId present and conclusion missing), so "stuck" states converge without manual repair.
+- **When:** Sync runs GitHub fetch when `needsRepair(request)` is true, when the client calls sync with `?repair=1` or `?hydrate=1`, or when any current attempt (plan/apply/destroy) satisfies **needsReconcile** (runId present and either conclusion or completedAt missing), so "stuck" states and missing completion time converge without manual repair.
 - **Endpoint:** GET `/api/requests/:requestId/sync` (with optional `repair=1` or `hydrate=1`). Implemented in **app/api/requests/[requestId]/sync/route.ts**; policy in **lib/requests/syncPolicy.ts**.
+
+---
+
+## Request lock
+
+- **Meaning:** Per-request mutex stored as `request.lock` (holder, operation, acquiredAt, expiresAt) to prevent concurrent plan/apply/destroy on the same request. Default TTL 2 minutes (**lib/requests/lock.ts** `LOCK_TTL_MS`).
+- **Active vs expired:** Only an **active** lock (exists, valid expiresAt, and now &lt; expiresAt) blocks actions. The UI uses `isLockActive(lock)`; the backend uses `isLockExpired(lock, now)` in `acquireLock` so an expired lock is treated as no lock (no `LockConflictError`).
+- **Sync clearing:** Sync clears expired locks: if `request.lock` exists and `expiresAt` is in the past, sync removes the lock and persists. With `DEBUG_WEBHOOKS=1`, sync logs `event=sync.lock_cleared_expired`.
 
 ---
 
