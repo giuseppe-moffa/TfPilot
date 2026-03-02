@@ -36,7 +36,8 @@ The codebase is organized so that **top-level folders and route shapes reflect t
 - **`app/api/modules/`** — Module catalog and schema (Terraform modules).
 - **`app/api/templates/`** — Block templates (admin/seed, CRUD).
 - **`app/api/health/`**, **`app/api/infra/`** — Health and infra checks.
-- **`app/login/`**, **`app/connect/`**, **`app/aws/`**, **`app/catalogue/`**, **`app/insights/`**, **`app/environments/`** — Login, AWS connect, catalogue, insights, environments.
+- **`app/login/`**, **`app/aws/connect/`** — Login; AWS account connection (connect UI under aws).
+- **`app/catalogue/`**, **`app/insights/`**, **`app/environments/`** — Module catalogue, Insights dashboard, environments.
 
 ### `lib/` — Domain and shared logic (no UI)
 

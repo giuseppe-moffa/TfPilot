@@ -1,6 +1,6 @@
 # TfPilot context pack (new chat paste)
 
-Tight reference for continuing work: lifecycle, webhooks, SSE, status derivation, workflows. Valid docs: **docs/DOCS_INDEX.md**, **docs/SYSTEM_OVERVIEW.md**, **docs/REQUEST_LIFECYCLE.md**, **docs/INVARIANTS.md**, **docs/GITHUB_WORKFLOWS.md**, **docs/WEBHOOKS_AND_CORRELATION.md**, **docs/OPERATIONS.md**, **docs/RUN_INDEX.md**, **docs/GLOSSARY.md**.
+Tight reference for continuing work: lifecycle, webhooks, SSE, status derivation, workflows, list/Postgres. Valid docs: **docs/DOCS_INDEX.md**, **docs/SYSTEM_OVERVIEW.md**, **docs/REQUEST_LIFECYCLE.md**, **docs/INVARIANTS.md**, **docs/GITHUB_WORKFLOWS.md**, **docs/WEBHOOKS_AND_CORRELATION.md**, **docs/OPERATIONS.md**, **docs/RUN_INDEX.md**, **docs/POSTGRES_INDEX.md**, **docs/API.md**, **docs/GLOSSARY.md**.
 
 ---
 
@@ -13,7 +13,7 @@ Tight reference for continuing work: lifecycle, webhooks, SSE, status derivation
 
 ## 1) What TfPilot is
 
-TfPilot is an AI-assisted Terraform self-service platform. Users create requests (project + environment + module + config); the app persists to S3, generates **deterministic** Terraform via templates/modules, opens PRs, and **GitHub Actions** run plan/apply/destroy/cleanup. Lifecycle is **PR-based**: create → plan → approve → merge → apply; optional destroy (cleanup PR strips TfPilot block, then destroy). **S3** holds request JSON (and chat logs). Status is **derived from facts only** (no optimistic status writes). **Webhooks** (`pull_request`, `pull_request_review`, `workflow_run`) patch request facts; an **SSE stream** (`/api/stream`) pushes events so the UI can revalidate without polling.
+TfPilot is an AI-assisted Terraform self-service platform. Users create requests (project + environment + module + config); the app persists to S3, generates **deterministic** Terraform via templates/modules, opens PRs, and **GitHub Actions** run plan/apply/destroy/cleanup. Lifecycle is **PR-based**: create → plan → approve → merge → apply; optional destroy (cleanup PR strips TfPilot block, then destroy). **S3** holds request JSON (authoritative); **Postgres `requests_index`** is a write-through projection for list ordering and cursor pagination (no lifecycle in DB). Status is **derived from facts only** (no optimistic status writes). **Webhooks** (`pull_request`, `pull_request_review`, `workflow_run`) patch request facts; an **SSE stream** (`/api/stream`) pushes events so the UI can revalidate without polling.
 
 ---
 
@@ -229,7 +229,7 @@ if (saved) await appendStreamEvent(...)
 
 ### Requests store — `lib/storage/requestsStore.ts`
 
-- **Purpose:** S3 CRUD for request JSON; optimistic locking via `version`.
+- **Purpose:** S3 CRUD for request JSON; optimistic locking via `version`. Write-through: after each S3 save, upserts into Postgres `requests_index` (lib/db/indexer.ts); index failures are logged, not thrown.
 - **Critical:** `updateRequest(requestId, mutate)` returns `[request, saved]`. If `mutate(current) === current` (same reference), **no write**, `saved === false`. So idempotent patch (unchanged request from `patchRunsAttemptByRunId`) → no S3 write → no SSE.
 - **Paths:** `requests/<requestId>.json`, `history/<requestId>.json` (archive).
 
@@ -1091,6 +1091,7 @@ jobs:
 ## 8) How to debug fast
 
 - **DEBUG_WEBHOOKS:** Set env `DEBUG_WEBHOOKS=1` (e.g. in `.env.local` or ECS). Webhook handler logs index resolution (`event=webhook.resolve scope=index kind= runId= requestId=`) and unknown workflow_run (`event=webhook.workflow_run.unknown runId= name= displayTitle=`). Sync logs `event=sync.lock_cleared_expired` when it clears an expired request lock.
+- **List + Postgres:** GET `/api/requests` uses Postgres `requests_index` for ordering and cursor pagination; fetches full doc from S3 per row. **Requires `DATABASE_URL`** — if unset or DB unreachable, returns **503**. No S3-only fallback. See **docs/POSTGRES_INDEX.md**, **docs/API.md**.
 - **S3 prefixes (requests bucket):**  
   - Request docs: `requests/<requestId>.json`.  
   - Run index: `webhooks/github/run-index/<kind>/run-<runId>.json`.  

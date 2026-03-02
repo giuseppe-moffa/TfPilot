@@ -14,7 +14,7 @@ Strict read-only mapping of current implementation for S3 → Postgres migration
   - Function names: `getRequest`, `putRequest`, `saveRequest`, `updateRequest`, `listRequests`
 
 - **history/**
-  - Read: NOT FOUND (no read of history prefix in codebase)
+  - Read: `app/api/requests/[requestId]/audit-export/route.ts` — `fetchRequestFromHistory` (GetObject on `history/<id>.json` when `getRequest` fails; e.g. destroyed requests)
   - Write: `lib/storage/requestsStore.ts` — `putHistory` (called by `archiveRequest`)
   - Function names: `putHistory`, `archiveRequest`
 

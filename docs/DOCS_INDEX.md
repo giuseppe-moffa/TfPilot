@@ -4,6 +4,18 @@ Canonical docs only. For archived/retired docs see `docs/archive/`.
 
 ---
 
+## Doc refresh (full documentation refresh) — 2026-03-02
+
+**What changed**
+- **SCREAMING_ARCHITECTURE.md:** Fixed app layout — `app/connect/` → `app/aws/connect/`; clarified AWS connect vs catalogue/insights/environments.
+- **FORENSIC_STORAGE_INVARIANTS_REPORT.md:** Added `history/` read path — `fetchRequestFromHistory` in audit-export route when request not in active store.
+- **ARCHITECTURE_DELTA_DB.md:** Added header linking to POSTGRES_INDEX.md as current canonical for schema and behavior.
+- **DOCS_INDEX.md:** Added ARCHITECTURE_DELTA_DB and FORENSIC_STORAGE_INVARIANTS_REPORT to table as reference docs.
+- **CONTEXT_PACK.md:** Added POSTGRES_INDEX and API to valid docs; S3 + Postgres projection for list; write-through indexing; GET /api/requests requires Postgres (503 when unset).
+- **tfpilot-terraform README.md** (infra repo): Corrected workflow env var names (GITHUB_*_WORKFLOW_FILE); added Postgres EC2 to cost estimate; cost total ~$36–40.
+
+---
+
 ## Doc refresh (Postgres index + API + operations) — 2026-03-02
 
 **What changed**
@@ -128,6 +140,9 @@ Canonical docs only. For archived/retired docs see `docs/archive/`.
 | `docs/prompts/design/*.md` | UI/Internal design prompts | **KEEP** | — | Current |
 | **Reference / optional** | | | | |
 | `docs/USEFUL_COMMANDS.md` | Quick reference: dev, Postgres, webhook tunnel, tests, health | **KEEP** | — | Current |
+| `docs/ARCHITECTURE_DELTA_DB.md` | Design doc for Postgres index migration; canonical schema/behavior in POSTGRES_INDEX | **KEEP** | `docs/POSTGRES_INDEX.md` for current state | Reference |
+| `docs/ARCHITECTURE_DELTA_ENVIRONMENTS.md` | Design/proposal: first-class Environment entity, env-centric UX; not implemented | **KEEP** | — | Reference (design) |
+| `docs/FORENSIC_STORAGE_INVARIANTS_REPORT.md` | Read-only storage model mapping (S3 prefixes, read/write sites) | **KEEP** | — | Reference |
 | `docs/PLATFORM_BENCHMARKS.md` | Benchmarks | **KEEP** | — | Optional reference |
 | `docs/STATUS_WORKFLOW_SPIKE.md` | Spike: status derivation, list vs detail, apply/sync; no code changes | **KEEP** | — | Investigation only |
 | **Archived** (moved to `docs/archive/`) | | | | |

@@ -1,5 +1,9 @@
 # Architecture Delta: Postgres Index (PR-Native, Deterministic Control Plane)
 
+**Design doc for the Postgres index migration. Current canonical schema and behavior: [docs/POSTGRES_INDEX.md](POSTGRES_INDEX.md).**
+
+---
+
 ## Goal
 Add a Postgres-backed **index** for fast querying (lists, filters, insights) while keeping TfPilot’s PR-native, deterministic lifecycle model unchanged.
 
