@@ -21,10 +21,23 @@ export async function GET(req: NextRequest) {
     async start(controller) {
       const encoder = new TextEncoder()
       let lastHeartbeat = Date.now()
+      let closed = false
+      let interval: ReturnType<typeof setInterval> | null = null
+
+      const safeClose = () => {
+        if (closed) return
+        closed = true
+        if (interval != null) clearInterval(interval)
+        try {
+          controller.close()
+        } catch {
+          // Controller may already be closed (e.g. client disconnected)
+        }
+      }
 
       const tick = async () => {
         if (req.signal?.aborted) {
-          controller.close()
+          safeClose()
           return
         }
         const now = Date.now()
@@ -32,7 +45,7 @@ export async function GET(req: NextRequest) {
           try {
             controller.enqueue(encoder.encode(":heartbeat\n\n"))
           } catch {
-            controller.close()
+            safeClose()
             return
           }
           lastHeartbeat = now
@@ -47,7 +60,7 @@ export async function GET(req: NextRequest) {
                   encoder.encode(formatSSE("request", JSON.stringify(ev)))
                 )
               } catch {
-                controller.close()
+                safeClose()
                 return
               }
               since = ev.seq
@@ -59,18 +72,16 @@ export async function GET(req: NextRequest) {
       }
 
       await tick()
-      const interval = setInterval(async () => {
+      interval = setInterval(async () => {
         if (req.signal?.aborted) {
-          clearInterval(interval)
-          controller.close()
+          safeClose()
           return
         }
         await tick()
       }, POLL_MS)
 
       req.signal?.addEventListener?.("abort", () => {
-        clearInterval(interval)
-        controller.close()
+        safeClose()
       })
     },
   })

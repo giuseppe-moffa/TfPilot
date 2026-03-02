@@ -1,0 +1,21 @@
+# Local Postgres for TfPilot (list index + migrations).
+# Data persists in volume tfpilot-pg-data across up/down.
+# Run: docker compose up -d
+# Then: DATABASE_URL=postgresql://tfpilot_app:localdev@localhost:5432/tfpilot npm run db:migrate
+#       npm run dev
+
+services:
+  postgres:
+    image: postgres:12-alpine
+    container_name: tfpilot-pg
+    environment:
+      POSTGRES_USER: tfpilot_app
+      POSTGRES_PASSWORD: localdev
+      POSTGRES_DB: tfpilot
+    ports:
+      - "5432:5432"
+    volumes:
+      - tfpilot-pg-data:/var/lib/postgresql/data
+
+volumes:
+  tfpilot-pg-data:

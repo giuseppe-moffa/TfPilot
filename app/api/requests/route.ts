@@ -7,7 +7,14 @@ import { githubRequest } from "@/lib/github/rateAware"
 import { getEnvTargetFile, getModuleType } from "@/lib/infra/moduleType"
 import { resolveInfraRepo } from "@/config/infra-repos"
 import { env, logEnvDebug } from "@/lib/config/env"
-import { saveRequest, listRequests } from "@/lib/storage/requestsStore"
+import { saveRequest, getRequest } from "@/lib/storage/requestsStore"
+import {
+  listRequestIndexRowsPage,
+  encodeCursor,
+  decodeCursor,
+  MAX_LIST_LIMIT,
+} from "@/lib/db/requestsList"
+import { computeDocHash } from "@/lib/db/indexer"
 import { moduleRegistry, type ModuleRegistryEntry, type ModuleField } from "@/config/module-registry"
 import { generateRequestId } from "@/lib/requests/id"
 import { deriveLifecycleStatus } from "@/lib/requests/deriveLifecycleStatus"
@@ -818,22 +825,123 @@ export async function GET(req: NextRequest) {
   const sessionOr401 = await requireSession()
   if (sessionOr401 instanceof NextResponse) return sessionOr401
   const correlation = withCorrelation(req, {})
+
+  const limitParam = req.nextUrl.searchParams.get("limit")
+  const limitRaw = limitParam != null ? parseInt(limitParam, 10) : 50
+  const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(1, limitRaw), MAX_LIST_LIMIT) : 50
+  const cursorParam = req.nextUrl.searchParams.get("cursor") ?? null
+  const cursor = cursorParam != null && cursorParam.trim() !== "" ? cursorParam.trim() : null
+  if (cursor != null && decodeCursor(cursor) === null) {
+    return NextResponse.json(
+      { success: false, error: "Invalid or malformed cursor" },
+      { status: 400 }
+    )
+  }
+
+  let indexRows: Awaited<ReturnType<typeof listRequestIndexRowsPage>>
+  try {
+    indexRows = await listRequestIndexRowsPage({ limit: limit + 1, cursor })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return NextResponse.json(
+      { success: false, error: `Database unreachable: ${message}` },
+      { status: 503 }
+    )
+  }
+  if (indexRows === null) {
+    return NextResponse.json(
+      { success: false, error: "Database not configured; list requires Postgres" },
+      { status: 503 }
+    )
+  }
+
+  const pageRows = indexRows.slice(0, limit)
+
+  // UI: treat each page as a "latest snapshot"; no global consistency across pages (new requests between fetches can shift items).
   try {
     return await timeAsync("request.list", correlation, async () => {
-      const raw: StoredRequest[] = (await listRequests()) as StoredRequest[]
-      const requests = raw.map((req) => ({
-        ...req,
-        status: deriveLifecycleStatus(req),
-      }))
+      const driftLogged = new Set<string>()
+      const missingLogged = new Set<string>()
+      const list_errors: { request_id: string; error: string; index_updated_at: string }[] = []
+
+      const isNoSuchKey = (e: unknown): boolean => {
+        const err = e as { name?: string; message?: string; Code?: string }
+        return (
+          err?.name === "NoSuchKey" ||
+          err?.Code === "NoSuchKey" ||
+          (typeof err?.message === "string" && err.message.includes("The specified key does not exist"))
+        )
+      }
+
+      const results = await Promise.all(
+        pageRows.map(async (row) => {
+          try {
+            const doc = await getRequest(row.request_id)
+            return { ok: true as const, row, doc }
+          } catch (e) {
+            return { ok: false as const, row, error: e, isNoSuchKey: isNoSuchKey(e) }
+          }
+        })
+      )
+
+      const requests: unknown[] = []
+      for (const r of results) {
+        if (r.ok) {
+          const { row, doc } = r
+          const base = {
+            ...doc,
+            status: deriveLifecycleStatus(doc),
+            index_projection_updated_at: row.updated_at,
+          }
+          const indexDocHash = row.doc_hash ?? null
+          const s3DocHash = computeDocHash(doc as Parameters<typeof computeDocHash>[0])
+          const drift = indexDocHash != null && s3DocHash !== indexDocHash
+          if (drift) {
+            if (!driftLogged.has(row.request_id)) {
+              driftLogged.add(row.request_id)
+              logWarn("request.list", undefined, { requestId: row.request_id, index_doc_hash: indexDocHash, s3_doc_hash: s3DocHash, message: "index drift detected" })
+            }
+            requests.push({
+              ...base,
+              index_drift: true,
+              index_doc_hash: indexDocHash,
+              s3_doc_hash: s3DocHash,
+            })
+          } else {
+            requests.push(base)
+          }
+        } else {
+          if (r.isNoSuchKey) {
+            list_errors.push({ request_id: r.row.request_id, error: "NoSuchKey", index_updated_at: r.row.updated_at })
+            if (!missingLogged.has(r.row.request_id)) {
+              missingLogged.add(r.row.request_id)
+              logWarn("request.list_missing_s3_doc", undefined, { requestId: r.row.request_id, correlationId: correlation?.correlationId })
+            }
+          } else {
+            throw r.error
+          }
+        }
+      }
+
+      const next_cursor =
+        indexRows.length > limit
+          ? encodeCursor({
+              updated_at: pageRows[pageRows.length - 1].updated_at,
+              request_id: pageRows[pageRows.length - 1].request_id,
+            })
+          : null
       return NextResponse.json({
         success: true,
         requests,
+        next_cursor,
+        list_errors,
       })
     })
-  } catch {
-    return NextResponse.json({
-      success: true,
-      requests: [],
-    })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return NextResponse.json(
+      { success: false, error: message },
+      { status: 500 }
+    )
   }
 }

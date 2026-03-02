@@ -4,6 +4,13 @@ Canonical docs only. For archived/retired docs see `docs/archive/`.
 
 ---
 
+## Doc add (USEFUL_COMMANDS.md)
+
+**What changed**
+- **docs/USEFUL_COMMANDS.md** added: quick reference for app run, Postgres (Docker, migrate, rebuild-index), webhook tunnel (ngrok/cloudflared/localtunnel), invariant tests and validation scripts, health/API, one-off Postgres run.
+
+---
+
 ## Doc add (INVARIANTS.md) — 2026-02-28
 
 **What changed**
@@ -106,6 +113,7 @@ Canonical docs only. For archived/retired docs see `docs/archive/`.
 | `docs/prompts/agents/*-agent.md` | Role-specific agent prompts (naming: *-agent) | **KEEP** | — | Current |
 | `docs/prompts/design/*.md` | UI/Internal design prompts | **KEEP** | — | Current |
 | **Reference / optional** | | | | |
+| `docs/USEFUL_COMMANDS.md` | Quick reference: dev, Postgres, webhook tunnel, tests, health | **KEEP** | — | Current |
 | `docs/PLATFORM_BENCHMARKS.md` | Benchmarks | **KEEP** | — | Optional reference |
 | `docs/STATUS_WORKFLOW_SPIKE.md` | Spike: status derivation, list vs detail, apply/sync; no code changes | **KEEP** | — | Investigation only |
 | **Archived** (moved to `docs/archive/`) | | | | |

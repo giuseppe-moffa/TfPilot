@@ -8,7 +8,7 @@
 
 **Production URL:** [https://tfpilot.com](https://tfpilot.com) · **Tech stack:** Next.js 16, React 19, Tailwind CSS 4, shadcn/ui.
 
-**Documentation:** [docs/DOCS_INDEX.md](docs/DOCS_INDEX.md) — index of canonical docs. Key: [System overview](docs/SYSTEM_OVERVIEW.md), [Request lifecycle](docs/REQUEST_LIFECYCLE.md), [GitHub workflows](docs/GITHUB_WORKFLOWS.md), [Webhooks & correlation](docs/WEBHOOKS_AND_CORRELATION.md), [Operations](docs/OPERATIONS.md), [Run index](docs/RUN_INDEX.md).
+**Documentation:** [docs/DOCS_INDEX.md](docs/DOCS_INDEX.md) — index of canonical docs. [Useful commands](docs/USEFUL_COMMANDS.md) — dev, Postgres, webhook tunnel, tests. Key: [System overview](docs/SYSTEM_OVERVIEW.md), [Request lifecycle](docs/REQUEST_LIFECYCLE.md), [GitHub workflows](docs/GITHUB_WORKFLOWS.md), [Webhooks & correlation](docs/WEBHOOKS_AND_CORRELATION.md), [Operations](docs/OPERATIONS.md), [Run index](docs/RUN_INDEX.md).
 
 ### For users: Sign-in and GitHub App
 
@@ -91,6 +91,21 @@ Ensure env vars above are set (buckets/region, workflow filenames, session secre
 - GitHub OAuth app credentials
 - OpenAI API key (if using the AI assistant)
 
+**Postgres (optional):** The app runs without a database by default. To use the Postgres foundation (migrations, list index, health):
+
+1. Run Postgres locally with **persistent data** (recommended):
+   ```bash
+   docker compose up -d
+   ```
+   Uses Postgres 12 and volume `tfpilot-pg-data`; data survives `docker compose down` / `up`.
+2. Set in `.env.local`: `DATABASE_URL=postgresql://tfpilot_app:localdev@localhost:5432/tfpilot`
+3. Run migrations: `npm run db:migrate`
+4. Start the app: `npm run dev`. `GET /api/health/db` returns `{ ok: true }` when the DB is reachable.
+
+   One-off run without compose: `docker run -d --name tfpilot-pg -e POSTGRES_USER=tfpilot_app -e POSTGRES_PASSWORD=localdev -e POSTGRES_DB=tfpilot -p 5432:5432 postgres:12-alpine` (no volume; data lost on container remove).
+
+If `DATABASE_URL` is unset, the app starts normally and `/api/health/db` returns `{ ok: false, error: "Database not configured ..." }`.
+
 ## Running invariant tests
 
 ```bash
@@ -103,6 +118,7 @@ Runs the lifecycle invariant suite (`tests/invariants/`). Must pass before mergi
 - `npm run dev` — start Next.js dev server
 - `npm run build` / `npm run start` — production build and start
 - `npm run lint` — ESLint
+- `npm run db:migrate` — run pending SQL migrations (requires `DATABASE_URL` or PG* env)
 - `npm run validate:registry` — validate module registry (`config/module-registry.ts`)
 - `npm run validate:tags` — validate server tags
 
@@ -122,5 +138,5 @@ Runs the lifecycle invariant suite (`tests/invariants/`). Must pass before mergi
 
 ### Observability
 - **Current**: UI polling (SWR) for list and per-request sync; statuses surfaced for plan/apply/destroy; cleanup PR displayed. Lifecycle events logged to S3 (JSON format) for plan/approve/merge/apply/destroy/cleanup/configuration_updated events. Request detail pages show timeline of events. Downloadable audit logs (JSON export) for compliance and troubleshooting. Admin email notifications (AWS SES) for apply/destroy/plan success and failure events. Passive drift detection (dev-only): nightly terraform plans for successfully applied requests detect infrastructure drift; drift status surfaced in UI with plan run links.
-- **Endpoints:** `/api/health`, `/api/metrics` for health and basic metrics.
+- **Endpoints:** `/api/health`, `/api/health/db` (DB optional), `/api/metrics` for health and basic metrics.
 - **Gaps/TODO:** Slack notifications.

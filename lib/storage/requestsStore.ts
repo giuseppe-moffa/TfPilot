@@ -61,6 +61,8 @@ async function putHistory(request: any) {
 /**
  * Save a request object to S3. When expectedVersion is provided, the current
  * stored version must match or an error is thrown (optimistic locking).
+ * After S3 write, upserts to Postgres requests_index when DB is configured;
+ * index failures are logged and do not block or throw.
  */
 export async function saveRequest(request: any, options: SaveOptions = {}) {
   const nextVersion = typeof request.version === "number" ? request.version : 1
@@ -74,6 +76,14 @@ export async function saveRequest(request: any, options: SaveOptions = {}) {
 
   const payload = { ...request, version: nextVersion }
   await putRequest(payload)
+
+  try {
+    const { upsertRequestIndex } = await import("@/lib/db/indexer")
+    await upsertRequestIndex(payload)
+  } catch (e) {
+    console.warn("[requestsStore] index upsert failed (S3 write succeeded)", (e as Error)?.message ?? e)
+  }
+
   return payload
 }
 
@@ -134,6 +144,30 @@ export async function listRequests(limit = 50) {
     results.push(JSON.parse(body))
   }
   return results
+}
+
+/** List all request IDs under requests/ (paginated). Sorted for deterministic ordering. */
+export async function listAllRequestIds(): Promise<string[]> {
+  const ids: string[] = []
+  let continuationToken: string | undefined
+  do {
+    const listed = await s3.send(
+      new ListObjectsV2Command({
+        Bucket: BUCKET,
+        Prefix: PREFIX,
+        MaxKeys: 1000,
+        ContinuationToken: continuationToken,
+      })
+    )
+    const contents = listed.Contents ?? []
+    for (const obj of contents) {
+      if (!obj.Key || !obj.Key.startsWith(PREFIX) || !obj.Key.endsWith(".json")) continue
+      const id = obj.Key.slice(PREFIX.length, -5)
+      if (id) ids.push(id)
+    }
+    continuationToken = listed.IsTruncated ? listed.NextContinuationToken : undefined
+  } while (continuationToken)
+  return ids.sort()
 }
 
 /** Max requests to scan when resolving by destroy runId (fallback only). */
