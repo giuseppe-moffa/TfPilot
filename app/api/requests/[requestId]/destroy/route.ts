@@ -274,6 +274,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
         statusDerivedAt: nowIso,
         cleanupPr: cur.cleanupPr ?? { status: "pending" },
         updatedAt: runsPatch.updatedAt,
+        lastActionAt: nowIso,
       }
     })
 

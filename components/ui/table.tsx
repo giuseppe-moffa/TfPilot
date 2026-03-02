@@ -9,7 +9,7 @@ function Table({ className, ...props }: React.ComponentProps<"table">) {
   return (
     <div
       data-slot="table-container"
-      className="relative w-full overflow-x-auto shadow-[inset_0_-8px_12px_-8px_rgba(0,0,0,0.04)] dark:shadow-[inset_0_-8px_12px_-8px_rgba(0,0,0,0.15)]"
+      className="relative w-full overflow-x-auto"
     >
       <table
         data-slot="table"
@@ -24,7 +24,7 @@ function TableHeader({ className, ...props }: React.ComponentProps<"thead">) {
   return (
     <thead
       data-slot="table-header"
-      className={cn("sticky top-0 z-10 [&_tr_th]:bg-muted/50 [&_tr_th]:dark:bg-muted/50 [&_tr_th:first-child]:rounded-tl-lg [&_tr_th:last-child]:rounded-tr-lg", className)}
+      className={cn("sticky top-0 z-10", className)}
       {...props}
     />
   )
@@ -34,7 +34,7 @@ function TableBody({ className, ...props }: React.ComponentProps<"tbody">) {
   return (
     <tbody
       data-slot="table-body"
-      className={cn(className)}
+      className={cn("[&>tr:last-child]:border-b-0", className)}
       {...props}
     />
   )
@@ -58,7 +58,7 @@ function TableRow({ className, ...props }: React.ComponentProps<"tr">) {
     <tr
       data-slot="table-row"
       className={cn(
-        "data-[state=selected]:bg-muted/70 even:bg-muted/20 transition-colors hover:bg-row-hover dark:hover:bg-muted/60 border-b border-muted/30 last:border-b-0",
+        "data-[state=selected]:bg-muted/70 even:bg-muted/20 transition-colors hover:bg-row-hover dark:hover:bg-muted/60 border-b border-border",
         className
       )}
       {...props}
@@ -71,7 +71,7 @@ function TableHead({ className, ...props }: React.ComponentProps<"th">) {
     <th
       data-slot="table-head"
       className={cn(
-        "bg-muted/50 dark:bg-muted/40 text-foreground h-11 px-2 text-left align-middle font-bold tracking-tight whitespace-nowrap [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]",
+        "text-foreground h-11 px-2 text-left align-middle font-bold tracking-tight whitespace-nowrap [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]",
         className
       )}
       {...props}
@@ -107,7 +107,7 @@ function TableHeadSortable({
             : undefined
       }
       className={cn(
-        "bg-muted/50 dark:bg-muted/40 text-foreground h-11 px-2 text-left align-middle font-bold tracking-tight whitespace-nowrap cursor-pointer select-none [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]",
+        "text-foreground h-11 px-2 text-left align-middle font-bold tracking-tight whitespace-nowrap cursor-pointer select-none [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]",
         className
       )}
       onClick={onSort}

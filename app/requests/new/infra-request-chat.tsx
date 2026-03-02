@@ -188,7 +188,7 @@ export function InfraRequestChat({ projects, environments, onComplete, moduleSch
   }
 
   return (
-    <div className="flex flex-col gap-4 rounded-xl border border-border bg-card p-4 shadow-sm">
+    <div className="flex flex-col gap-4 rounded-lg border border-border bg-card p-4 shadow-sm">
       <div className="flex flex-col gap-3">
         <AnimatePresence>
           {messages.map((message) => (

@@ -4,6 +4,40 @@ Short playbook for recovery and common operations. No application logic changes 
 
 ---
 
+## Rebuild and prune Postgres index
+
+The requests list is served from Postgres `requests_index`. The index is write-through (updated after each S3 save). If the index is missing rows or has stale/orphan rows, rebuild from S3.
+
+| Task | Command |
+|------|---------|
+| Rebuild index from S3 | `npm run db:rebuild-index` |
+| Rebuild and remove rows for requests no longer in S3 | `npm run db:rebuild-index -- --prune` |
+
+- **Script:** `scripts/rebuild-requests-index.ts`. Requires `DATABASE_URL` (or `PG*` env) and `TFPILOT_REQUESTS_BUCKET`.
+- Rebuild upserts every S3 request document into `requests_index` using the same projection as the write-through path (`lib/db/indexer.ts`: `projectRequestToIndexValues`, `INDEX_UPSERT_SQL`). With `--prune`, rows whose `request_id` is not in S3 are deleted.
+- See [POSTGRES_INDEX.md](POSTGRES_INDEX.md) for schema and write-through boundary.
+
+---
+
+## Verify Postgres connectivity
+
+- **Health endpoint:** `GET /api/health/db` returns `{ ok: true }` when the DB is reachable, or `{ ok: false, error: "..." }` with status 503 when not configured or unreachable.
+- **Local:** Ensure `DATABASE_URL` is set in `.env.local`, then `curl -s http://localhost:3000/api/health/db`.
+- **Migrations:** Run `npm run db:migrate` to apply pending migrations (see `migrations/`). Requires `DATABASE_URL` or `PGHOST`/`PGUSER`/etc.
+
+---
+
+## Common failure scenarios
+
+| Scenario | Meaning | What to do |
+|----------|---------|------------|
+| **GET /api/requests returns 503** | Database not configured or unreachable. List **requires** Postgres. | Set `DATABASE_URL` (or `PGHOST`, `PGUSER`, etc.). Check ECS task has secret `DATABASE_URL` from Secrets Manager. Verify Postgres is reachable from the app (security groups, private DNS). |
+| **list_errors with error "NoSuchKey"** | Index row exists but S3 object `requests/<requestId>.json` is missing (e.g. deleted or never written). | Treat as orphan index row. Run `npm run db:rebuild-index -- --prune` to remove such rows from the index. Optionally restore the S3 object if it was deleted by mistake. |
+| **index_drift: true on a request** | Index row’s `doc_hash` does not match the hash of the current S3 document. Index is stale. | Rebuild index for that request (or run full `npm run db:rebuild-index`) so the index row is updated from S3. Drift is detected in `app/api/requests/route.ts` (GET list) and returned as `index_drift`, `index_doc_hash`, `s3_doc_hash`. |
+| **Invalid or malformed cursor** | Client sent a bad `cursor` query param (not valid base64url JSON). | Ensure cursor is the exact `next_cursor` value from the previous page; do not modify or truncate. See [API.md](API.md). |
+
+---
+
 ## Request stuck states
 
 | Symptom | What to do |

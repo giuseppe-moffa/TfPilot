@@ -16,6 +16,7 @@ export type RequestDocForIndex = {
   receivedAt?: string
   createdAt?: string
   updatedAt?: string
+  lastActionAt?: string
   targetOwner?: string
   targetRepo?: string
   environment?: string
@@ -71,7 +72,7 @@ export function projectRequestToIndexValues(request: RequestDocForIndex): unknow
       : null)
   const prNumber = request.pr?.number ?? null
   const mergedSha = request.mergedSha ?? null
-  const lastActivityAt = request.updatedAt ?? null
+  const lastActivityAt = request.lastActionAt ?? null
   const hash = computeDocHash(request)
   return [
     requestId,
@@ -101,7 +102,7 @@ ON CONFLICT (request_id) DO UPDATE SET
   actor = EXCLUDED.actor,
   pr_number = EXCLUDED.pr_number,
   merged_sha = EXCLUDED.merged_sha,
-  last_activity_at = EXCLUDED.last_activity_at,
+  last_activity_at = COALESCE(EXCLUDED.last_activity_at, requests_index.last_activity_at),
   doc_hash = EXCLUDED.doc_hash
 `
 

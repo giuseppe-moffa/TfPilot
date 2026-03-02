@@ -287,7 +287,7 @@ export function SuggestionPanel({ request, requestId, onRefresh, onConfigUpdate,
 
   return (
     <div className="px-4 py-3">
-      <div className="space-y-3 rounded-xl bg-muted/30 dark:bg-muted/40 p-3">
+      <div className="space-y-3 rounded-lg bg-muted/30 dark:bg-muted/40 p-3">
       <div
         className="flex items-center justify-between cursor-pointer"
         onClick={() => setIsCollapsed(!isCollapsed)}

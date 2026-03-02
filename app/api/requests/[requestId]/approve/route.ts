@@ -114,6 +114,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
       },
       statusDerivedAt: nowIso,
       updatedAt: nowIso,
+      lastActionAt: nowIso,
       timeline: nextTimeline,
     }))
 

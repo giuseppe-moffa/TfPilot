@@ -663,12 +663,14 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    const nowIso = new Date().toISOString()
     const updatedRequest = {
       ...current,
       ...(idemPatch ?? {}),
       config: finalConfig,
       revision: revisionNext,
       updatedAt: planRunsPatch.updatedAt,
+      lastActionAt: nowIso,
       branchName: ghResult.branchName,
       prNumber: ghResult.prNumber,
       prUrl: ghResult.prUrl,

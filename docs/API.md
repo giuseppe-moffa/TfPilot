@@ -1,0 +1,71 @@
+# API reference (key endpoints)
+
+Concise contract for endpoints that affect or expose the Postgres index, list, and health. For full route list and behavior, see the code under `app/api/`.
+
+---
+
+## GET /api/requests
+
+Returns a paginated list of requests. **Requires Postgres.** If the database is not configured or unreachable, the response is **503** with a JSON body.
+
+### Query parameters
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `limit` | number | Page size (1–200). Default 50. |
+| `cursor` | string | Opaque cursor from previous page’s `next_cursor`. Omit for first page. |
+
+Invalid or malformed `cursor` → **400** `{ success: false, error: "Invalid or malformed cursor" }`.
+
+### Response (200)
+
+```json
+{
+  "success": true,
+  "requests": [ /* array of request objects */ ],
+  "next_cursor": "<base64url string or null>",
+  "list_errors": [ /* array, see below */ ]
+}
+```
+
+- **requests:** Each element is the full request document (from S3) with derived `status` and optional drift fields. May include:
+  - `index_projection_updated_at` — `updated_at` from the index row.
+  - `index_projection_last_activity_at` — `last_activity_at` from the index (for “Last updated” display); falls back to `updated_at` when null.
+  - If index and S3 doc hash differ: `index_drift: true`, `index_doc_hash`, `s3_doc_hash`.
+- **next_cursor:** Base64url-encoded JSON: `{ "sort_key": "<iso>", "request_id": "<id>" }`. Use as `?cursor=<next_cursor>` for the next page. `null` when there is no next page. (Legacy cursors with `updated_at` instead of `sort_key` are still accepted.)
+- **list_errors:** Array of `{ request_id, error, index_updated_at }`. Entries are added when the index row exists but the S3 document is missing (e.g. `error: "NoSuchKey"`). Those requests are not included in `requests`.
+
+### Cursor pagination semantics
+
+- Ordering: `COALESCE(last_activity_at, updated_at) DESC`, then `request_id DESC` (stable). Uses `last_activity_at` when set (Create, Update, Apply, Destroy, Approval); falls back to `updated_at` otherwise.
+- Cursor represents the last item of the current page; the next page returns rows strictly before that (smaller `sort_key` or same `sort_key` and smaller `request_id`).
+- **UI pagination (Requests page):** Initial load fetches first page (`limit=10`). Next/Previous and page numbers (1, 2, 3…) navigate client-side over accumulated results. Clicking Next on the last visible page triggers “load more” via `next_cursor`. “Showing X to Y of Z entries” reflects loaded-and-filtered count. Each page is a snapshot; no global consistency guarantee across fetches.
+
+### When list requires DB (503)
+
+- If `DATABASE_URL` (or `PG*`) is not set: **503** `{ success: false, error: "Database not configured; list requires Postgres" }`.
+- If the DB is unreachable (e.g. connection error): **503** `{ success: false, error: "Database unreachable: ..." }`.
+
+No fallback: the list endpoint does not serve from S3-only when Postgres is missing.
+
+---
+
+## GET /api/health/db
+
+Checks Postgres connectivity. **DB-optional:** when the database is not configured, the API still returns a response (503).
+
+### Response
+
+- **Configured and reachable:** 200 `{ ok: true }`.
+- **Not configured:** 503 `{ ok: false, error: "Database not configured (set DATABASE_URL or PG* env)" }`.
+- **Configured but unreachable:** 503 `{ ok: false, error: "<message>" }` (e.g. connection or query failure).
+
+Implementation: `app/api/health/db/route.ts` — uses `isDatabaseConfigured()` from `lib/db/config.ts` and runs `SELECT 1`.
+
+---
+
+## Other endpoints
+
+- **GET /api/requests/[requestId]** — Single request from S3; no Postgres required for this route.
+- **GET /api/health** — General app health (no DB check).
+- Sync, approve, merge, apply, destroy, etc. — See code and [OPERATIONS.md](OPERATIONS.md) / [REQUEST_LIFECYCLE.md](REQUEST_LIFECYCLE.md).

@@ -646,18 +646,20 @@ export async function POST(request: NextRequest) {
       normalizedConfig.name = normalizeName(normalizedConfig.name)
     }
 
+    const nowIso = new Date().toISOString()
     const newRequest: StoredRequest = {
       id: requestId,
       project: body.project!,
       environment: body.environment!,
       module: body.module!,
       config: normalizedConfig,
-      receivedAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      receivedAt: nowIso,
+      updatedAt: nowIso,
       revision: 1,
       status: "created",
       plan: { diff: planDiffForModule(body.module) },
     }
+    ;(newRequest as Record<string, unknown>).lastActionAt = nowIso
     if (body.templateId != null) newRequest.templateId = String(body.templateId)
     if (typeof body.environmentName === "string" && body.environmentName.trim())
       newRequest.environmentName = body.environmentName.trim()
@@ -892,6 +894,7 @@ export async function GET(req: NextRequest) {
             ...doc,
             status: deriveLifecycleStatus(doc),
             index_projection_updated_at: row.updated_at,
+            index_projection_last_activity_at: row.last_activity_at ?? row.updated_at,
           }
           const indexDocHash = row.doc_hash ?? null
           const s3DocHash = computeDocHash(doc as Parameters<typeof computeDocHash>[0])
@@ -923,11 +926,13 @@ export async function GET(req: NextRequest) {
         }
       }
 
+      const lastRow = pageRows[pageRows.length - 1]
+      const sortKey = lastRow.last_activity_at ?? lastRow.updated_at
       const next_cursor =
         indexRows.length > limit
           ? encodeCursor({
-              updated_at: pageRows[pageRows.length - 1].updated_at,
-              request_id: pageRows[pageRows.length - 1].request_id,
+              sort_key: sortKey,
+              request_id: lastRow.request_id,
             })
           : null
       return NextResponse.json({

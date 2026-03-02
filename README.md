@@ -4,11 +4,11 @@
 
 **What is TfPilot:** AI-assisted Terraform self-service platform. Users create requests (project + environment + module + config); the app persists to S3, generates bounded Terraform blocks in infra repos, opens PRs, and GitHub Actions run plan/apply/destroy/cleanup. Status is derived from facts; webhooks + optional SSE keep the UI updated.
 
-**Core invariants:** Terraform runs only in GitHub Actions. Requests live in S3. TfPilot edits only between `tfpilot:begin/<requestId>` and `tfpilot:end/<requestId>` markers. No local Terraform state in the app.
+**Core invariants:** Terraform runs only in GitHub Actions. **S3 request document is authoritative**; Postgres `requests_index` is a projection for list/pagination only (no lifecycle in DB). TfPilot edits only between `tfpilot:begin/<requestId>` and `tfpilot:end/<requestId>` markers. No local Terraform state in the app.
 
 **Production URL:** [https://tfpilot.com](https://tfpilot.com) · **Tech stack:** Next.js 16, React 19, Tailwind CSS 4, shadcn/ui.
 
-**Documentation:** [docs/DOCS_INDEX.md](docs/DOCS_INDEX.md) — index of canonical docs. [Useful commands](docs/USEFUL_COMMANDS.md) — dev, Postgres, webhook tunnel, tests. Key: [System overview](docs/SYSTEM_OVERVIEW.md), [Request lifecycle](docs/REQUEST_LIFECYCLE.md), [GitHub workflows](docs/GITHUB_WORKFLOWS.md), [Webhooks & correlation](docs/WEBHOOKS_AND_CORRELATION.md), [Operations](docs/OPERATIONS.md), [Run index](docs/RUN_INDEX.md).
+**Documentation:** [docs/DOCS_INDEX.md](docs/DOCS_INDEX.md) — index of canonical docs. [Useful commands](docs/USEFUL_COMMANDS.md) — dev, Postgres, webhook tunnel, tests. Key: [System overview](docs/SYSTEM_OVERVIEW.md), [Request lifecycle](docs/REQUEST_LIFECYCLE.md), [GitHub workflows](docs/GITHUB_WORKFLOWS.md), [Webhooks & correlation](docs/WEBHOOKS_AND_CORRELATION.md), [Operations](docs/OPERATIONS.md), [Run index](docs/RUN_INDEX.md), [Postgres index](docs/POSTGRES_INDEX.md), [API](docs/API.md).
 
 ### For users: Sign-in and GitHub App
 
@@ -52,6 +52,13 @@ After that, go to [tfpilot.com](https://tfpilot.com) (or your instance URL), cli
 - **Storage:** Cost and diff JSONs are uploaded to the same requests bucket at `s3://<bucket>/cost/<requestId>/infracost-cost.json` and `infracost-diff.json`. The app reads these via `GET /api/requests/:id` and sync; no cost data is stored in the request document.
 - **UI:** Request detail Overview shows **Cost estimate** with monthly cost (e.g. `Monthly: $11.64`) when data exists; otherwise shows "—".
 - **Infra setup:** In the infra repo, add GitHub secret `INFRACOST_API_KEY` and ensure the Plan workflow is dispatched with `request_id` so uploads target the correct path. Optional: set repo variable `TFPILOT_REQUESTS_BUCKET` if the bucket name differs from the default.
+
+### Deployment and config (env + secrets)
+
+- **Required env:** See `env.example` and `lib/config/env.ts`. Buckets, GitHub OAuth, auth secret, workflow filenames, etc.
+- **Postgres (optional):** `DATABASE_URL` or `PGHOST`/`PGUSER`/`PGPASSWORD`/`PGDATABASE`/`PGPORT`. When set, list and health use Postgres; when unset, `GET /api/requests` returns 503. See [docs/POSTGRES_INDEX.md](docs/POSTGRES_INDEX.md), [docs/API.md](docs/API.md).
+- **ECS (tfpilot-terraform):** Sensitive values live in a single Secrets Manager secret (`tfpilot/app`). Task definition injects each key via `valueFrom = "<secret_arn>:KEY::"` (e.g. `AUTH_SECRET`, `GITHUB_CLIENT_SECRET`, `DATABASE_URL`). Postgres is hosted on EC2; `DATABASE_URL` is built from private DNS (`postgres.tfpilot.internal`), security groups allow 5432 from ECS tasks only. See [tfpilot-terraform](https://github.com/giuseppe-moffa/tfpilot-terraform) README and `secrets.tf` / `ecs.tf`.
+- **Migrations:** `npm run db:migrate` (uses `scripts/db-migrate.ts` and `migrations/*.sql`).
 
 ### Environment (see `env.example`)
 - Buckets/region: `TFPILOT_REQUESTS_BUCKET`, `TFPILOT_CHAT_LOGS_BUCKET`, `TFPILOT_DEFAULT_REGION`

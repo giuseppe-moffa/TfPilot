@@ -4,6 +4,18 @@ Canonical docs only. For archived/retired docs see `docs/archive/`.
 
 ---
 
+## Doc refresh (Postgres index + API + operations) — 2026-03-02
+
+**What changed**
+- **SYSTEM_OVERVIEW.md:** Added **Sources of truth** (S3 authoritative, Postgres projection only); clarified PR-native control plane; Tier-A invariants table with enforcement references. Link to POSTGRES_INDEX.md.
+- **OPERATIONS.md:** Added **Rebuild and prune Postgres index** (`npm run db:rebuild-index`, `--prune`), **Verify Postgres connectivity** (`GET /api/health/db`, migrations), **Common failure scenarios** (503 when DB not configured, NoSuchKey list_errors, index_drift, invalid cursor).
+- **POSTGRES_INDEX.md** (new): `requests_index` schema, `doc_hash` determinism, write-through boundary, drift detection, list_errors and missing S3 doc behavior, rebuild/prune.
+- **API.md** (new): GET /api/requests response shape (next_cursor, list_errors, drift fields), cursor pagination semantics, GET /api/health/db and DB-optional 503 behavior.
+- **README.md:** Core invariants mention S3 authority + Postgres projection; Documentation links to POSTGRES_INDEX.md and API.md; new **Deployment and config** subsection (env vars, Secrets Manager keys, ECS valueFrom, Postgres EC2/DNS, migrations).
+- **DOCS_INDEX.md:** This entry and table entries for POSTGRES_INDEX.md, API.md.
+
+---
+
 ## Doc add (USEFUL_COMMANDS.md)
 
 **What changed**
@@ -102,7 +114,9 @@ Canonical docs only. For archived/retired docs see `docs/archive/`.
 | `docs/GITHUB_WORKFLOWS.md` | Workflows per repo, concurrency, inputs, artifacts | **KEEP** | — | New |
 | `docs/WEBHOOKS_AND_CORRELATION.md` | Webhook types, correlation order, runId guard, idempotency | **KEEP** | — | New |
 | `docs/RUN_INDEX.md` | Run index: kinds, key format, value schema, retention | **KEEP** | — | Current |
-| `docs/OPERATIONS.md` | Recovery playbook: stuck states, repair, re-sync, dev reset | **KEEP** | — | New |
+| `docs/OPERATIONS.md` | Recovery playbook: stuck states, repair, re-sync, rebuild index, verify Postgres, failure scenarios | **KEEP** | — | Current |
+| `docs/POSTGRES_INDEX.md` | Postgres requests_index schema, doc_hash, write-through, drift, list_errors, rebuild/prune | **KEEP** | — | Current |
+| `docs/API.md` | GET /api/requests (cursor, list_errors, drift), GET /api/health/db, DB-optional behavior | **KEEP** | — | Current |
 | `docs/INVARIANTS.md` | Formal lifecycle invariants (MUST/SHOULD/MUST NOT), violation examples, enforcement points, test checklist | **KEEP** | — | Current |
 | `docs/POLLING.md` | Request-detail polling env vars and behavior | **KEEP** | — | Current |
 | `docs/GLOSSARY.md` | Terminology: workflow kinds, statuses, Repair, observability | **KEEP** | — | Current |

@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/table"
 import { useInsightsMetrics } from "@/lib/observability/useInsightsMetrics"
 import { useGitHubMetrics } from "@/lib/observability/useGitHubMetrics"
+import { getStatusLabel } from "@/lib/status/status-config"
 import { cn } from "@/lib/utils"
 import type { OpsMetricsPayload } from "@/lib/observability/ops-metrics"
 import type { GitHubMetricsSnapshot, TopRouteRow, HotRouteRow, RateLimitEventRow } from "@/lib/observability/github-metrics"
@@ -408,7 +409,7 @@ export function InsightsDashboard() {
                   .sort(([, a], [, b]) => b - a)
                   .map(([status, count]) => (
                     <TableRow key={status}>
-                      <TableCell className="font-medium">{status}</TableCell>
+                      <TableCell className="font-medium">{getStatusLabel(status)}</TableCell>
                       <TableCell className="text-right">{count}</TableCell>
                       <TableCell className="text-right">
                         {total > 0 ? ((count / total) * 100).toFixed(1) : "0"}%

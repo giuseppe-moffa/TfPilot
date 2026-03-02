@@ -690,7 +690,7 @@ function NewRequestPageContent() {
       <div className="flex-1 p-4 overflow-auto">
         <div className="mx-auto max-w-4xl space-y-6">
           {envStep === 1 ? (
-              <Card className="rounded-xl border-0 bg-card p-6 shadow-sm space-y-4">
+              <Card className="rounded-lg border-0 bg-card p-6 shadow-sm space-y-4">
                 <div className="text-base font-semibold">Choose a template</div>
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -763,7 +763,7 @@ function NewRequestPageContent() {
                 )}
               </Card>
             ) : envStep === 2 ? (
-              <Card className="rounded-xl border-0 bg-card p-6 shadow-sm space-y-4">
+              <Card className="rounded-lg border-0 bg-card p-6 shadow-sm space-y-4">
                 <div className="text-base font-semibold">Environment details</div>
                 {(() => {
                   const t = selectedTemplateId ? getRequestTemplate(requestTemplates, selectedTemplateId) : null
@@ -982,7 +982,7 @@ function NewRequestPageContent() {
                 const t = getRequestTemplate(requestTemplates, selectedTemplateId)
                 if (!t) return null
                 return (
-                  <Card className="rounded-xl border-0 bg-card p-4 shadow-sm">
+                  <Card className="rounded-lg border-0 bg-card p-4 shadow-sm">
                     <div className="flex flex-wrap items-center gap-2 text-sm">
                       <span className="font-semibold">{t.label}</span>
                       <span className="text-muted-foreground">·</span>
@@ -997,7 +997,7 @@ function NewRequestPageContent() {
                   </Card>
                 )
               })()}
-              <Card className="rounded-xl border-0 bg-card p-6 shadow-sm space-y-4">
+              <Card className="rounded-lg border-0 bg-card p-6 shadow-sm space-y-4">
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                   <div className="space-y-2">
                     <Label className="text-sm font-medium">Project</Label>
@@ -1019,7 +1019,7 @@ function NewRequestPageContent() {
                   </div>
                 )}
               </Card>
-              <Card className="rounded-xl border-0 bg-card p-6 shadow-sm space-y-4">
+              <Card className="rounded-lg border-0 bg-card p-6 shadow-sm space-y-4">
                 <div className="text-base font-semibold">Configuration</div>
                 {!selectedModule && (
                   <div className="text-sm text-muted-foreground">Select a module to view its inputs.</div>
@@ -1047,7 +1047,7 @@ function NewRequestPageContent() {
                   </div>
                 )}
               </Card>
-              <Card className="rounded-xl border-0 bg-card p-6 shadow-sm space-y-3">
+              <Card className="rounded-lg border-0 bg-card p-6 shadow-sm space-y-3">
                 <div className="text-base font-semibold">Configuration Summary</div>
                 <div className="space-y-2 text-sm">
                   {summaryItems.length === 0 && (

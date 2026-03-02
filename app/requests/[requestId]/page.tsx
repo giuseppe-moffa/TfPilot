@@ -83,7 +83,7 @@ type BaseStepKey = (typeof baseSteps)[number]["key"]
 function RequestDetailSkeleton() {
   return (
     <div className="mx-auto max-w-7xl space-y-8">
-      <section className="rounded-xl bg-card p-6 shadow-sm">
+      <section className="rounded-lg bg-card p-6 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 flex-wrap">
@@ -1429,7 +1429,7 @@ function RequestDetailPage() {
         </Card>
       )}
 
-      <section className="rounded-xl bg-card p-6 shadow-sm">
+      <section className="rounded-lg bg-card p-6 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 flex-wrap">

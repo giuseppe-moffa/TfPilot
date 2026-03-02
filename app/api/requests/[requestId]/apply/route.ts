@@ -409,6 +409,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ reques
             ...current,
             ...runsPatch,
             updatedAt: (runsPatch as { updatedAt?: string })?.updatedAt ?? nowIso,
+            lastActionAt: nowIso,
           }
         })
         const releasePatch = releaseLock(afterApply as RequestDocWithLock, holder)
@@ -503,10 +504,11 @@ export async function POST(req: NextRequest, context: { params: Promise<{ reques
     }
     validatePolicy(finalConfig)
 
+    const nowIso = new Date().toISOString()
     const [updated] = await updateRequest(requestId, (current) => {
       const withAssistant = ensureAssistantState(current)
       const appliedLog = {
-        ts: new Date().toISOString(),
+        ts: nowIso,
         source: "suggestion" as const,
         patch: patchOps,
       }
@@ -521,7 +523,8 @@ export async function POST(req: NextRequest, context: { params: Promise<{ reques
           applied_suggestion_ids: Array.from(appliedIds),
           applied_patch_log: [...withAssistant.assistant_state.applied_patch_log, appliedLog],
         },
-      updatedAt: new Date().toISOString(),
+        updatedAt: nowIso,
+        lastActionAt: nowIso,
       }
     })
 

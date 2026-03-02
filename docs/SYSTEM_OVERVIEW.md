@@ -4,9 +4,20 @@
 
 ## What TfPilot is
 
-TfPilot is a Terraform self-service platform that turns guided user requests into deterministic Terraform changes delivered through GitHub pull requests and executed via GitHub Actions.
+TfPilot is a **PR-native, deterministic Terraform control plane**: AI-assisted self-service that turns user requests into Terraform changes delivered via GitHub pull requests and executed only in GitHub Actions. No Terraform runs in the app; GitHub is the execution boundary.
 
 **Core promise:** “AI collects inputs, templates generate Terraform.”
+
+---
+
+## Sources of truth
+
+| Store | Role | Authority |
+|-------|------|-----------|
+| **S3 request document** | Full request JSON (facts, runs, PR, approval, lock, etc.). Path: `requests/<requestId>.json`. | **Authoritative.** All lifecycle and status are derived from this document. |
+| **Postgres `requests_index`** | Index/projection for list and pagination only. | **Projection only.** No lifecycle or status column. Used for ordering and cursor pagination; can be rebuilt from S3. |
+
+**Key invariant:** Request lifecycle and status are **never** stored as truth in Postgres. They are always derived from the S3 document via `deriveLifecycleStatus(request)` (see [REQUEST_LIFECYCLE.md](REQUEST_LIFECYCLE.md)). The index is write-through: after every S3 save, the app upserts the row; index write failures are logged and do not block persistence. See [POSTGRES_INDEX.md](POSTGRES_INDEX.md).
 
 ---
 
@@ -125,13 +136,19 @@ The lifecycle engine enforces **monotonic patching** (no regressing completed st
 
 ---
 
-## Invariants
+## Tier-A invariants (what code enforces)
 
-- Terraform runs **only** in GitHub Actions.
-- Requests are persisted in S3; no hidden local state.
-- TfPilot edits only content between tfpilot markers.
-- Status is **derived** from facts (PR, runs, approval); webhooks and sync patch **facts**, not status.
-- GitHub is the execution boundary and source of truth for runs.
+| Invariant | Enforcement |
+|-----------|-------------|
+| Terraform runs **only** in GitHub Actions | No Terraform binary or state in the app; workflows run in infra repos. |
+| S3 request document is authoritative | All reads for request detail/list hydrate from S3 (list uses index for ordering, then fetches doc per row). `lib/storage/requestsStore.ts`: `getRequest`, `saveRequest`. |
+| Postgres is index/projection only; no lifecycle in DB | Schema has no status column. `lib/db/indexer.ts`: projection fields only; `deriveLifecycleStatus` in app only. |
+| Write-through indexing after S3 save | `saveRequest` in `lib/storage/requestsStore.ts` calls `upsertRequestIndex` after `putRequest`; index failures do not throw. |
+| TfPilot edits only between tfpilot markers | Block edits in `lib/` and API routes use `tfpilot:begin/<requestId>` / `tfpilot:end/<requestId>`. |
+| Status is derived from facts only | `lib/requests/deriveLifecycleStatus.ts`; webhooks/sync patch facts in S3, never write status. |
+| GitHub is the execution boundary | Workflow dispatch and run correlation via run index; no local run execution. |
+
+See [INVARIANTS.md](INVARIANTS.md) for the full formal checklist.
 
 ---
 
