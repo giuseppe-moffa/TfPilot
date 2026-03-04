@@ -1,6 +1,5 @@
 /**
  * Model 2 cleanup — direct file deletion, no marker scanning.
- * Staged for Phase 3 cutover — not used by request routes until atomic flip.
  * Delete exactly envs/<key>/<slug>/tfpilot/requests/<module>_req_<request_id>.tf
  */
 
@@ -32,7 +31,7 @@ export function assertCleanupPathSafe(path: string): AssertCleanupPathSafeResult
 }
 
 /** Returns the exact file path to delete for Model 2 cleanup. No marker scanning. */
-export function getCleanupPathV2(
+export function getCleanupPath(
   environment_key: string,
   environment_slug: string,
   module: string,

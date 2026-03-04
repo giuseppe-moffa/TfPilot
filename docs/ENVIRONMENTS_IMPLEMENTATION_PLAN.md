@@ -98,7 +98,7 @@ You have two safe approaches; pick one:
 
 Option A (preferred): introduce new workflow files for Model 2 (no breaking risk)
 
-Add parallel workflows (e.g. plan_v2.yml, apply_v2.yml, destroy_v2.yml) that accept:
+Add parallel workflows (e.g. plan.yml, apply.yml, destroy.yml) that accept:
 
 environment_key, environment_slug, request_id (and destroy_scope for destroy) 
 

@@ -1,5 +1,5 @@
 /**
- * POST /api/environments/:id/destroy — Dispatch destroy_v2 with destroy_scope="environment",
+ * POST /api/environments/:id/destroy — Dispatch destroy with destroy_scope="environment",
  * resolve runId, write index. Archive happens on webhook when run completes successfully.
  */
 

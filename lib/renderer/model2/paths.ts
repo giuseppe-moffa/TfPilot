@@ -20,6 +20,6 @@ export function computeRequestTfPath(
 }
 
 /** Locked module source string: ../../../modules/<module>. Prevents accidental depth drift. */
-export function getModuleSourceV2(module: string): string {
+export function getModuleSource(module: string): string {
   return `${MODULE_SOURCE_PREFIX}${module}`
 }

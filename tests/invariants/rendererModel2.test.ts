@@ -6,11 +6,11 @@
 import {
   computeRequestTfPath,
   MODULE_SOURCE_PREFIX,
-  getModuleSourceV2,
-  renderModuleBlockV2,
+  getModuleSource,
+  renderModuleBlock,
   renderRequestTfContent,
   generateModel2RequestFile,
-  getCleanupPathV2,
+  getCleanupPath,
   assertCleanupPathSafe,
 } from "@/lib/renderer/model2"
 
@@ -63,16 +63,16 @@ export const tests = [
     },
   },
   {
-    name: "getModuleSourceV2: returns ../../../modules/<module>",
+    name: "getModuleSource: returns ../../../modules/<module>",
     fn: () => {
-      assert(getModuleSourceV2("s3-bucket") === "../../../modules/s3-bucket", "s3 module")
-      assert(getModuleSourceV2("ecr-repo") === "../../../modules/ecr-repo", "ecr module")
+      assert(getModuleSource("s3-bucket") === "../../../modules/s3-bucket", "s3 module")
+      assert(getModuleSource("ecr-repo") === "../../../modules/ecr-repo", "ecr module")
     },
   },
   {
-    name: "renderModuleBlockV2: source line contains ../../../modules/",
+    name: "renderModuleBlock: source line contains ../../../modules/",
     fn: () => {
-      const block = renderModuleBlockV2({
+      const block = renderModuleBlock({
         id: "r1",
         module: "s3-bucket",
         config: { name: "test" },
@@ -106,9 +106,9 @@ export const tests = [
     },
   },
   {
-    name: "getCleanupPathV2: matches computeRequestTfPath",
+    name: "getCleanupPath: matches computeRequestTfPath",
     fn: () => {
-      const p = getCleanupPathV2("prod", "payments", "ecr-repo", "req_1")
+      const p = getCleanupPath("prod", "payments", "ecr-repo", "req_1")
       assert(p === "envs/prod/payments/tfpilot/requests/ecr-repo_req_req_1.tf", "cleanup path")
     },
   },

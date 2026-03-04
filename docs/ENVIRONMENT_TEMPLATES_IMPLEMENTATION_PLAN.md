@@ -185,9 +185,9 @@ Source: `docs/ENVIRONMENT_TEMPLATES_DELTA.md` (authoritative spec). Phases 0–6
 |-------|-------|
 | **Chunk name** | Path utilities migration |
 | **Why now** | Foundation; all renderer/cleanup/destroy depend on path format |
-| **Files likely touched** | `lib/renderer/model2/paths.ts`, `lib/renderer/model2/cleanup_v2.ts` |
+| **Files likely touched** | `lib/renderer/model2/paths.ts`, `lib/renderer/model2/cleanup.ts` |
 | **Tests to add/update** | `tests/invariants/rendererModel2.test.ts` — update path assertions to `<module>_req_<request_id>.tf` |
-| **Manual verification** | 1. Run `npm test -- rendererModel2` 2. Inspect `computeRequestTfPath` output for `ecr-repo_req_abc.tf` 3. Verify `assertCleanupPathSafe` accepts new pattern 4. Verify `getCleanupPathV2` accepts module param |
+| **Manual verification** | 1. Run `npm test -- rendererModel2` 2. Inspect `computeRequestTfPath` output for `ecr-repo_req_abc.tf` 3. Verify `assertCleanupPathSafe` accepts new pattern 4. Verify `getCleanupPath` accepts module param |
 | **Roll-forward only** | Yes |
 
 #### Chunk 1.2: Renderer + request create integration
@@ -196,7 +196,7 @@ Source: `docs/ENVIRONMENT_TEMPLATES_DELTA.md` (authoritative spec). Phases 0–6
 |-------|-------|
 | **Chunk name** | Renderer + request create integration |
 | **Why now** | Request create must emit new path format |
-| **Files likely touched** | `lib/renderer/model2/renderer_v2.ts`, `app/api/requests/route.ts`, `lib/requests/*` (destroy/cleanup); infra repo: `cleanup.yml` |
+| **Files likely touched** | `lib/renderer/model2/renderer.ts`, `app/api/requests/route.ts`, `lib/requests/*` (destroy/cleanup); infra repo: `cleanup.yml` |
 | **Tests to add/update** | `tests/invariants/rendererModel2.test.ts`; request create e2e if exists |
 | **Manual verification** | 1. Create request via API; verify file path in PR 2. Destroy flow: verify cleanup path uses `(module, requestId)` from request doc — never parse filenames 3. Infra repo cleanup.yml: delete file path if exists; no marker block removal (Phase 0 may cover this; verify) 4. Run full invariants suite |
 | **Roll-forward only** | Yes |
@@ -420,17 +420,17 @@ Example: envs/dev/ai-agent/tfpilot/requests/ecr-repo_req_a12bc3.tf
 
 Scope
 - lib/renderer/model2/paths.ts: change computeRequestTfPath(env_key, env_slug, requestId) to computeRequestTfPath(env_key, env_slug, module, requestId). Output <module>_req_<request_id>.tf.
-- lib/renderer/model2/cleanup_v2.ts: update SAFE_CLEANUP_PATTERN to accept *_req_*.tf; update assertCleanupPathSafe error message; update getCleanupPathV2 to accept module param and pass to computeRequestTfPath.
+- lib/renderer/model2/cleanup.ts: update SAFE_CLEANUP_PATTERN to accept *_req_*.tf; update assertCleanupPathSafe error message; update getCleanupPath to accept module param and pass to computeRequestTfPath.
 - tests/invariants/rendererModel2.test.ts: update all path assertions to new format.
 
 Constraints
 - Module must be slug-safe [a-z0-9-].
 - Do NOT change app/api/requests or destroy flow in this chunk.
-- Preserve MODULE_SOURCE_PREFIX and getModuleSourceV2.
+- Preserve MODULE_SOURCE_PREFIX and getModuleSource.
 
 Deliverables
 - Summary of changes
-- Files changed: paths.ts, cleanup_v2.ts, rendererModel2.test.ts
+- Files changed: paths.ts, cleanup.ts, rendererModel2.test.ts
 - All rendererModel2 tests pass
 - Manual: assert computeRequestTfPath("dev","ai-agent","ecr-repo","a12bc3") === "envs/dev/ai-agent/tfpilot/requests/ecr-repo_req_a12bc3.tf"
 
@@ -448,11 +448,11 @@ Goal
 Wire the new <module>_req_<request_id>.tf path format into the renderer, request create, and destroy/cleanup flows.
 
 Scope
-- lib/renderer/model2/renderer_v2.ts: generateModel2RequestFile must pass module to computeRequestTfPath.
+- lib/renderer/model2/renderer.ts: generateModel2RequestFile must pass module to computeRequestTfPath.
 - app/api/requests/route.ts: ensure generateModel2TerraformFiles uses new path (via generateModel2RequestFile which takes request.module).
-- Destroy/cleanup: ensure getCleanupPathV2 receives module from request doc; compute path as <module>_req_<request_id>.tf. Never parse filenames.
+- Destroy/cleanup: ensure getCleanupPath receives module from request doc; compute path as <module>_req_<request_id>.tf. Never parse filenames.
 - Infra repo: cleanup.yml — support file deletion (delete file path if exists; do NOT look for marker blocks). Target infra repo .github/workflows/cleanup.yml and any cleanup script it calls.
-- All callers of computeRequestTfPath, getCleanupPathV2, assertCleanupPathSafe updated.
+- All callers of computeRequestTfPath, getCleanupPath, assertCleanupPathSafe updated.
 
 Constraints
 - Request doc has module; use it. Request ID from doc.
@@ -461,7 +461,7 @@ Constraints
 
 Deliverables
 - Summary of changes
-- Files changed: renderer_v2.ts, api/requests, destroy/cleanup call sites
+- Files changed: renderer.ts, api/requests, destroy/cleanup call sites
 - Invariants pass
 - Manual: create request, verify PR file path; destroy, verify correct path deleted
 

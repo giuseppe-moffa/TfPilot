@@ -1,5 +1,5 @@
 /**
- * Invariant tests: Drift plan v2 (Chunk 12 + Chunk 13).
+ * Invariant tests: Drift plan (Chunk 12 + Chunk 13).
  * - Dispatch payload: ONLY environment_key, environment_slug (no legacy "environment")
  * - ENV_ROOT plan.json path expectation
  * - Empty drift response shape when no drift has ever been run

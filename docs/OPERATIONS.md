@@ -39,7 +39,7 @@ Environments are first-class entities. Each has a bootstrap PR that creates `env
 
 **Flow:**
 1. If pending exists: reconcile (fetch run status). In-progress/queued → 409. Completed success → archive, clear pending, return 200. Completed failure → clear pending, allow re-dispatch. Run not found + TTL expired (2h) → clear pending, allow re-dispatch.
-2. Dispatches `destroy_v2` workflow with `destroy_scope="environment"` (no `request_id`).
+2. Dispatches `destroy` workflow with `destroy_scope="environment"` (no `request_id`).
 3. On workflow success, webhook archives the environment (sets `archived_at`).
 4. Archived environments are excluded from request creation.
 

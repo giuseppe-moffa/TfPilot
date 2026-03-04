@@ -14,7 +14,7 @@ import { tests as requestEnvironmentTests } from "./invariants/requestEnvironmen
 import { tests as envDestroyTests } from "./invariants/envDestroy.test"
 import { tests as envFieldsChunk9Tests } from "./invariants/envFieldsChunk9.test"
 import { tests as model2LegacyTests } from "./invariants/model2Legacy.test"
-import { tests as driftPlanV2Tests } from "./invariants/driftPlanV2.test"
+import { tests as driftPlanTests } from "./invariants/driftPlan.test"
 import { tests as zeroLegacyEnvTests } from "./invariants/zeroLegacyEnv.test"
 import { tests as environmentTemplatesTests } from "./unit/environmentTemplates.test"
 import { tests as environmentTemplatesRouteTests } from "./api/environmentTemplatesRoute.test"
@@ -44,7 +44,7 @@ const allSuites = [
   envDestroyTests,
   envFieldsChunk9Tests,
   model2LegacyTests,
-  driftPlanV2Tests,
+  driftPlanTests,
   zeroLegacyEnvTests,
   environmentTemplatesTests,
   environmentTemplatesRouteTests,

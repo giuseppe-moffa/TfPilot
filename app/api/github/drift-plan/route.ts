@@ -1,5 +1,5 @@
 /**
- * POST /api/github/drift-plan — Dispatch drift_plan_v2 for an environment.
+ * POST /api/github/drift-plan — Dispatch drift_plan for an environment.
  * Resolves runId and writes env drift index for last-drift display.
  */
 

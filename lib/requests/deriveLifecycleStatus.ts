@@ -1,9 +1,9 @@
 /**
- * Unified lifecycle derivation (Lifecycle Model V2).
+ * Unified lifecycle derivation.
  * Single entrypoint: status is a pure function of request runtime facts.
  * Reads run state only from request.runs (getCurrentAttemptStrict). Legacy fields are not read.
  *
- * @see docs/LIFECYCLE_MODEL_V2.md
+ * @see docs/REQUEST_LIFECYCLE.md
  */
 
 import type { CanonicalStatus } from "@/lib/status/status-config"
@@ -44,7 +44,7 @@ const FAILED_CONCLUSIONS = [
 
 /**
  * Derives canonical lifecycle status from request.runs only (getCurrentAttemptStrict per op).
- * Priority order (V2): destroy → apply/plan failures → apply running/success → merged → approved → plan_ready → planning → request_created.
+ * Priority order: destroy → apply/plan failures → apply running/success → merged → approved → plan_ready → planning → request_created.
  */
 export function deriveLifecycleStatus(request: RequestLike | null | undefined): CanonicalStatus {
   if (!request) return "request_created"

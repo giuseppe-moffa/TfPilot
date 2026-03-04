@@ -2,7 +2,7 @@
  * Invariant tests: zero-legacy mode.
  * - Request doc shape: env_id/key/slug required; no legacy project/environment.
  * - No code references request.environment or envs/${environment}.
- * - Dispatch payload schemas use only v2 inputs (environment_key, environment_slug).
+ * - Dispatch payload schemas use only env inputs (environment_key, environment_slug).
  */
 
 function assert(condition: boolean, message: string): void {
@@ -15,8 +15,8 @@ const REQUIRED_REQUEST_ENV_FIELDS = ["project_key", "environment_key", "environm
 /** Legacy fields that must not appear in new request docs. */
 const FORBIDDEN_LEGACY_FIELDS = ["project", "environment"] as const
 
-/** Workflow dispatch v2 input names. */
-const V2_DISPATCH_INPUTS = ["environment_key", "environment_slug", "request_id"] as const
+/** Workflow dispatch input names (environment_key, environment_slug, request_id). */
+const DISPATCH_INPUTS = ["environment_key", "environment_slug", "request_id"] as const
 
 export const tests = [
   {

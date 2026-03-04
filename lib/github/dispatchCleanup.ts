@@ -1,5 +1,5 @@
 /**
- * Dispatch the cleanup_v2 workflow (direct file deletion).
+ * Dispatch the cleanup workflow (direct file deletion).
  * Single GitHub POST; request data is read from S3.
  */
 
@@ -13,7 +13,7 @@ export type DispatchCleanupParams = {
 }
 
 /**
- * Load request from S3 and dispatch cleanup_v2 workflow.
+ * Load request from S3 and dispatch cleanup workflow.
  * Requires environment_key and environment_slug (Model 2).
  */
 export async function dispatchCleanup({ token, requestId }: DispatchCleanupParams): Promise<void> {

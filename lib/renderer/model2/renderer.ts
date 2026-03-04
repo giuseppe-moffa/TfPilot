@@ -1,10 +1,9 @@
 /**
  * Model 2 renderer — one file per request, no marker-based splice.
- * Staged for Phase 3 cutover — not used by request routes until atomic flip.
  * Output: envs/<key>/<slug>/tfpilot/requests/<module>_req_<request_id>.tf with module source ../../../modules/<module>.
  */
 
-import { computeRequestTfPath, getModuleSourceV2 } from "./paths"
+import { computeRequestTfPath, getModuleSource } from "./paths"
 
 export type RequestForRender = {
   id: string
@@ -26,8 +25,8 @@ function hclTagKey(key: string): string {
 }
 
 /** Renders the HCL module block for a request. Uses locked module source depth ../../../modules/<module>. */
-export function renderModuleBlockV2(request: RequestForRender): string {
-  const moduleSource = getModuleSourceV2(request.module)
+export function renderModuleBlock(request: RequestForRender): string {
+  const moduleSource = getModuleSource(request.module)
   const renderedInputs = Object.entries(request.config).map(([key, val]) => {
     if (key === "tags" && val && typeof val === "object" && !Array.isArray(val)) {
       const tagEntries = Object.entries(val as Record<string, unknown>).map(
@@ -49,7 +48,7 @@ ${renderedInputs.join("\n")}
 /** Returns full .tf file content for a request — one file per request, no markers. */
 export function renderRequestTfContent(request: RequestForRender): string {
   const header = "# Managed by TfPilot - do not edit by hand."
-  const block = renderModuleBlockV2(request)
+  const block = renderModuleBlock(request)
   return `${header}\n\n${block}\n`
 }
 

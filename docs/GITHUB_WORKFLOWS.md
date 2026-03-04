@@ -54,7 +54,7 @@ TfPilot passes these on dispatch. Run index is written for plan, apply, destroy 
 
 ## Model 2 workflows (v2)
 
-Workflow files `plan_v2.yml`, `apply_v2.yml`, `destroy_v2.yml`, `drift_plan_v2.yml`, `cleanup_v2.yml` are used by the app.
+Workflow files `plan.yml`, `apply.yml`, `destroy.yml`, `drift_plan.yml`, `cleanup.yml` are used by the app.
 
 ### v2 inputs
 
@@ -91,7 +91,7 @@ Workflow files `plan_v2.yml`, `apply_v2.yml`, `destroy_v2.yml`, `drift_plan_v2.y
 
 ### Drift plan v2
 
-- **Workflow:** `drift_plan_v2.yml`
+- **Workflow:** `drift_plan.yml`
 - **Inputs:** `environment_key`, `environment_slug` (no `request_id`; env-scoped).
 - **Concurrency:** Same as apply/destroy: `group: <repo>-state-${{ inputs.environment_key }}-${{ inputs.environment_slug }}`.
 - **Artifacts:** `drift-logs-v2` (plan.txt, .terraform.lock.hcl), `drift-plan-json-v2` (plan.json).

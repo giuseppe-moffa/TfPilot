@@ -73,7 +73,7 @@ For drift plan v2 (env-scoped drift detection), correlation is stored under `web
 - `run-<runId>.json` — `{ runId, environment_id, createdAt }` — runId → environment_id
 - `by-env/<environmentId>.json` — `{ runs: [{ runId, createdAt }] }` — used for pruning
 
-Used by `GET /api/environments/:id/drift-latest` to find the last drift run for an environment. Written when TfPilot dispatches drift_plan_v2 and resolves the runId. See **lib/github/envDriftRunIndex.ts**.
+Used by `GET /api/environments/:id/drift-latest` to find the last drift run for an environment. Written when TfPilot dispatches drift_plan and resolves the runId. See **lib/github/envDriftRunIndex.ts**.
 
 ### Pruning policy (TTL 30 days)
 

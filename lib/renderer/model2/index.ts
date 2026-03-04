@@ -8,16 +8,16 @@
 export {
   computeRequestTfPath,
   MODULE_SOURCE_PREFIX,
-  getModuleSourceV2,
+  getModuleSource,
 } from "./paths"
 export {
-  renderModuleBlockV2,
+  renderModuleBlock,
   renderRequestTfContent,
   generateModel2RequestFile,
   type RequestForRender,
-} from "./renderer_v2"
+} from "./renderer"
 export {
-  getCleanupPathV2,
+  getCleanupPath,
   assertCleanupPathSafe,
   type AssertCleanupPathSafeResult,
-} from "./cleanup_v2"
+} from "./cleanup"

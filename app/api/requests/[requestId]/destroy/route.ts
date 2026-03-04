@@ -141,7 +141,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
       }
     }
 
-    // Fire cleanup_v2 workflow first so code removal is ready before destroy completes
+    // Fire cleanup workflow first so code removal is ready before destroy completes
     const envSlug = request.environment_slug ?? ""
     if (
       env.GITHUB_CLEANUP_WORKFLOW_FILE &&
@@ -290,7 +290,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
 
     const dispatchTime = new Date()
 
-    // Dispatch destroy_v2 workflow (destroy_scope=module for single request)
+    // Dispatch destroy workflow (destroy_scope=module for single request)
     const dEnvKey = request.environment_key
     const dEnvSlug = request.environment_slug ?? ""
     await gh(token, `/repos/${request.targetOwner}/${request.targetRepo}/actions/workflows/${env.GITHUB_DESTROY_WORKFLOW_FILE}/dispatches`, {
