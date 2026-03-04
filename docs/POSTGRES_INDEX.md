@@ -2,7 +2,7 @@
 
 Postgres holds a **projection** of request metadata for list and pagination only. It is **not** the source of truth for lifecycle or status. S3 request documents are authoritative.
 
-**References:** Schema: `migrations/20260301000000_requests_index.sql`, `migrations/20260302000000_requests_index_pagination_idx.sql`, `migrations/20260302110000_drop_last_action_at.sql`, `migrations/20260302120000_requests_index_last_activity_sort_idx.sql`. Indexer: `lib/db/indexer.ts`. List: `lib/db/requestsList.ts`. UI: `app/requests/page.tsx`.
+**References:** Schema: `migrations/20260301000000_requests_index.sql`, `migrations/20260304100000_requests_index_environment_slug.sql`, `migrations/20260302000000_requests_index_pagination_idx.sql`, `migrations/20260302110000_drop_last_action_at.sql`, `migrations/20260302120000_requests_index_last_activity_sort_idx.sql`. Indexer: `lib/db/indexer.ts`. List: `lib/db/requestsList.ts`. UI: `app/requests/page.tsx`.
 
 ---
 
@@ -15,6 +15,7 @@ Postgres holds a **projection** of request metadata for list and pagination only
 | `updated_at` | TIMESTAMPTZ | From request `updatedAt`; fallback for ordering when `last_activity_at` is null. |
 | `repo_full_name` | TEXT | `targetOwner/targetRepo`. |
 | `environment_key` | TEXT | Environment (e.g. dev, prod). |
+| `environment_slug` | TEXT | Environment slug (e.g. ai-agent). Enables precise filtering by (repo, key, slug). |
 | `module_key` | TEXT | Module name. |
 | `actor` | TEXT | Creator (or from config tags). |
 | `pr_number` | INTEGER | PR number if present. |
@@ -55,6 +56,19 @@ Postgres holds a **projection** of request metadata for list and pagination only
 
 - **Drift:** For each row returned by the list, the API fetches the S3 document. It computes `s3_doc_hash = computeDocHash(doc)` and compares to the row’s `doc_hash`. If they differ, the response includes on that request: `index_drift: true`, `index_doc_hash`, `s3_doc_hash`.
 - **Missing S3 doc:** If the S3 get returns NoSuchKey (document missing), the request is **omitted** from the list and an entry is added to **`list_errors`**: `{ request_id, error: "NoSuchKey", index_updated_at }`. This indicates an orphan index row (index has a row but S3 object is gone). Operators can run rebuild with `--prune` to remove such rows.
+
+---
+
+## Activity filtering (environment_slug)
+
+Environment activity (`GET /api/environments/:id/activity`) queries `listRequestIndexRowsByEnvironment` in **lib/db/requestsList.ts**. **Filtering must use all three:** `repo_full_name`, `environment_key`, `environment_slug`. This ensures activity timelines include only requests belonging to the exact environment, not other environments sharing the same key.
+
+**Migration:** `20260304100000_requests_index_environment_slug.sql` adds the `environment_slug` column. Until applied, the column does not exist and activity queries would fail.
+
+**Post-deploy steps (after adding environment_slug):**
+
+1. `npm run db:migrate` — apply migration (adds column).
+2. `npm run db:rebuild-index` — backfill `environment_slug` from S3 documents for existing rows. Rows with `environment_slug IS NULL` will not match activity queries.
 
 ---
 

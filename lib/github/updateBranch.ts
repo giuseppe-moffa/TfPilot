@@ -93,66 +93,8 @@ function ensureNoConflictMarkers(content: string): string {
     .join("\n")
 }
 
-/** Match a single tfpilot block: # --- tfpilot:begin:req_XXX --- ... # --- tfpilot:end:req_XXX --- */
-const TFPILOT_BLOCK_REGEX = /# --- tfpilot:begin:(req_\S+) ---[\s\S]*?# --- tfpilot:end:\1 ---/
-
-function parseTfPilotBlocks(content: string): { header: string; blocks: Array<{ id: string; text: string }>; footer: string } {
-  const headerMatch = content.match(/^[\s\S]*?(?=# --- tfpilot:begin:)/)
-  const header = headerMatch ? headerMatch[0] : ""
-  const rest = content.slice(header.length)
-  const blocks: Array<{ id: string; text: string }> = []
-  let remaining = rest
-  while (remaining.length > 0) {
-    const match = remaining.match(TFPILOT_BLOCK_REGEX)
-    if (!match) break
-    const full = match[0]
-    const id = match[1]
-    blocks.push({ id, text: full })
-    remaining = remaining.slice(remaining.indexOf(full) + full.length)
-  }
-  const footer = remaining
-  return { header, blocks, footer }
-}
-
-/**
- * Merge base (main) and head (PR) for TfPilot-managed files: union of blocks by request id,
- * base order first then PR-only blocks in PR order. Avoids duplicates and broken markers.
- */
-function resolveTfPilotMerge(baseContent: string, headContent: string): string {
-  const baseParsed = parseTfPilotBlocks(baseContent)
-  const headParsed = parseTfPilotBlocks(headContent)
-  const baseIds = new Set(baseParsed.blocks.map((b) => b.id))
-  const baseBlockById = new Map(baseParsed.blocks.map((b) => [b.id, b.text]))
-  const headBlockById = new Map(headParsed.blocks.map((b) => [b.id, b.text]))
-  const ordered: string[] = []
-  for (const { id } of baseParsed.blocks) {
-    ordered.push(baseBlockById.get(id)!)
-  }
-  const addedHeadIds = new Set<string>()
-  for (const { id } of headParsed.blocks) {
-    if (!baseIds.has(id) && !addedHeadIds.has(id)) {
-      addedHeadIds.add(id)
-      ordered.push(headBlockById.get(id)!)
-    }
-  }
-  const header = (baseParsed.header.trim() ? baseParsed.header : headParsed.header).trimEnd()
-  // Use only base (main) footer so we don't append PR's orphan end markers (e.g. leftover # --- tfpilot:end:req_XXX ---)
-  const footer = baseParsed.footer.trimStart()
-  const parts: string[] = []
-  if (header) parts.push(header + "\n")
-  // Ensure each block ends with exactly one newline so blocks don't run together (---# ---)
-  parts.push(...ordered.map((block) => block.trimEnd() + "\n"))
-  if (footer) parts.push("\n" + footer)
-  return parts.join("").replace(/\n{3,}/g, "\n\n").trimEnd() + "\n"
-}
-
+/** Model 2: single-file-per-request. Use diff3 merge only; no tfpilot block markers. */
 function resolveAcceptAll(baseContent: string, commonContent: string, headContent: string): string {
-  if (
-    baseContent.includes("# --- tfpilot:begin:") &&
-    headContent.includes("# --- tfpilot:begin:")
-  ) {
-    return resolveTfPilotMerge(baseContent, headContent)
-  }
   const a = baseContent.split("\n")
   const o = commonContent.split("\n")
   const b = headContent.split("\n")

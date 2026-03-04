@@ -21,7 +21,9 @@ type RequestLike = {
   createdAt?: string
   updatedAt?: string
   project?: string
+  project_key?: string
   environment?: string
+  environment_key?: string
   module?: string
   config?: { tags?: Record<string, unknown> }
   runs?: RunsState
@@ -182,8 +184,8 @@ export function buildAuditEvents(
         ? `${request.targetOwner}/${request.targetRepo}`
         : undefined
     const requestCreatedMeta: Record<string, unknown> = {}
-    if (request.project != null) requestCreatedMeta.project = request.project
-    if (request.environment != null) requestCreatedMeta.environment = request.environment
+    if (request.project_key != null) requestCreatedMeta.project = request.project_key
+    if (request.environment_key != null) requestCreatedMeta.environment = request.environment_key
     if (request.module != null) requestCreatedMeta.module = request.module
     if (targetRepoStr != null) requestCreatedMeta.targetRepo = targetRepoStr
     add(out, receivedAt, "request_created", "Request created", requestCreatedMeta, createdBy)

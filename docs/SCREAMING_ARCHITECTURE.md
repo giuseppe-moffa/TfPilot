@@ -34,7 +34,9 @@ The codebase is organized so that **top-level folders and route shapes reflect t
 - **`app/api/auth/`** — Session, GitHub OAuth, logout, me.
 - **`app/api/stream/`** — SSE: server pushes requestId/updatedAt so UI can revalidate.
 - **`app/api/modules/`** — Module catalog and schema (Terraform modules).
-- **`app/api/templates/`** — Block templates (admin/seed, CRUD).
+- **`app/api/request-templates/`** — Request templates (admin/seed, CRUD).
+- **`app/api/environment-templates/`** — Environment templates (static config from `config/environment-templates.ts`).
+- **`app/api/environments/`** — Environment CRUD, deploy (POST `:id/deploy`), deploy status (GET `:id` returns `deployed`, `deployPrOpen`, `deployPrUrl`), activity (GET `:id/activity`).
 - **`app/api/health/`**, **`app/api/infra/`** — Health and infra checks.
 - **`app/login/`**, **`app/aws/connect/`** — Login; AWS account connection (connect UI under aws).
 - **`app/catalogue/`**, **`app/insights/`**, **`app/environments/`** — Module catalogue, Insights dashboard, environments.
@@ -52,8 +54,11 @@ The codebase is organized so that **top-level folders and route shapes reflect t
 - **`lib/config/`** — Env, polling config.
 - **`lib/validation/`** — e.g. resource naming.
 - **`lib/observability/`** — Ops metrics (request aggregates, cached), GitHub API usage (in-memory: windows, top/hot routes, rate-limit events, kindGuess). Hooks for Insights dashboard. Logging, correlation.
+
+**Deploy route dependency injection:** `app/api/environments/[id]/deploy/route.ts` uses `makePOST(deps)` for testability. Production export: `export const POST = makePOST(realDeps)`. This removes test hooks and enables pure dependency-injection testing (see `tests/api/environmentDeployErrorsRoute.test.ts`).
 - **`lib/logs/`** — Lifecycle logs.
 - **`lib/infra/`** — e.g. module type.
+- **`lib/environments/`** — Deploy detection (`isEnvironmentDeployed`, `getEnvironmentDeployStatus`), env skeleton (`envSkeleton`), template validation (`validateTemplateId`), deploy PR (`createDeployPR`), activity builder (`buildEnvironmentActivity`).
 - **`lib/notifications/`**, **`lib/services/`** — Notifications and shared services.
 
 ### `components/` — UI building blocks

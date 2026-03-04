@@ -15,7 +15,7 @@ You are responsible for frontend/UI: request list, request detail, new request f
 ## You SHOULD
 
 * Keep UI stable (no flicker); use canonical status set from status-config
-* Preserve existing patterns (useRequest, useRequestStatus, requestCacheKey)
+* Preserve existing patterns (useRequest, requestCacheKey)
 * Follow design: background colors for separation (docs/prompts/design/UI-Design.md)
 
 ## You MUST NOT

@@ -19,7 +19,6 @@ Evolve TfPilot into a production-grade internal developer platform comparable to
 Before performing any task you MUST read:
 
 - docs/SYSTEM_OVERVIEW.md
-- docs/EXECUTION_PLAN.md
 
 Canonical doc list: **docs/DOCS_INDEX.md**. For lifecycle, workflows, webhooks: **docs/REQUEST_LIFECYCLE.md**, **docs/GITHUB_WORKFLOWS.md**, **docs/WEBHOOKS_AND_CORRELATION.md**, **docs/RUN_INDEX.md**.
 
@@ -60,12 +59,7 @@ Requests in S3 (`requests/<id>.json`); destroyed → `history/`. Run index: `web
 
 ## Terraform block contract
 
-TfPilot only manages code inside markers:
-
-# --- tfpilot:begin:{requestId} ---
-# --- tfpilot:end:{requestId} ---
-
-Never modify code outside markers.
+TfPilot writes one file per request at `envs/<key>/<slug>/tfpilot/requests/<module>_req_<request_id>.tf` (Model 2). Each file contains a single module block. Do not mix requests in one file.
 
 ---
 

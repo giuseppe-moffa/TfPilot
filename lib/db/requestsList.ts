@@ -108,22 +108,42 @@ export async function listRequestIndexRowsPage(options: {
   return result.rows
 }
 
-const SELECT_IDS_SQL = `
-  SELECT request_id, updated_at, last_activity_at, doc_hash
+/** Row shape for environment activity builder. Includes created_at, module_key, pr_number. */
+export type RequestIndexRowForActivity = {
+  request_id: string
+  created_at: string
+  updated_at: string
+  module_key: string | null
+  pr_number: number | null
+}
+
+const SORT_FOR_ACTIVITY = "COALESCE(last_activity_at, updated_at)"
+
+const SELECT_BY_ENV_SQL = `
+  SELECT request_id, created_at, updated_at, module_key, pr_number
   FROM requests_index
-  ORDER BY ${SORT_EXPR} DESC, request_id DESC
-  LIMIT $1
+  WHERE repo_full_name = $1 AND environment_key = $2 AND environment_slug = $3
+  ORDER BY ${SORT_FOR_ACTIVITY} DESC, request_id DESC
+  LIMIT $4
 `
 
 /**
- * Returns index rows in order (last_activity_at DESC, fallback updated_at, request_id DESC),
- * or null if DB not configured.
+ * List request index rows for an environment, filtered by (repo, environment_key, environment_slug).
+ * Returns null when DB not configured.
  */
-export async function listRequestIdsFromIndex(
-  limit = DEFAULT_LIST_LIMIT
-): Promise<RequestIndexRow[] | null> {
+export async function listRequestIndexRowsByEnvironment(
+  repoFullName: string,
+  environmentKey: string,
+  environmentSlug: string,
+  limit: number
+): Promise<RequestIndexRowForActivity[] | null> {
   if (!isDatabaseConfigured()) return null
-  const result = await query<RequestIndexRow>(SELECT_IDS_SQL, [limit])
+  const result = await query<RequestIndexRowForActivity>(SELECT_BY_ENV_SQL, [
+    repoFullName,
+    environmentKey,
+    environmentSlug,
+    limit,
+  ])
   if (result == null) return null
   return result.rows
 }

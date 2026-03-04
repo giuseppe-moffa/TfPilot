@@ -4,6 +4,45 @@ Canonical docs only. For archived/retired docs see `docs/archive/`.
 
 ---
 
+## Doc refresh (remove CONTEXT_PACK, EXECUTION_PLAN) — 2026-03-04
+
+**What changed**
+- **Removed:** `CONTEXT_PACK.md`, `EXECUTION_PLAN.md` (retired). Use DOCS_INDEX for canonical doc list; lifecycle/webhook context from REQUEST_LIFECYCLE, GITHUB_WORKFLOWS, WEBHOOKS_AND_CORRELATION.
+- **Agent routing:** `.cursor/rules/agent-routing.mdc` mandatory context now SYSTEM_OVERVIEW + MASTER only (was 3 docs).
+- **MASTER prompt:** Required reading now SYSTEM_OVERVIEW only; canonical list remains DOCS_INDEX.
+- **DOCS_INDEX:** Table rows for CONTEXT_PACK and EXECUTION_PLAN removed; changelog refs to these docs removed.
+
+---
+
+## Doc refresh (Model 2 + Environment Activity + full alignment) — 2026-03-04
+
+**What changed**
+- **Terraform root (Model 2):** All docs reflect `envs/<environment_key>/<environment_slug>/` layout; request files `<module>_req_<request_id>.tf`; paths derived from (module, request_id); no `req_<id>.tf`, no `request.environment`, no single-root model.
+- **Environment lifecycle:** Create (POST /api/environments), Deploy (POST /api/environments/:id/deploy → branch `deploy/<key>/<slug>`), deploy detection (GET :id), activity (GET :id/activity).
+- **Deploy error semantics:** `ENV_ALREADY_DEPLOYED` 409, `ENV_DEPLOY_IN_PROGRESS` 409 (branch or PR), `ENV_DEPLOY_CHECK_FAILED` 503, `INVALID_ENV_TEMPLATE` 400. Branch-only and PR-open treated same.
+- **Environment Activity:** `GET /api/environments/:id/activity` — event types `environment_deployed`, `environment_deploy_pr_open`, `request_created`; Postgres-only (no S3); fail-closed on deploy check.
+- **Postgres `requests_index`:** `environment_slug` column; activity filtering by (repo_full_name, environment_key, environment_slug). Migration `20260304100000_requests_index_environment_slug.sql`. Post-deploy: `npm run db:migrate`, `npm run db:rebuild-index`.
+- **Deploy route:** `makePOST(deps)` dependency injection; `export const POST = makePOST(realDeps)` for production.
+- **Platform invariants:** Terraform roots env-specific; request filenames derived from module+request_id; lifecycle from facts only; attempts on dispatch only.
+- **Future roadmap:** Drift detection, plan/apply activity events, environment health indicators (marked as future).
+
+---
+
+## Doc refresh (Post Environment Templates implementation) — 2026-03-03
+
+**What changed**
+- **Architecture alignment (Phases 0–6):** All docs reflect Model 2: Terraform repo structure `envs/<key>/<slug>/tfpilot/requests/<module>_req_<request_id>.tf`; no `req_<id>.tf`. Request files use canonical `<module>_req_<request_id>.tf`.
+- **Environment lifecycle:** Create (POST /api/environments), Deploy (POST /api/environments/:id/deploy → branch `deploy/<key>/<slug>`), deploy detection (GET /api/environments/:id → `deployed`, `deployPrOpen`, `deployPrUrl`, `envRootExists`; fail-closed `ENV_DEPLOY_CHECK_FAILED`).
+- **Environment templates:** Static config in `config/environment-templates.ts`; templates: blank, baseline-ai-service, baseline-app-service, baseline-worker-service. envSkeleton generates bootstrap request files.
+- **Module Registry:** Docs list s3-bucket, ec2-instance, ecr-repo, cloudwatch-log-group, iam-role; registry defines schema; Terraform modules may not yet exist in infra repos.
+- **New Request gating:** `lib/new-request-gate.ts`; messages: "Environment must be deployed before creating resources", "Environment deployment in progress", "Cannot verify deploy status".
+- **API.md:** Added Environment endpoints (GET/POST /api/environments, GET /api/environments/:id, POST /api/environments/:id/deploy, GET /api/environment-templates).
+- **INVARIANTS.md:** Added INV-ENV-1..4 (deploy detection, fail-closed, atomic rollback), INV-GATE-1..2 (New Request gating).
+- **Obsolete:** `.request.environment` → `.request.environment_key` for workflow dispatch.
+- **Obsolete removals:** No references to `request.environment`, `req_<id>.tf`, `envs/<environment>/` single-root, Terraform workspace usage in canonical docs.
+
+---
+
 ## Doc refresh (full documentation refresh) — 2026-03-02
 
 **What changed**
@@ -11,7 +50,7 @@ Canonical docs only. For archived/retired docs see `docs/archive/`.
 - **FORENSIC_STORAGE_INVARIANTS_REPORT.md:** Added `history/` read path — `fetchRequestFromHistory` in audit-export route when request not in active store.
 - **ARCHITECTURE_DELTA_DB.md:** Added header linking to POSTGRES_INDEX.md as current canonical for schema and behavior.
 - **DOCS_INDEX.md:** Added ARCHITECTURE_DELTA_DB and FORENSIC_STORAGE_INVARIANTS_REPORT to table as reference docs.
-- **CONTEXT_PACK.md:** Added POSTGRES_INDEX and API to valid docs; S3 + Postgres projection for list; write-through indexing; GET /api/requests requires Postgres (503 when unset).
+- S3 + Postgres projection for list; write-through indexing; GET /api/requests requires Postgres (503 when unset).
 - **tfpilot-terraform README.md** (infra repo): Corrected workflow env var names (GITHUB_*_WORKFLOW_FILE); added Postgres EC2 to cost estimate; cost total ~$36–40.
 
 ---
@@ -50,7 +89,7 @@ Canonical docs only. For archived/retired docs see `docs/archive/`.
 - **REQUEST_LIFECYCLE.md:** Plan row and Webhook loss/Repair bullets updated for completion-time rule and needsReconcile (conclusion or completedAt missing).
 - **WEBHOOKS_AND_CORRELATION.md:** Patching run state describes completedAt single-source and monotonic completedAt; sync section describes needsReconcile (conclusion or completedAt missing), bypassCache for reconcile fetch, and completion from updated_at.
 - **GLOSSARY.md:** Repair "When" uses needsReconcile (runId present, conclusion or completedAt missing).
-- **CONTEXT_PACK.md:** Run execution and Match bullets updated for completedAt from completed_at ?? updated_at and needsReconcile (conclusion or completedAt missing), bypassCache.
+- Run execution and Match bullets updated for completedAt from completed_at ?? updated_at and needsReconcile (conclusion or completedAt missing), bypassCache.
 - **OPERATIONS.md:** Stuck-state table and re-sync bullet use needsReconcile (runId present, conclusion or completedAt missing).
 
 ---
@@ -62,7 +101,7 @@ Canonical docs only. For archived/retired docs see `docs/archive/`.
 - **REQUEST_LIFECYCLE.md:** New failure-mode row "Request lock (stale/expired)".
 - **WEBHOOKS_AND_CORRELATION.md:** Sync section notes lock clearing and debug log.
 - **GLOSSARY.md:** New "Request lock" subsection (active vs expired, sync clearing).
-- **CONTEXT_PACK.md:** Request lock bullet; DEBUG_WEBHOOKS extended with sync.lock_cleared_expired.
+- Request lock bullet; DEBUG_WEBHOOKS extended with sync.lock_cleared_expired.
 
 ---
 
@@ -75,7 +114,7 @@ Canonical docs only. For archived/retired docs see `docs/archive/`.
 - **WEBHOOKS_AND_CORRELATION.md:** Sync/reconciliation uses needsReconcile; noop cooldown noted.
 - **OPERATIONS.md:** Stuck-state table and re-sync guidance use needsReconcile; list row describes SSE-driven revalidation (300ms debounce).
 - **GLOSSARY.md:** Repair "When" uses needsReconcile.
-- **CONTEXT_PACK.md:** Run execution bullet (needsReconcile + cooldown); SSE revalidation (global subscriber, 300ms debounce); note that example JSON status is derived, not stored.
+- Run execution bullet (needsReconcile + cooldown); SSE revalidation (global subscriber, 300ms debounce); note that example JSON status is derived, not stored.
 - **README.md**, **SCREAMING_ARCHITECTURE.md:** UI/SSE bullets updated (global SSE, 300ms debounce).
 - **DOCS_INDEX.md:** Lifecycle/sync refresh line already referenced needsReconcile; no further change.
 - **STATUS_WORKFLOW_SPIKE.md:** Unchanged (historical context preserved).
@@ -99,11 +138,11 @@ Canonical docs only. For archived/retired docs see `docs/archive/`.
 - Added **docs/DOCS_INDEX.md** with full inventory and status (KEEP / UPDATE / MERGE / ARCHIVE / DELETE).
 - Created canonical set: **SYSTEM_OVERVIEW.md** (updated), **REQUEST_LIFECYCLE.md**, **GITHUB_WORKFLOWS.md**, **WEBHOOKS_AND_CORRELATION.md**, **OPERATIONS.md**, **GLOSSARY.md**; **RUN_INDEX.md** (cross-links added).
 - **README.md** shortened: “What is TfPilot”, core invariants, quickstart, links to DOCS_INDEX and key docs. Status wording aligned to derived canonical statuses (`applied` not `complete`).
-- **EXECUTION_PLAN.md** and **SYSTEM_OVERVIEW.md** given a one-line pointer to DOCS_INDEX. **.cursor/rules/agent-routing.mdc** now references DOCS_INDEX.
+- **SYSTEM_OVERVIEW.md** given a one-line pointer to DOCS_INDEX. **.cursor/rules/agent-routing.mdc** now references DOCS_INDEX.
 
-**Doc refresh (lifecycle/sync/webhooks):** Plan attempt always created at dispatch (runId optional); sync fetches/patches when **needsReconcile(attempt)** (runId present, conclusion missing); webhook can attach runId by head_sha; DEBUG_WEBHOOKS=1 noop_reason logging. REQUEST_LIFECYCLE, WEBHOOKS_AND_CORRELATION, RUN_INDEX, OPERATIONS, GITHUB_WORKFLOWS, GLOSSARY, SYSTEM_OVERVIEW, CONTEXT_PACK updated. Refs: `getCurrentAttemptStrict`, `persistDispatchAttempt`, `needsReconcile` in lib/requests/runsModel.ts.
+**Doc refresh (lifecycle/sync/webhooks):** Plan attempt always created at dispatch (runId optional); sync fetches/patches when **needsReconcile(attempt)** (runId present, conclusion missing); webhook can attach runId by head_sha; DEBUG_WEBHOOKS=1 noop_reason logging. REQUEST_LIFECYCLE, WEBHOOKS_AND_CORRELATION, RUN_INDEX, OPERATIONS, GITHUB_WORKFLOWS, GLOSSARY, SYSTEM_OVERVIEW updated. Refs: `getCurrentAttemptStrict`, `persistDispatchAttempt`, `needsReconcile` in lib/requests/runsModel.ts.
 
-**Doc refresh (UI):** Lifecycle History timeline: chronological order (request_created first), dedupe completion events by runId+attempt, "Apply Succeeded" → "Deployment Succeeded", runId and project/targetRepo links (buildLink: runId → GitHub actions run URL; project/targetRepo → repo root; PR link only for prNumber/pr keys to avoid project→pull bug). Timeline details use 2–3 column grid. CONTEXT_PACK Run index bullet fixed: `persistDispatchAttempt` in runsModel (not persistWorkflowDispatch).
+**Doc refresh (UI):** Lifecycle History timeline: chronological order (request_created first), dedupe completion events by runId+attempt, "Apply Succeeded" → "Deployment Succeeded", runId and project/targetRepo links (buildLink: runId → GitHub actions run URL; project/targetRepo → repo root; PR link only for prNumber/pr keys to avoid project→pull bug). Timeline details use 2–3 column grid. Run index bullet fixed: `persistDispatchAttempt` in runsModel (not persistWorkflowDispatch).
 
 **Archived / deleted**
 - **Archived** (moved to **docs/archive/** with “ARCHIVED — 2026-02-26” header and replacement link): LIFECYCLE_MODEL_V2, EXECUTION_PLAN_V2, WEBHOOK_NEW_FEATURE_PLAN, Replace Polling with SSE + Event-Driven Sync, GITHUB_CALL_GRAPH_AUDIT, DESTROY_CLEANUP_FLOW_AUDIT, ACTION_CONSISTENCY_AUDIT, STATUS_TRANSITION_AUDIT, UI_STATE_LIFECYCLE_UX_AUDIT, UPDATE_CONFIGURATION_FLOW_AUDIT, ARCHITECTURE_REVIEW_REPORT, PLATFORM_REVIEW_FOR_AGENT, AUTH_GAPS_AUDIT_AND_FIX_PLAN, TIER1_SECURITY_HARDENING, ENTERPRISE_COST_ANALYSIS, PLATFORM_FULL_AUDIT_REPORT (root).
@@ -132,22 +171,23 @@ Canonical docs only. For archived/retired docs see `docs/archive/`.
 | `docs/INVARIANTS.md` | Formal lifecycle invariants (MUST/SHOULD/MUST NOT), violation examples, enforcement points, test checklist | **KEEP** | — | Current |
 | `docs/POLLING.md` | Request-detail polling env vars and behavior | **KEEP** | — | Current |
 | `docs/GLOSSARY.md` | Terminology: workflow kinds, statuses, Repair, observability | **KEEP** | — | Current |
-| `docs/CONTEXT_PACK.md` | New-chat context pack: paste into new thread for lifecycle/webhook/SSE debugging | **KEEP** | — | New |
+| `docs/INSIGHTS.md` | Insights dashboard: ops metrics, GitHub API usage, API, code layout | **KEEP** | — | Current |
 | **Roadmap / agent** | | | | |
-| `docs/EXECUTION_PLAN.md` | Roadmap, phases, principles (referenced by .cursor rules) | **KEEP** | — | Current |
 | `docs/prompts/MASTER.md` | Master system prompt (referenced by .cursor rules) | **KEEP** | — | Current |
 | `docs/prompts/agents/*-agent.md` | Role-specific agent prompts (naming: *-agent) | **KEEP** | — | Current |
 | `docs/prompts/design/*.md` | UI/Internal design prompts | **KEEP** | — | Current |
 | **Reference / optional** | | | | |
 | `docs/USEFUL_COMMANDS.md` | Quick reference: dev, Postgres, webhook tunnel, tests, health | **KEEP** | — | Current |
 | `docs/ARCHITECTURE_DELTA_DB.md` | Design doc for Postgres index migration; canonical schema/behavior in POSTGRES_INDEX | **KEEP** | `docs/POSTGRES_INDEX.md` for current state | Reference |
-| `docs/ARCHITECTURE_DELTA_ENVIRONMENTS.md` | Design/proposal: first-class Environment entity, env-centric UX; not implemented | **KEEP** | — | Reference (design) |
+| `docs/ARCHITECTURE_DELTA_ENVIRONMENTS.md` | Design/proposal: first-class Environment entity, env-centric UX; legacy Model 1 | **KEEP** | Current: SYSTEM_OVERVIEW, ENVIRONMENT_TEMPLATES_DELTA | Reference (design) |
+| `docs/ENVIRONMENT_TEMPLATES_DELTA.md` | Architecture delta: Environment Templates, Deploy Environment | **KEEP** | — | Current (Phases 0–6 implemented) |
+| `docs/ENVIRONMENT_TEMPLATES_IMPLEMENTATION_PLAN.md` | Phase-by-phase implementation plan | **KEEP** | — | Current (Phases 0–6 complete) |
 | `docs/FORENSIC_STORAGE_INVARIANTS_REPORT.md` | Read-only storage model mapping (S3 prefixes, read/write sites) | **KEEP** | — | Reference |
 | `docs/PLATFORM_BENCHMARKS.md` | Benchmarks | **KEEP** | — | Optional reference |
 | `docs/STATUS_WORKFLOW_SPIKE.md` | Spike: status derivation, list vs detail, apply/sync; no code changes | **KEEP** | — | Investigation only |
 | **Archived** (moved to `docs/archive/`) | | | | |
 | `docs/LIFECYCLE_MODEL_V2.md` | Design doc for derived lifecycle | **ARCHIVE** | `docs/REQUEST_LIFECYCLE.md` | Superseded by code + REQUEST_LIFECYCLE |
-| `docs/EXECUTION_PLAN_V2.md` | Roadmap v2 | **ARCHIVE** | `docs/EXECUTION_PLAN.md` | Redundant with EXECUTION_PLAN |
+| `docs/EXECUTION_PLAN_V2.md` | Roadmap v2 | **ARCHIVE** | — | Removed (EXECUTION_PLAN retired) |
 | `docs/WEBHOOK_NEW_FEATURE_PLAN.md` | Webhook feature plan | **ARCHIVE** | `docs/WEBHOOKS_AND_CORRELATION.md` | Implemented |
 | `Replace Polling with SSE + Event-Driven Sync` | SSE migration plan | **ARCHIVE** | Implemented (webhook + SSE) | Implemented |
 | `docs/GITHUB_CALL_GRAPH_AUDIT.md` | GitHub API call audit | **ARCHIVE** | — | Reference only |

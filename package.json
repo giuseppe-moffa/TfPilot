@@ -15,6 +15,7 @@
     "validate:audit": "tsx scripts/validate-audit-events.ts",
     "validate:attempt-completedAt": "tsx scripts/validate-attempt-completedAt.ts",
     "validate:needsReconcile-completedAt": "tsx scripts/validate-needsReconcile-completedAt.ts",
+    "validate:legacy-env": "tsx scripts/validate-legacy-env.ts",
     "test:invariants": "tsx tests/runInvariants.ts",
     "db:migrate": "tsx scripts/db-migrate.ts",
     "db:rebuild-index": "tsx scripts/rebuild-requests-index.ts"
@@ -51,7 +52,6 @@
     "postcss": "^8.5.6",
     "shadcn": "^3.8.4",
     "tailwindcss": "^4.1.18",
-    "ts-node": "^10.9.2",
     "tsx": "^4.7.0",
     "tw-animate-css": "^1.4.0",
     "typescript": "^5"

@@ -2,7 +2,7 @@
  * Request templates: environment + module (moduleKey) + default config.
  * Project is resolved at request time from user selection (Environment step 1);
  * repo/PR targeting uses that project.
- * Templates are loaded from GET /api/templates (S3 catalogue); this file only exports types and helpers.
+ * Templates are loaded from GET /api/request-templates (S3 catalogue); this file only exports types and helpers.
  */
 
 export type RequestTemplate = {
@@ -25,11 +25,4 @@ export function getRequestTemplate(
   id: string
 ): RequestTemplate | undefined {
   return templates.find((t) => t.id === id)
-}
-
-export function getTemplatesForModule(
-  templates: RequestTemplate[],
-  moduleKey: string
-): RequestTemplate[] {
-  return templates.filter((t) => t.moduleKey === moduleKey)
 }

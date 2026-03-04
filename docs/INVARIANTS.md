@@ -92,6 +92,37 @@ This document states the **invariants** that the current TfPilot lifecycle engin
 
 ---
 
+## Environment deploy invariants
+
+- **INV-ENV-1** Environment deploy status **MUST** be derived from GitHub repo facts (e.g. `backend.tf` exists, open PR with head `deploy/<key>/<slug>`). No stored "deployed" flag in DB.
+
+- **INV-ENV-2** Environment is considered **deployed** if and only if `envs/<environment_key>/<environment_slug>/backend.tf` exists on the default branch. Deploy PR detection: open PR whose head branch is `deploy/<key>/<slug>`. Do **not** use directory existence, request files (`*_req_*.tf`), or PR merge status as the deploy signal.
+
+- **INV-ENV-3** When the GitHub check fails (e.g. rate limit, unreachable), the API **MUST** fail closed: return `error: "ENV_DEPLOY_CHECK_FAILED"`, `deployPrOpen: null`. Do not assume deployed or not deployed.
+
+- **INV-ENV-4** Deploy API (POST `/api/environments/:id/deploy`) **MUST** validate deployed status before any writes. If check fails → **503** `ENV_DEPLOY_CHECK_FAILED`. Atomic rollback on PR failure: delete request docs, then delete branch.
+
+---
+
+## New Request gating invariants
+
+- **INV-GATE-1** "New Request" **MUST** be disabled when `deployed=false` (message: "Environment must be deployed before creating resources"), `deployPrOpen=true` (message: "Environment deployment in progress"), or deploy check failed (message: "Cannot verify deploy status").
+
+- **INV-GATE-2** Gating logic **MUST** be centralized in `lib/new-request-gate.ts`. UI and API use API fields `deployed`, `deployPrOpen`, `error` only; no client-side deploy detection.
+
+---
+
+## Platform invariants (architecture)
+
+- **INV-PLAT-1** Terraform runs **only** in GitHub Actions; no Terraform execution inside the app. GitHub workflows execute plan/apply/destroy; app dispatches and correlates.
+- **INV-PLAT-2** S3 request document is canonical; Postgres `requests_index` is a projection for list/pagination only. No lifecycle or status column in DB.
+- **INV-PLAT-3** Lifecycle status is derived from facts only; never stored as truth.
+- **INV-PLAT-4** Attempts are created only on dispatch; webhooks/sync patch attempt facts only.
+- **INV-PLAT-5** Terraform roots are env-specific: `envs/<environment_key>/<environment_slug>/`. One root per (key, slug).
+- **INV-PLAT-6** Request filenames are derived from (module, request_id): `<module>_req_<request_id>.tf`. Filenames must never be parsed; path is computed from request document fields.
+
+---
+
 ## Violation examples
 
 These are examples of **regressions** that would violate the invariants above.
@@ -143,6 +174,12 @@ These are the logical guarantees. They must hold regardless of where or how requ
 | INV-LOCK-3 | `app/api/requests/[requestId]/sync/route.ts`: start-of-sync logic that clears `request.lock` when expired and persists. |
 | INV-AUDIT-1, INV-AUDIT-2, INV-AUDIT-3 | `lib/requests/auditEvents.ts`: `buildAuditEvents`; `app/api/requests/[requestId]/audit-export/route.ts` and request detail UI use it. |
 | INV-UI-1, INV-UI-2 | Request detail (and any) UI that gates plan/apply/destroy on lock and status; must use request facts + `deriveLifecycleStatus` / `isLockActive`. |
+| INV-ENV-1, INV-ENV-2, INV-ENV-3 | `lib/environments/getEnvironmentDeployStatus.ts`, `lib/environments/isEnvironmentDeployed.ts`: deploy detection from GitHub. |
+| INV-ENV-4 | `app/api/environments/[id]/deploy/route.ts`: check before writes; atomic rollback. |
+| INV-GATE-1, INV-GATE-2 | `lib/new-request-gate.ts`: `getNewRequestGate`; UI uses deploy status from GET `/api/environments/:id`. |
+| INV-ENV-1, INV-ENV-2, INV-ENV-3 | `lib/environments/getEnvironmentDeployStatus.ts`, `lib/environments/isEnvironmentDeployed.ts`: deploy detection from GitHub. |
+| INV-ENV-4 | `app/api/environments/[id]/deploy/route.ts`: check before writes; atomic rollback. |
+| INV-GATE-1, INV-GATE-2 | `lib/new-request-gate.ts`: `getNewRequestGate`; UI uses deploy status from GET `/api/environments/:id`. |
 
 ---
 

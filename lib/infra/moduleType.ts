@@ -15,7 +15,3 @@ export function getModuleType(moduleName: string, category?: string): ModuleType
   if (name.includes("s3")) return "s3"
   return "misc"
 }
-
-export function getEnvTargetFile(envPath: string, type: ModuleType) {
-  return `${envPath}/tfpilot.${type}.tf`
-}

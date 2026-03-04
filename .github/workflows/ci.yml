@@ -1,0 +1,49 @@
+name: CI (validate + build)
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  validate-and-build:
+    name: Validate, test, build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate legacy-env
+        run: npm run validate:legacy-env
+
+      - name: Invariant tests
+        run: npm run test:invariants
+
+      - name: Build
+        run: npm run build
+
+      - name: Depcheck (warn only)
+        run: npx depcheck > depcheck.txt 2>&1 || true
+
+      - name: Upload depcheck artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: depcheck
+          path: depcheck.txt

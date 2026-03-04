@@ -129,10 +129,68 @@ The lifecycle engine enforces **monotonic patching** (no regressing completed st
 
 ---
 
+## Environment lifecycle and deploy
+
+- **Create:** POST `/api/environments` — creates DB record (project_key, environment_key, environment_slug, template_id, template_version). `template_id` validated against `config/environment-templates.ts`; invalid → `400 INVALID_ENV_TEMPLATE`.
+- **Deploy:** POST `/api/environments/:id/deploy` — creates branch `deploy/<key>/<slug>`, commits bootstrap Terraform root via `lib/environments/envSkeleton`, opens PR. Admin-only. Returns `deploy.pr_url`, `deploy.pr_number`. Atomic rollback on PR failure (delete request docs, delete branch).
+- **Deploy detection:** `GET /api/environments/:id` uses `getEnvironmentDeployStatus` (GitHub API): `deployed` = `backend.tf` exists on default branch; `deployPrOpen` = open PR with head `deploy/<key>/<slug>`; `deployPrUrl` when PR exists; `envRootExists` = env root directory exists. Fail-closed: GitHub check failure → `error: "ENV_DEPLOY_CHECK_FAILED"`, `deployPrOpen: null`.
+- **UI gating:** "New Request" disabled when `deployed=false`, `deployPrOpen=true`, or deploy check fails. Messages: "Environment must be deployed before creating resources", "Environment deployment in progress", "Cannot verify deploy status". `lib/new-request-gate.ts` centralizes gating logic.
+
+**Environment Activity:** `GET /api/environments/:id/activity` returns an env0/Spacelift-style activity timeline. Derived from Postgres request index + deploy status only (no S3 reads). Event types: `environment_deployed`, `environment_deploy_pr_open`, `request_created`. When GitHub deploy check fails, deploy events are omitted and `warning: "ENV_DEPLOY_CHECK_FAILED"` is returned; request-derived events still returned. See [API.md](API.md).
+
+**Environment Deploy Flow (textual):**
+
+```
+Create environment (POST /api/environments)
+  → DB record created; optional bootstrap PR for repo setup
+
+Deploy environment (POST /api/environments/:id/deploy)
+  → branch deploy/<key>/<slug>
+  → commits bootstrap Terraform root (backend.tf, providers.tf, versions.tf, base.tf, request files from template)
+  → opens PR
+
+Merge deploy PR
+  → backend.tf exists on default branch
+  → environment becomes deployed (deployed=true)
+
+Requests can now be created (New Request enabled).
+```
+
+---
+
+## Terraform repo structure (Model 2)
+
+Infra repos use multi-environment roots:
+
+```
+envs/<environment_key>/<environment_slug>/
+  backend.tf
+  providers.tf
+  versions.tf
+  tfpilot/
+    base.tf
+    requests/
+      <module>_req_<request_id>.tf
+      .gitkeep
+```
+
+- Request files use canonical naming: `<module>_req_<request_id>.tf` (e.g. `ecr-repo_req_a12bc3.tf`). No `req_<id>.tf` legacy format.
+- Deploy creates this structure from environment templates. Merge deploy PR → `backend.tf` exists → environment becomes deployed; requests can then be created.
+
+---
+
+## Module Registry
+
+Defined in `config/module-registry.ts`. Registry modules define schema and request config for AI-assisted form generation. Current modules: **s3-bucket**, **ec2-instance**, **ecr-repo**, **cloudwatch-log-group**, **iam-role**.
+
+**Note:** Registry modules define the platform schema; corresponding Terraform modules may not yet exist in infra repos. Environment templates reference registry keys; templates may omit modules until Terraform implementations exist.
+
+---
+
 ## Repositories
 
 - **Platform repo (TfPilot):** This app. Next.js, API, S3, GitHub API, webhooks, SSE.
-- **Infra repos (per project):** e.g. `core-terraform`, `payments-terraform`. Contain `envs/dev|prod`, `modules/`, `.github/workflows` (plan, apply, destroy, cleanup, drift-plan). TfPilot writes only bounded blocks between `# --- tfpilot:begin:<requestId> ---` and `# --- tfpilot:end:<requestId> ---`.
+- **Infra repos (per project):** e.g. `core-terraform`, `payments-terraform`. Contain `envs/<key>/<slug>/`, `modules/`, `.github/workflows` (plan, apply, destroy, cleanup, drift-plan). TfPilot writes one file per request at `envs/<key>/<slug>/tfpilot/requests/<module>_req_<request_id>.tf`.
 
 ---
 
@@ -144,7 +202,7 @@ The lifecycle engine enforces **monotonic patching** (no regressing completed st
 | S3 request document is authoritative | All reads for request detail/list hydrate from S3 (list uses index for ordering, then fetches doc per row). `lib/storage/requestsStore.ts`: `getRequest`, `saveRequest`. |
 | Postgres is index/projection only; no lifecycle in DB | Schema has no status column. `lib/db/indexer.ts`: projection fields only; `deriveLifecycleStatus` in app only. |
 | Write-through indexing after S3 save | `saveRequest` in `lib/storage/requestsStore.ts` calls `upsertRequestIndex` after `putRequest`; index failures do not throw. |
-| TfPilot edits only between tfpilot markers | Block edits in `lib/` and API routes use `tfpilot:begin/<requestId>` / `tfpilot:end/<requestId>`. |
+| TfPilot writes one file per request | `lib/renderer/model2` generates `envs/<key>/<slug>/tfpilot/requests/<module>_req_<request_id>.tf`; no multi-request blocks. |
 | Status is derived from facts only | `lib/requests/deriveLifecycleStatus.ts`; webhooks/sync patch facts in S3, never write status. |
 | GitHub is the execution boundary | Workflow dispatch and run correlation via run index; no local run execution. |
 
@@ -166,7 +224,7 @@ See [INVARIANTS.md](INVARIANTS.md) for the full formal checklist.
 
 ## Observability and Insights
 
-- **Insights page** (`/insights`): Dashboard of platform metrics (cached ~60s) and in-memory GitHub API usage. Requires session.
+- **Insights page** (`/insights`): Dashboard of platform metrics (cached ~60s) and in-memory GitHub API usage. Requires session. See [docs/INSIGHTS.md](INSIGHTS.md) for full feature docs.
 - **Ops metrics** (`GET /api/metrics/insights`): Aggregates from S3 request data — total requests, apply/plan success rates (7d), failures (24h/7d), status distribution, activity windows, durations (e.g. Created → Plan ready). Served by **lib/observability/ops-metrics.ts**; cached; no DB.
 - **GitHub API usage** (`GET /api/metrics/github`): In-memory only (same process; resets on deploy/restart). Single call-site: **lib/github/client.ts** `ghResponse()` calls `recordGitHubCall()`. Snapshot includes:
   - **Windows:** 5m and 60m rolling aggregates (calls, rate-limited, success/client/server/fetch errors).
@@ -176,6 +234,14 @@ See [INVARIANTS.md](INVARIANTS.md) for the full formal checklist.
   - **Rate-limit burst (5m):** Boolean — true if any rate-limited response in 5m or remaining/limit &lt; 10%.
   - **Last rate-limit events:** Ring of last 20 events; each event has route, status, remaining/limit/reset, and optional **kindGuess** (best-effort: e.g. `run`, `pr`, `reviews`, `jobs` from path).
 - **lib/observability:** `ops-metrics.ts` (request-based aggregates), `github-metrics.ts` (in-memory GitHub usage, route normalization, `inferKindGuess`), `useInsightsMetrics.ts` / `useGitHubMetrics.ts` (SWR hooks for UI).
+
+---
+
+## Future roadmap (not yet implemented)
+
+- **Drift detection:** Active drift status per environment; UI indicators.
+- **Plan/apply activity events:** Activity timeline could include `plan_succeeded`, `apply_succeeded`, `destroy_succeeded` when run/attempt data is available from the index (currently Postgres projection has no runs).
+- **Environment health indicators:** Consolidated health status per environment (deploy, drift, request count).
 
 ---
 

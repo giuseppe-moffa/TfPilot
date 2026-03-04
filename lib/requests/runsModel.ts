@@ -287,18 +287,3 @@ export function needsReconcile(attempt: AttemptRecord | null | undefined): boole
     (attempt.conclusion == null || attempt.conclusion === undefined || attempt.completedAt == null)
   )
 }
-
-/**
- * Find which op and attempt record has the given runId (for output routes / lookup by runId).
- */
-export function getAttemptByRunId(
-  runs: RunsState | null | undefined,
-  runId: number
-): { kind: RunKind; attempt: AttemptRecord } | null {
-  if (!runs) return null
-  for (const kind of (["plan", "apply", "destroy"] as const)) {
-    const record = runs[kind]?.attempts?.find((a) => a.runId === runId)
-    if (record) return { kind, attempt: record }
-  }
-  return null
-}

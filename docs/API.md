@@ -64,6 +64,84 @@ Implementation: `app/api/health/db/route.ts` — uses `isDatabaseConfigured()` f
 
 ---
 
+## Environment and Environment Templates
+
+### GET /api/environments
+
+List environments (DB-backed). **Requires session.** Query params: `project_key`, `include_archived` (default false).
+
+**Response (200):** `{ environments: Environment[] }`. **503** when DB not configured or unavailable.
+
+### POST /api/environments
+
+Create environment. **Requires session** (viewer role blocked). Body: `project_key`, `environment_key`, `environment_slug`, `template_id` (optional; validated against `config/environment-templates.ts`). Invalid `template_id` → **400** `{ error: "INVALID_ENV_TEMPLATE" }`. On success: creates DB row, optionally creates bootstrap PR; returns **201** `{ environment, bootstrap }`. **409** when environment already exists.
+
+### GET /api/environments/:id
+
+Fetch single environment + deploy status. **Requires session.** Uses GitHub API via `getEnvironmentDeployStatus`.
+
+**Response (200):**
+```json
+{
+  "environment": { /* DB row */ },
+  "deployed": boolean,
+  "deployPrOpen": boolean | null,
+  "envRootExists": boolean | null,
+  "deployPrUrl": string | null,
+  "error": "ENV_DEPLOY_CHECK_FAILED" | null
+}
+```
+
+- `deployed`: true when `backend.tf` exists on default branch at `envs/<key>/<slug>/`.
+- `deployPrOpen`: true when open PR with head `deploy/<key>/<slug>` exists.
+- `deployPrUrl`: URL when PR exists.
+- `envRootExists`: env root directory exists on default branch.
+- When GitHub check fails (e.g. rate limit), `error: "ENV_DEPLOY_CHECK_FAILED"`; `deployPrOpen` null; fail-closed.
+
+### POST /api/environments/:id/deploy
+
+Create deploy PR from environment template. **Admin-only.** Creates branch `deploy/<key>/<slug>`, commits bootstrap via `envSkeleton`, opens PR. Returns `deploy.pr_url`, `deploy.pr_number`.
+
+**Deploy error semantics:**
+
+| Error | HTTP | Condition |
+|-------|------|-----------|
+| `ENV_ALREADY_DEPLOYED` | 409 | `backend.tf` exists on default branch (env already deployed) |
+| `ENV_DEPLOY_IN_PROGRESS` | 409 | Branch `deploy/<key>/<slug>` exists **or** open deploy PR exists. Branch-only and PR-open are intentionally treated the same. |
+| `ENV_DEPLOY_CHECK_FAILED` | 503 | GitHub check fails (e.g. rate limit, unreachable). Fail-closed. |
+| `INVALID_ENV_TEMPLATE` | 400 | Environment has invalid or unknown `template_id`. |
+
+### GET /api/environments/:id/activity
+
+Environment activity timeline. **Requires session.** Derived from Postgres request index + deploy status only (no S3 reads).
+
+**Response (200):**
+```json
+{
+  "activity": [
+    {
+      "type": "environment_deployed" | "environment_deploy_pr_open" | "request_created",
+      "timestamp": "<ISO string>",
+      "request_id": "<optional>",
+      "module": "<optional>",
+      "pr_url": "<optional>",
+      "pr_number": "<optional>"
+    }
+  ],
+  "warning": "ENV_DEPLOY_CHECK_FAILED"
+}
+```
+
+- `activity`: Newest first. Event types: `environment_deployed`, `environment_deploy_pr_open`, `request_created`. Future types may include `plan_succeeded`, `apply_succeeded`, `destroy_succeeded`.
+- `warning`: Present when GitHub deploy check fails; deploy events are omitted, request-derived events still returned.
+- **404** when environment not found: `{ error: "NOT_FOUND" }`.
+
+### GET /api/environment-templates
+
+Returns environment templates (static config from `config/environment-templates.ts`). **Requires session.** Response: array of `{ id, label?, modules: { module, order, defaultConfig? }[] }`. Templates: `blank`, `baseline-ai-service`, `baseline-app-service`, `baseline-worker-service`.
+
+---
+
 ## Other endpoints
 
 - **GET /api/requests/[requestId]** — Single request from S3; no Postgres required for this route.

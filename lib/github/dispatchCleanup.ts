@@ -1,12 +1,11 @@
 /**
- * Dispatch the cleanup workflow (e.g. after destroy succeeds via webhook).
+ * Dispatch the cleanup_v2 workflow (direct file deletion).
  * Single GitHub POST; request data is read from S3.
  */
 
 import { gh } from "@/lib/github/client"
 import { getRequest } from "@/lib/storage/requestsStore"
 import { env } from "@/lib/config/env"
-import { getEnvTargetFile, getModuleType } from "@/lib/infra/moduleType"
 
 export type DispatchCleanupParams = {
   token: string
@@ -14,29 +13,31 @@ export type DispatchCleanupParams = {
 }
 
 /**
- * Load request from S3 and dispatch cleanup workflow (1 GitHub call).
- * Caller must supply a token (e.g. server token for webhook, or user token for destroy route).
+ * Load request from S3 and dispatch cleanup_v2 workflow.
+ * Requires environment_key and environment_slug (Model 2).
  */
 export async function dispatchCleanup({ token, requestId }: DispatchCleanupParams): Promise<void> {
   const request = await getRequest(requestId)
   if (!request.targetOwner || !request.targetRepo || !env.GITHUB_CLEANUP_WORKFLOW_FILE) {
     return
   }
+  const envKey = request.environment_key
+  const envSlug = request.environment_slug ?? ""
+  if (!envKey || envSlug === undefined || envSlug === "") {
+    throw new Error("Request missing environment_key or environment_slug (Model 2 violation)")
+  }
   const ref = request.targetBase ?? env.GITHUB_DEFAULT_BASE_BRANCH
-  const targetFiles = request.targetFiles ?? []
-  const cleanupPaths =
-    targetFiles.length > 0
-      ? targetFiles.join(",")
-      : request.targetEnvPath && request.module
-        ? getEnvTargetFile(request.targetEnvPath, getModuleType(request.module))
-        : ""
-  const isProd = (request.environment ?? "").toLowerCase() === "prod"
+  const isProd = (envKey ?? "").toLowerCase() === "prod"
+  const module = request.module
+  if (!module) {
+    throw new Error("Request missing module (required for cleanup path)")
+  }
   const inputs = {
     request_id: request.id,
-    environment: request.environment ?? "dev",
+    module,
+    environment_key: envKey,
+    environment_slug: envSlug,
     target_base: ref,
-    cleanup_paths: cleanupPaths,
-    target_env_path: request.targetEnvPath ?? "",
     auto_merge: isProd ? "false" : "true",
   }
   await gh(token, `/repos/${request.targetOwner}/${request.targetRepo}/actions/workflows/${env.GITHUB_CLEANUP_WORKFLOW_FILE}/dispatches`, {

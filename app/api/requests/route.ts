@@ -4,7 +4,8 @@ import crypto from "crypto"
 import { gh } from "@/lib/github/client"
 import { getGitHubAccessToken } from "@/lib/github/auth"
 import { githubRequest } from "@/lib/github/rateAware"
-import { getEnvTargetFile, getModuleType } from "@/lib/infra/moduleType"
+import { getModuleType } from "@/lib/infra/moduleType"
+import { generateModel2RequestFile } from "@/lib/renderer/model2"
 import { resolveInfraRepo } from "@/config/infra-repos"
 import { env, logEnvDebug } from "@/lib/config/env"
 import { saveRequest, getRequest } from "@/lib/storage/requestsStore"
@@ -37,10 +38,15 @@ import type { RunsState } from "@/lib/requests/runsModel"
 import { putRunIndex } from "@/lib/requests/runIndex"
 import { getUserRole } from "@/lib/auth/roles"
 import { ensureAssistantState } from "@/lib/assistant/state"
+import { resolveRequestEnvironment } from "@/lib/requests/resolveRequestEnvironment"
+import { validateCreateBody } from "@/lib/requests/validateCreateBody"
 
 type RequestPayload = {
-  project?: string
-  environment?: string
+  /** environment_id (preferred) or (project_key, environment_key, environment_slug) */
+  environment_id?: string
+  project_key?: string
+  environment_key?: string
+  environment_slug?: string
   module?: string
   config?: Record<string, unknown>
   templateId?: string
@@ -49,8 +55,10 @@ type RequestPayload = {
 
 type StoredRequest = {
   id: string
-  project: string
-  environment: string
+  project_key: string
+  environment_key: string
+  environment_slug: string
+  environment_id: string
   module: string
   config: Record<string, unknown>
   receivedAt: string
@@ -101,28 +109,8 @@ const PLAN_WORKFLOW = env.GITHUB_PLAN_WORKFLOW_FILE
 const RENDERER_VERSION = "tfpilot-renderer@1"
 logEnvDebug()
 
-function validatePayload(body: RequestPayload) {
-  const errors: string[] = []
-
-  if (!body.project || typeof body.project !== "string") {
-    errors.push("project is required and must be a string")
-  }
-  if (!body.environment || typeof body.environment !== "string") {
-    errors.push("environment is required and must be a string")
-  }
-  if (!body.module || typeof body.module !== "string") {
-    errors.push("module is required and must be a string")
-  }
-  if (
-    body.config === undefined ||
-    body.config === null ||
-    typeof body.config !== "object" ||
-    Array.isArray(body.config)
-  ) {
-    errors.push("config is required and must be an object")
-  }
-
-  return errors
+function validatePayload(body: RequestPayload): string[] {
+  return validateCreateBody(body)
 }
 
 function planDiffForModule(mod?: string) {
@@ -136,20 +124,6 @@ function planDiffForModule(mod?: string) {
     default:
       return "+ aws_null_resource.default"
   }
-}
-
-function renderHclValue(value: unknown): string {
-  if (typeof value === "boolean" || typeof value === "number") return String(value)
-  if (Array.isArray(value) || typeof value === "object") {
-    return `jsonencode(${JSON.stringify(value)})`
-  }
-  return `"${String(value)}"`
-}
-
-/** HCL map keys with ':' or other non-identifier chars must be quoted. */
-function hclTagKey(key: string): string {
-  if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)) return key
-  return `"${key.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`
 }
 
 function toSnakeCase(key: string) {
@@ -232,49 +206,6 @@ async function fetchRepoFile(token: string, owner: string, repo: string, filePat
     throw err
   }
   return null
-}
-
-function upsertRequestBlock(existing: string | null, requestId: string, blockBody: string) {
-  const header = "# Managed by TfPilot - do not edit by hand."
-  const begin = `# --- tfpilot:begin:${requestId} ---`
-  const end = `# --- tfpilot:end:${requestId} ---`
-  const body = `${begin}\n${blockBody.trimEnd()}\n${end}\n`
-
-  let base = existing ?? ""
-  if (!base.trim()) {
-    base = `${header}\n\n`
-  } else if (!base.endsWith("\n")) {
-    base += "\n"
-  }
-
-  const startIdx = base.indexOf(begin)
-  const endIdx = base.indexOf(end)
-  if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
-    const before = base.slice(0, startIdx)
-    const after = base.slice(endIdx + end.length)
-    return `${before}${body}${after}`.replace(/\n{3,}/g, "\n\n")
-  }
-
-  return `${base}${body}`
-}
-
-function renderModuleBlock(request: StoredRequest, moduleSource: string) {
-  const renderedInputs = Object.entries(request.config).map(([key, val]) => {
-    if (key === "tags" && val && typeof val === "object" && !Array.isArray(val)) {
-      const tagEntries = Object.entries(val as Record<string, unknown>).map(
-        ([k, v]) => `    ${hclTagKey(k)} = ${renderHclValue(v)}`
-      )
-      return `  tags = {\n${tagEntries.join("\n")}\n  }`
-    }
-    return `  ${key} = ${renderHclValue(val)}`
-  })
-
-  const safeModuleName = `tfpilot_${request.id}`.replace(/[^a-zA-Z0-9_]/g, "_")
-
-  return `module "${safeModuleName}" {
-  source = "${moduleSource}"
-${renderedInputs.join("\n")}
-}`
 }
 
 function coerceByType(field: ModuleField | undefined, value: unknown): unknown {
@@ -367,7 +298,7 @@ function validateEnum(fields: Record<string, ModuleField>, cfg: Record<string, u
   }
 }
 
-function normalizeByFields(entry: ModuleRegistryEntry, rawConfig: Record<string, unknown>, ctx: { requestId: string; project: string; environment: string }) {
+function normalizeByFields(entry: ModuleRegistryEntry, rawConfig: Record<string, unknown>, ctx: { requestId: string; project_key: string; environment_key: string }) {
   const fields = buildFieldMap(entry)
   const allowed = new Set(Object.keys(fields))
 
@@ -414,7 +345,7 @@ function normalizeByFields(entry: ModuleRegistryEntry, rawConfig: Record<string,
   return finalConfig
 }
 
-function buildModuleConfig(entry: ModuleRegistryEntry, rawConfig: Record<string, unknown>, ctx: { requestId: string; project: string; environment: string }) {
+function buildModuleConfig(entry: ModuleRegistryEntry, rawConfig: Record<string, unknown>, ctx: { requestId: string; project_key: string; environment_key: string }) {
   if (!entry.fields || entry.fields.length === 0) {
     throw new Error(`Module ${entry.type} missing fields schema (schema contract v2 required)`)
   }
@@ -422,27 +353,24 @@ function buildModuleConfig(entry: ModuleRegistryEntry, rawConfig: Record<string,
   return normalizeByFields(entry, cfg, ctx)
 }
 
-async function generateTerraformFiles(
+async function generateModel2TerraformFiles(
   token: string,
+  environment_key: string,
+  environment_slug: string,
   request: StoredRequest,
-  moduleType: ReturnType<typeof getModuleType>,
-  envPath: string,
   owner: string,
   repo: string
 ) {
-  const targetFile = getEnvTargetFile(envPath, moduleType)
-  const moduleSource = `../../modules/${request.module}`
-
-  const existing = await fetchRepoFile(token, owner, repo, targetFile)
-  const beginMarker = `# --- tfpilot:begin:${request.id} ---`
-  if (existing && existing.includes(beginMarker)) {
-    throw new Error(`Request ${request.id} already exists in ${targetFile}`)
+  const { path, content } = generateModel2RequestFile(environment_key, environment_slug, {
+    id: request.id,
+    module: request.module,
+    config: request.config,
+  })
+  const existing = await fetchRepoFile(token, owner, repo, path)
+  if (existing) {
+    throw new Error(`Request ${request.id} already exists at ${path}`)
   }
-
-  const block = renderModuleBlock(request, moduleSource)
-  const updated = upsertRequestBlock(existing, request.id, block)
-
-  return { files: [{ path: targetFile, content: updated }] }
+  return { files: [{ path, content }] }
 }
 
 async function createBranchCommitPrAndPlan(
@@ -523,7 +451,7 @@ async function createBranchCommitPrAndPlan(
       title: `Infra request ${request.id}: ${request.module}`,
       head: branchName,
       base: target.base,
-      body: `Automated request for ${request.project}/${request.environment}\n\nModule: ${request.module}\nRequest ID: ${request.id}`,
+      body: `Automated request for ${request.project_key}/${request.environment_key}/${request.environment_slug}\n\nModule: ${request.module}\nRequest ID: ${request.id}`,
     }),
   })
   const prJson = (await prRes.json()) as { number?: number; html_url?: string; head?: { sha?: string } }
@@ -535,7 +463,8 @@ async function createBranchCommitPrAndPlan(
       ref: branchName,
       inputs: {
         request_id: request.id,
-        environment: request.environment,
+        environment_key: request.environment_key,
+        environment_slug: request.environment_slug,
       },
     }),
   })
@@ -621,20 +550,28 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const requestId = generateRequestId(body.environment!, body.module!)
+    const envResult = await resolveRequestEnvironment({
+      environment_id: body.environment_id,
+      project_key: body.project_key,
+      environment_key: body.environment_key,
+      environment_slug: body.environment_slug,
+    })
+    if (!envResult.ok) {
+      return NextResponse.json({ success: false, error: envResult.error }, { status: 400 })
+    }
+    const { resolved } = envResult
+    const targetRepo = resolved.targetRepo
+
+    const requestId = generateRequestId(resolved.environment_key, body.module!)
     logInfo("request.create", { ...correlation, requestId, user: userLogin })
 
     console.log("[api/requests] received payload:", body)
     console.log("[api/requests] Triggering generation for", requestId)
     console.log("[api/requests] module =", body.module)
 
-    const moduleType = getModuleType(body.module!, regEntry.category)
-    const targetRepo = resolveInfraRepo(body.project!, body.environment!)
-    if (!targetRepo) {
-      return NextResponse.json({ success: false, error: "No infra repo configured for project/environment" }, { status: 400 })
-    }
+    getModuleType(body.module!, regEntry.category)
 
-    const isProd = body.environment?.toLowerCase() === "prod"
+    const isProd = resolved.environment_key.toLowerCase() === "prod"
     if (isProd && env.TFPILOT_PROD_ALLOWED_USERS.length > 0) {
       if (!env.TFPILOT_PROD_ALLOWED_USERS.includes(session.login)) {
         return NextResponse.json({ success: false, error: "Prod deployments not allowed for this user" }, { status: 403 })
@@ -649,8 +586,10 @@ export async function POST(request: NextRequest) {
     const nowIso = new Date().toISOString()
     const newRequest: StoredRequest = {
       id: requestId,
-      project: body.project!,
-      environment: body.environment!,
+      project_key: resolved.project_key,
+      environment_key: resolved.environment_key,
+      environment_slug: resolved.environment_slug,
+      environment_id: resolved.environment_id!,
       module: body.module!,
       config: normalizedConfig,
       receivedAt: nowIso,
@@ -659,6 +598,17 @@ export async function POST(request: NextRequest) {
       status: "created",
       plan: { diff: planDiffForModule(body.module) },
     }
+    if (process.env.NODE_ENV !== "production") {
+      if (!resolved.environment_key || !resolved.environment_slug) {
+        throw new Error("[DEV] Request create: environment_key and environment_slug required (Model 2)")
+      }
+    }
+    if (!resolved.environment_id || !resolved.environment_key || !resolved.environment_slug) {
+      return NextResponse.json(
+        { success: false, error: "Environment resolution must produce environment_id, environment_key, environment_slug" },
+        { status: 400 }
+      )
+    }
     ;(newRequest as Record<string, unknown>).lastActionAt = nowIso
     if (body.templateId != null) newRequest.templateId = String(body.templateId)
     if (typeof body.environmentName === "string" && body.environmentName.trim())
@@ -666,8 +616,8 @@ export async function POST(request: NextRequest) {
 
     newRequest.config = buildModuleConfig(regEntry, newRequest.config, {
       requestId: newRequest.id,
-      project: newRequest.project,
-      environment: newRequest.environment,
+      project_key: newRequest.project_key,
+      environment_key: newRequest.environment_key,
     })
 
     appendRequestIdToNames(newRequest.config, requestId)
@@ -685,11 +635,11 @@ export async function POST(request: NextRequest) {
     }
     validatePolicy(newRequest.config)
 
-    const generated = await generateTerraformFiles(
+    const generated = await generateModel2TerraformFiles(
       token,
+      resolved.environment_key,
+      resolved.environment_slug,
       newRequest,
-      moduleType,
-      targetRepo.envPath,
       targetRepo.owner,
       targetRepo.repo
     )
@@ -737,7 +687,7 @@ export async function POST(request: NextRequest) {
     newRequest.targetOwner = targetRepo.owner
     newRequest.targetRepo = targetRepo.repo
     newRequest.targetBase = targetRepo.base
-    newRequest.targetEnvPath = targetRepo.envPath
+    newRequest.targetEnvPath = resolved.targetRepo.envPath
     newRequest.targetFiles = generated.files.map((f) => f.path)
     const runsPatch = persistDispatchAttempt(newRequest as Record<string, unknown>, "plan", {
       headSha: ghResult.planHeadSha,
@@ -791,8 +741,8 @@ export async function POST(request: NextRequest) {
       actor: session.login,
       source: "api/requests",
       data: {
-        project: newRequestWithAssistant.project,
-        environment: newRequestWithAssistant.environment,
+        project: newRequestWithAssistant.project_key,
+        environment: newRequestWithAssistant.environment_key,
         module: newRequestWithAssistant.module,
         targetRepo: `${targetRepo.owner}/${targetRepo.repo}`,
       },

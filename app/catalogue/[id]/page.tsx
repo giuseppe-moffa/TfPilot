@@ -177,7 +177,7 @@ export default function TemplateEditorPage() {
     }
     let cancelled = false
     async function load() {
-      let res = await fetch(`/api/templates/admin/${id}`)
+      let res = await fetch(`/api/request-templates/admin/${id}`)
       if (cancelled) return
       if (res.ok) {
         const data = await res.json()
@@ -195,7 +195,7 @@ export default function TemplateEditorPage() {
         setLoading(false)
         return
       }
-      res = await fetch(`/api/templates/${id}`)
+      res = await fetch(`/api/request-templates/${id}`)
       if (cancelled) return
       if (res.ok) {
         const data = await res.json()
@@ -296,7 +296,7 @@ export default function TemplateEditorPage() {
         enabled,
       }
       if (isNew) {
-        const res = await fetch("/api/templates/admin", {
+        const res = await fetch("/api/request-templates/admin", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
@@ -308,7 +308,7 @@ export default function TemplateEditorPage() {
         const created = await res.json()
         router.replace(`/catalogue/${created.id}`)
       } else {
-        const res = await fetch(`/api/templates/admin/${id}`, {
+        const res = await fetch(`/api/request-templates/admin/${id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),

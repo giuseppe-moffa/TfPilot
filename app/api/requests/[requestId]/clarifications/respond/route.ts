@@ -132,7 +132,7 @@ function validatePolicy(config: Record<string, unknown>) {
   }
 }
 
-function normalizeByFields(entry: ModuleRegistryEntry, rawConfig: Record<string, unknown>, ctx: { requestId: string; project: string; environment: string }) {
+function normalizeByFields(entry: ModuleRegistryEntry, rawConfig: Record<string, unknown>, ctx: { requestId: string; project_key: string; environment_key: string }) {
   const fields = buildFieldMap(entry)
   const allowed = new Set(Object.keys(fields))
 
@@ -171,7 +171,7 @@ function normalizeByFields(entry: ModuleRegistryEntry, rawConfig: Record<string,
   return finalConfig
 }
 
-function buildModuleConfig(entry: ModuleRegistryEntry, rawConfig: Record<string, unknown>, ctx: { requestId: string; project: string; environment: string }) {
+function buildModuleConfig(entry: ModuleRegistryEntry, rawConfig: Record<string, unknown>, ctx: { requestId: string; project_key: string; environment_key: string }) {
   if (!entry.fields || entry.fields.length === 0) {
     throw new Error(`Module ${entry.type} missing fields schema (schema contract v2 required)`)
   }
@@ -315,8 +315,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
 
     const finalConfig = buildModuleConfig(regEntry, nextConfig, {
       requestId: baseRequest.id,
-      project: baseRequest.project,
-      environment: baseRequest.environment,
+      project_key: baseRequest.project_key,
+      environment_key: baseRequest.environment_key,
     })
 
     appendRequestIdToNames(finalConfig, baseRequest.id)

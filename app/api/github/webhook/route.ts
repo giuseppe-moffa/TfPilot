@@ -20,6 +20,13 @@ import {
 import { maybeEmitCompletionEvent } from "@/lib/logs/lifecycle"
 import type { RunsState } from "@/lib/requests/runsModel"
 import { getRequestIdByDestroyRunId, updateRequest } from "@/lib/storage/requestsStore"
+import {
+  getEnvironmentIdByEnvDestroyRunId,
+  deleteEnvDestroyPending,
+} from "@/lib/github/envDestroyRunIndex"
+import { archiveEnvironment } from "@/lib/db/environments"
+import { logInfo } from "@/lib/observability/logger"
+import { incrementEnvMetric } from "@/lib/observability/metrics"
 import { getRequestIdByRunId } from "@/lib/requests/runIndex"
 import { appendStreamEvent } from "@/lib/github/streamState"
 import { env } from "@/lib/config/env"
@@ -143,6 +150,24 @@ export async function POST(req: NextRequest) {
     }
 
     if (!correlated.requestId) {
+      // Environment destroy (destroy_scope=environment): no request. Correlate via index or inputs.
+      if (kind === "destroy" && wr?.status === "completed" && wr?.id != null) {
+        const envId =
+          (await getEnvironmentIdByEnvDestroyRunId(wr.id)) ??
+          (wr as { inputs?: { environment_id?: string } }).inputs?.environment_id
+        if (envId) {
+          if (wr.conclusion === "success") {
+            const archived = await archiveEnvironment(envId)
+            if (archived) {
+              await deleteEnvDestroyPending(envId).catch(() => {})
+              logInfo("env.archive", { env_id: envId, run_id: wr.id, source: "webhook" })
+              incrementEnvMetric("env.destroy.archive", { env_id: envId, run_id: wr.id })
+            }
+          } else {
+            await deleteEnvDestroyPending(envId).catch(() => {})
+          }
+        }
+      }
       await recordDelivery(deliveryId, event ?? "unknown")
       return NextResponse.json({ ok: true })
     }

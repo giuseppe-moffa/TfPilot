@@ -28,7 +28,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ req
       return NextResponse.json({ canDestroy: false, error: "Request not found" }, { status: 404 })
     }
 
-    const isProd = request.environment?.toLowerCase() === "prod"
+    const isProd = request.environment_key?.toLowerCase() === "prod"
     
     // Check prod destroy allowlist if it's a prod request (additional check beyond admin role)
     if (isProd && env.TFPILOT_DESTROY_PROD_ALLOWED_USERS.length > 0) {

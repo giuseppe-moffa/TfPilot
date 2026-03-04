@@ -82,7 +82,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
       return NextResponse.json({ success: false, error: "Failed to submit approval to GitHub" }, { status: 500 })
     }
 
-    const isProd = existing.environment?.toLowerCase() === "prod"
+    const isProd = existing.environment_key?.toLowerCase() === "prod"
     if (isProd && env.TFPILOT_PROD_ALLOWED_USERS.length > 0) {
       if (!env.TFPILOT_PROD_ALLOWED_USERS.includes(session.login)) {
         return NextResponse.json({ success: false, error: "Prod approvals not allowed for this user" }, { status: 403 })

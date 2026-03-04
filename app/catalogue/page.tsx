@@ -52,7 +52,7 @@ export default function TemplatesListPage() {
   const [deleteConfirmEntry, setDeleteConfirmEntry] = React.useState<TemplateIndexEntry | null>(null)
 
   const loadList = React.useCallback(async () => {
-    const adminRes = await fetch("/api/templates/admin")
+    const adminRes = await fetch("/api/request-templates/admin")
     if (adminRes.ok) {
       const data = await adminRes.json()
       setList(Array.isArray(data) ? data : [])
@@ -61,7 +61,7 @@ export default function TemplatesListPage() {
       return
     }
     if (adminRes.status === 404) {
-      const publicRes = await fetch("/api/templates")
+      const publicRes = await fetch("/api/request-templates")
       if (publicRes.status === 401) {
         setNotFound(true)
         return
@@ -103,7 +103,7 @@ export default function TemplatesListPage() {
   const handleDuplicate = async (entry: TemplateIndexEntry) => {
     setActionId(entry.id)
     try {
-      const res = await fetch(`/api/templates/admin/${entry.id}`)
+      const res = await fetch(`/api/request-templates/admin/${entry.id}`)
       if (!res.ok) throw new Error("Failed to load template")
       const full = await res.json()
       const payload = {
@@ -118,7 +118,7 @@ export default function TemplatesListPage() {
         lockEnvironment: full.lockEnvironment,
         allowCustomProjectEnv: full.allowCustomProjectEnv,
       }
-      const createRes = await fetch("/api/templates/admin", {
+      const createRes = await fetch("/api/request-templates/admin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -147,7 +147,7 @@ export default function TemplatesListPage() {
   const handleDisable = async (id: string) => {
     setActionId(id)
     try {
-      const res = await fetch(`/api/templates/admin/${id}`, { method: "DELETE" })
+      const res = await fetch(`/api/request-templates/admin/${id}`, { method: "DELETE" })
       if (!res.ok) throw new Error("Failed to disable")
       const updated = await res.json()
       setList((prev) => prev.map((t) => (t.id === id ? { ...t, enabled: false, updatedAt: updated.updatedAt } : t)))
@@ -161,7 +161,7 @@ export default function TemplatesListPage() {
   const handleEnable = async (id: string) => {
     setActionId(id)
     try {
-      const res = await fetch(`/api/templates/admin/${id}`, {
+      const res = await fetch(`/api/request-templates/admin/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ enabled: true }),
@@ -186,7 +186,7 @@ export default function TemplatesListPage() {
     setDeleteConfirmEntry(null)
     setActionId(entry.id)
     try {
-      const res = await fetch(`/api/templates/admin/${entry.id}/delete`, { method: "POST" })
+      const res = await fetch(`/api/request-templates/admin/${entry.id}/delete`, { method: "POST" })
       if (!res.ok) throw new Error("Failed to delete")
       setList((prev) => prev.filter((t) => t.id !== entry.id))
     } catch (err) {
@@ -201,7 +201,7 @@ export default function TemplatesListPage() {
     setSeedResult(null)
     setSeedError(null)
     try {
-      const res = await fetch("/api/templates/admin/seed", { method: "POST" })
+      const res = await fetch("/api/request-templates/admin/seed", { method: "POST" })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
         const msg =

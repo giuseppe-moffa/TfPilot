@@ -18,7 +18,7 @@ Values are parsed as integers; they must be finite and &gt; 0, otherwise the def
 ## Behavior
 
 - **Single source of truth:** `lib/config/polling.ts` exports the constants and `getSyncPollingInterval(request, tabHidden)`.
-- **Sync polling** (`useRequestStatus`) and **other SWR polling on the request detail page** (e.g. logs) use these intervals. No separate fixed “8s” loops.
+- **Sync polling** (`useRequest`) and **other SWR polling on the request detail page** (e.g. logs) use these intervals. No separate fixed “8s” loops.
 - **Terminal status** (applied, destroyed, failed) stops polling (interval 0).
 - **429 rate limit:** When the last sync error was 429, the next interval is forced to `SYNC_INTERVAL_RATE_LIMIT_BACKOFF_MS` until a successful fetch; then normal interval logic applies again.
 - **Tab visibility:** When the tab is hidden, the longer `SYNC_INTERVAL_HIDDEN_MS` is used to reduce load.
@@ -26,5 +26,5 @@ Values are parsed as integers; they must be finite and &gt; 0, otherwise the def
 ## Usage
 
 - **Config module:** `lib/config/polling.ts` — safe to import in client code (no server-only deps).
-- **Sync hook:** `hooks/use-request-status.ts` — uses config and 429 backoff.
+- **Sync hook:** `hooks/use-request.ts` — uses config and 429 backoff.
 - **Detail page:** `app/requests/[requestId]/page.tsx` — logs (and any other polling) use `getSyncPollingInterval(request, tabHidden)` for `refreshInterval`.

@@ -11,11 +11,11 @@ import { logLifecycleEvent } from "@/lib/logs/lifecycle"
 import { getUserRole } from "@/lib/auth/roles"
 import { getIdempotencyKey, assertIdempotentOrRecord, ConflictError } from "@/lib/requests/idempotency"
 import { acquireLock, releaseLock, LockConflictError, type RequestDocWithLock } from "@/lib/requests/lock"
-import { getEnvTargetFile, getModuleType } from "@/lib/infra/moduleType"
 import { getCurrentAttemptStrict, patchAttemptRunId, persistDispatchAttempt } from "@/lib/requests/runsModel"
 import type { RunsState } from "@/lib/requests/runsModel"
 import { putRunIndex } from "@/lib/requests/runIndex"
 import { resolveDestroyRunId } from "@/lib/requests/resolveDestroyRunId"
+import { getMissingEnvFields } from "@/lib/requests/requireEnvFields"
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ requestId: string }> }) {
   const start = Date.now()
@@ -46,6 +46,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
     const request = await getRequest(requestId).catch(() => null)
     if (!request) {
       return NextResponse.json({ error: "Request not found" }, { status: 404 })
+    }
+
+    const missing = getMissingEnvFields(request as Record<string, unknown>)
+    if (missing.length > 0) {
+      logError("destroy.missing_env_fields", new Error(`Request missing: ${missing.join(", ")}`), { ...correlation, requestId: request.id })
+      return NextResponse.json(
+        { error: "REQUEST_MISSING_ENV_FIELDS", request_id: request.id, missing },
+        { status: 409 }
+      )
     }
 
     const idemKey = getIdempotencyKey(req) ?? ""
@@ -107,7 +116,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
       return NextResponse.json({ error: "Request missing repo or env info" }, { status: 400 })
     }
 
-    const isProd = request.environment?.toLowerCase() === "prod"
+    const envKey = request.environment_key
+    const isProd = envKey?.toLowerCase() === "prod"
     if (isProd && env.TFPILOT_PROD_ALLOWED_USERS.length > 0) {
       if (!env.TFPILOT_PROD_ALLOWED_USERS.includes(session.login)) {
         return NextResponse.json({ error: "Prod destroy not allowed for this user" }, { status: 403 })
@@ -124,29 +134,29 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
           source: "api/requests/[requestId]/destroy",
           data: {
             reason: "not_in_destroy_prod_allowlist",
-            environment: request.environment,
+            environment: envKey,
           },
         })
         return NextResponse.json({ error: "You're not allowed to destroy prod requests" }, { status: 403 })
       }
     }
 
-    // Fire cleanup PR workflow first so code removal is ready before destroy completes
-    if (env.GITHUB_CLEANUP_WORKFLOW_FILE && request.targetOwner && request.targetRepo) {
-      // Use stored targetFiles when present; otherwise derive from module + env path (e.g. old requests or any missing targetFiles)
-      const targetFiles = request.targetFiles ?? []
-      const cleanupPaths =
-        targetFiles.length > 0
-          ? targetFiles.join(",")
-          : request.targetEnvPath && request.module
-            ? getEnvTargetFile(request.targetEnvPath, getModuleType(request.module))
-            : ""
+    // Fire cleanup_v2 workflow first so code removal is ready before destroy completes
+    const envSlug = request.environment_slug ?? ""
+    if (
+      env.GITHUB_CLEANUP_WORKFLOW_FILE &&
+      request.targetOwner &&
+      request.targetRepo &&
+      envKey &&
+      envSlug !== undefined &&
+      request.module
+    ) {
       const cleanupInputs = {
         request_id: request.id,
-        environment: request.environment ?? "dev",
+        module: request.module,
+        environment_key: envKey,
+        environment_slug: envSlug,
         target_base: request.targetBase ?? env.GITHUB_DEFAULT_BASE_BRANCH,
-        cleanup_paths: cleanupPaths,
-        target_env_path: request.targetEnvPath ?? "",
         auto_merge: isProd ? "false" : "true",
       }
       gh(token, `/repos/${request.targetOwner}/${request.targetRepo}/actions/workflows/${env.GITHUB_CLEANUP_WORKFLOW_FILE}/dispatches`, {
@@ -280,14 +290,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
 
     const dispatchTime = new Date()
 
-    // Dispatch destroy workflow
+    // Dispatch destroy_v2 workflow (destroy_scope=module for single request)
+    const dEnvKey = request.environment_key
+    const dEnvSlug = request.environment_slug ?? ""
     await gh(token, `/repos/${request.targetOwner}/${request.targetRepo}/actions/workflows/${env.GITHUB_DESTROY_WORKFLOW_FILE}/dispatches`, {
       method: "POST",
       body: JSON.stringify({
         ref: request.targetBase ?? env.GITHUB_DEFAULT_BASE_BRANCH,
         inputs: {
           request_id: request.id,
-          environment: request.environment,
+          environment_key: dEnvKey,
+          environment_slug: dEnvSlug,
+          destroy_scope: "module",
         },
       }),
     })

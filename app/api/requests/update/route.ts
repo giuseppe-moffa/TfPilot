@@ -4,7 +4,8 @@ import crypto from "crypto"
 import { gh } from "@/lib/github/client"
 import { getGitHubAccessToken } from "@/lib/github/auth"
 import { githubRequest } from "@/lib/github/rateAware"
-import { getEnvTargetFile, getModuleType } from "@/lib/infra/moduleType"
+import { getModuleType } from "@/lib/infra/moduleType"
+import { computeRequestTfPath, generateModel2RequestFile } from "@/lib/renderer/model2"
 import { resolveInfraRepo } from "@/config/infra-repos"
 import { env } from "@/lib/config/env"
 import { moduleRegistry, type ModuleRegistryEntry, type ModuleField } from "@/config/module-registry"
@@ -25,6 +26,7 @@ import { normalizeName, validateResourceName } from "@/lib/validation/resourceNa
 import { injectServerAuthoritativeTags, assertRequiredTagsPresent } from "@/lib/requests/tags"
 import { deriveLifecycleStatus } from "@/lib/requests/deriveLifecycleStatus"
 import { ensureAssistantState } from "@/lib/assistant/state"
+import { assertEnvironmentImmutability } from "@/lib/requests/assertEnvironmentImmutability"
 
 const PLAN_WORKFLOW = env.GITHUB_PLAN_WORKFLOW_FILE
 const RENDERER_VERSION = "tfpilot-renderer@1"
@@ -178,7 +180,7 @@ function validateEnum(fields: Record<string, ModuleField>, cfg: Record<string, u
   }
 }
 
-function buildModuleConfig(entry: ModuleRegistryEntry, rawConfig: Record<string, unknown>, ctx: { requestId: string; project: string; environment: string }) {
+function buildModuleConfig(entry: ModuleRegistryEntry, rawConfig: Record<string, unknown>, ctx: { requestId: string; project_key: string; environment_key: string }) {
   if (!entry.fields || entry.fields.length === 0) {
     throw new Error(`Module ${entry.type} missing fields schema (schema contract v2 required)`)
   }
@@ -231,61 +233,6 @@ async function fetchRepoFile(token: string, owner: string, repo: string, filePat
     throw err
   }
   return null
-}
-
-function upsertRequestBlock(existing: string | null, requestId: string, blockBody: string) {
-  const header = "# Managed by TfPilot - do not edit by hand."
-  const begin = `# --- tfpilot:begin:${requestId} ---`
-  const end = `# --- tfpilot:end:${requestId} ---`
-  const body = `${begin}\n${blockBody.trimEnd()}\n${end}\n`
-
-  let base = existing ?? ""
-  if (!base.trim()) {
-    base = `${header}\n\n`
-  } else if (!base.endsWith("\n")) {
-    base += "\n"
-  }
-
-  const startIdx = base.indexOf(begin)
-  const endIdx = base.indexOf(end)
-  if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
-    const before = base.slice(0, startIdx)
-    const after = base.slice(endIdx + end.length)
-    return `${before}${body}${after}`.replace(/\n{3,}/g, "\n\n")
-  }
-
-  return `${base}${body}`
-}
-
-function renderHclValue(value: unknown): string {
-  if (typeof value === "boolean" || typeof value === "number") return String(value)
-  if (Array.isArray(value) || typeof value === "object") {
-    return `jsonencode(${JSON.stringify(value)})`
-  }
-  return `"${String(value)}"`
-}
-
-/** HCL map keys with ':' or other non-identifier chars must be quoted. */
-function hclTagKey(key: string): string {
-  if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)) return key
-  return `"${key.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`
-}
-
-function renderModuleBlock(request: any, moduleSource: string) {
-  const renderedInputs = Object.entries(request.config).map(([key, val]) => {
-    if (key === "tags" && val && typeof val === "object" && !Array.isArray(val)) {
-      const tagEntries = Object.entries(val as Record<string, unknown>).map(([k, v]) => `    ${hclTagKey(k)} = ${renderHclValue(v)}`)
-      return `  tags = {\n${tagEntries.join("\n")}\n  }`
-    }
-    return `  ${key} = ${renderHclValue(val)}`
-  })
-
-  const safeModuleName = `tfpilot_${request.id}`.replace(/[^a-zA-Z0-9_]/g, "_")
-
-  return `module "${safeModuleName}" {
-  source = "${moduleSource}"
-${renderedInputs.join("\n")}
-}`
 }
 
 async function createBranchCommitPrAndPlan(
@@ -364,19 +311,22 @@ async function createBranchCommitPrAndPlan(
       title: `Update request ${request.id}: ${request.module} (rev ${request.revision ?? "?"})`,
       head: branchName,
       base: target.base,
-      body: `Updated configuration for ${request.project}/${request.environment}\n\nModule: ${request.module}\nRequest ID: ${request.id}\nRevision: ${request.revision ?? "?"}`,
+      body: `Updated configuration for ${request.project_key}/${request.environment_key}\n\nModule: ${request.module}\nRequest ID: ${request.id}\nRevision: ${request.revision ?? "?"}`,
     }),
   })
   const prJson = (await prRes.json()) as { number?: number; html_url?: string; head?: { sha?: string } }
   if (!prJson.number || !prJson.html_url) throw new Error("Failed to open PR")
 
+  const envKey = request.environment_key
+  const envSlug = request.environment_slug ?? ""
   await gh(token, `/repos/${target.owner}/${target.repo}/actions/workflows/${PLAN_WORKFLOW}/dispatches`, {
     method: "POST",
     body: JSON.stringify({
       ref: branchName,
       inputs: {
         request_id: request.id,
-        environment: request.environment,
+        environment_key: envKey,
+        environment_slug: envSlug,
       },
     }),
   })
@@ -490,6 +440,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: "Request not found" }, { status: 404 })
     }
 
+    const immutErr = assertEnvironmentImmutability(current, body.patch as Record<string, unknown>)
+    if (immutErr) {
+      return NextResponse.json({ success: false, error: immutErr }, { status: 400 })
+    }
+
     const idemKey = getIdempotencyKey(req) ?? ""
     const now = new Date()
     let idemPatch: { idempotency: Record<string, { key: string; at: string }> } | null = null
@@ -568,10 +523,15 @@ export async function POST(req: NextRequest) {
     const revisionNext = revisionPrev + 1
 
     const moduleType = getModuleType(current.module, regEntry.category)
-    const targetOwner = current.targetOwner ?? resolveInfraRepo(current.project, current.environment)?.owner
-    const targetRepo = current.targetRepo ?? resolveInfraRepo(current.project, current.environment)?.repo
-    const targetBase = current.targetBase ?? resolveInfraRepo(current.project, current.environment)?.base
-    const targetEnvPath = current.targetEnvPath ?? resolveInfraRepo(current.project, current.environment)?.envPath
+    const envKey = current.environment_key
+    const envSlug = current.environment_slug ?? ""
+    if (!envKey || envSlug === undefined) {
+      return NextResponse.json({ success: false, error: "Request missing environment_key or environment_slug" }, { status: 400 })
+    }
+    const targetOwner = current.targetOwner ?? resolveInfraRepo(current.project_key, envKey)?.owner
+    const targetRepo = current.targetRepo ?? resolveInfraRepo(current.project_key, envKey)?.repo
+    const targetBase = current.targetBase ?? resolveInfraRepo(current.project_key, envKey)?.base
+    const targetEnvPath = current.targetEnvPath ?? `envs/${envKey}/${envSlug}`
 
     if (!targetOwner || !targetRepo || !targetBase || !targetEnvPath) {
       return NextResponse.json({ success: false, error: "Missing target repo metadata on request" }, { status: 400 })
@@ -579,8 +539,8 @@ export async function POST(req: NextRequest) {
 
     const finalConfig = buildModuleConfig(regEntry, mergedInputs, {
       requestId: current.id,
-      project: current.project,
-      environment: current.environment,
+      project_key: current.project_key,
+      environment_key: current.environment_key,
     })
 
     appendRequestIdToNames(finalConfig, current.id)
@@ -598,24 +558,14 @@ export async function POST(req: NextRequest) {
 
     validatePolicy(finalConfig)
 
-    const moduleSource = `../../modules/${current.module}`
-    const targetFile = getEnvTargetFile(targetEnvPath, moduleType)
-
-    const existingFile = await fetchRepoFile(token, targetOwner, targetRepo, targetFile)
-    const beginMarker = `# --- tfpilot:begin:${current.id} ---`
-    const endMarker = `# --- tfpilot:end:${current.id} ---`
-    if (!existingFile || !existingFile.includes(beginMarker) || !existingFile.includes(endMarker)) {
-      return NextResponse.json({ success: false, error: "Existing request block not found in target file" }, { status: 400 })
-    }
-
-    const block = renderModuleBlock({ ...current, config: finalConfig }, moduleSource)
-    const updatedFile = upsertRequestBlock(existingFile, current.id, block)
+    const targetFile = computeRequestTfPath(envKey, envSlug, current.module, current.id)
+    const { content } = generateModel2RequestFile(envKey, envSlug, { ...current, config: finalConfig })
 
     const branchName = `update/${current.id}/rev-${revisionNext}`
     const ghResult = await createBranchCommitPrAndPlan(
       token,
-      { ...current, revision: revisionNext, environment: current.environment },
-      [{ path: targetFile, content: updatedFile }],
+      { ...current, revision: revisionNext, environment_key: envKey },
+      [{ path: targetFile, content }],
       { owner: targetOwner, repo: targetRepo, base: targetBase },
       branchName
     )

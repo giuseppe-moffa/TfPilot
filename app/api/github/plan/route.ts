@@ -94,20 +94,23 @@ export async function POST(req: NextRequest) {
       throw lockErr
     }
 
-    const isProd = request.environment?.toLowerCase() === "prod"
+    const isProd = request.environment_key?.toLowerCase() === "prod"
     if (isProd && env.TFPILOT_PROD_ALLOWED_USERS.length > 0) {
       if (!env.TFPILOT_PROD_ALLOWED_USERS.includes(session.login)) {
         return NextResponse.json({ error: "Prod plan not allowed for this user" }, { status: 403 })
       }
     }
 
+    const pEnvKey = request.environment_key
+    const pEnvSlug = request.environment_slug ?? ""
     await gh(token, `/repos/${request.targetOwner}/${request.targetRepo}/actions/workflows/${env.GITHUB_PLAN_WORKFLOW_FILE}/dispatches`, {
       method: "POST",
       body: JSON.stringify({
         ref: request.branchName,
         inputs: {
           request_id: request.id,
-          environment: request.environment,
+          environment_key: pEnvKey,
+          environment_slug: pEnvSlug,
         },
       }),
     })

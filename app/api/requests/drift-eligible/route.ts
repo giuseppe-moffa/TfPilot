@@ -89,7 +89,7 @@ export async function GET(req: NextRequest) {
     const eligible = allRequests.filter((request: any) => {
       const status = deriveLifecycleStatus(request)
       // Must be dev environment
-      if (request.environment?.toLowerCase() !== "dev") {
+      if (request.environment_key?.toLowerCase() !== "dev") {
         return false
       }
 
@@ -129,8 +129,8 @@ export async function GET(req: NextRequest) {
     // targetOwner/targetRepo are only needed for workflow dispatch, but we can minimize exposure
     const result = eligible.map((request: any) => ({
       id: request.id,
-      project: request.project,
-      environment: request.environment,
+      project: request.project_key,
+      environment: request.environment_key,
       // Only include targetOwner/targetRepo if they exist (needed for workflow dispatch)
       ...(request.targetOwner && { targetOwner: request.targetOwner }),
       ...(request.targetRepo && { targetRepo: request.targetRepo }),

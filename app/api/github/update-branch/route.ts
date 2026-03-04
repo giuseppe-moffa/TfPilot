@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Request has no branch name" }, { status: 400 })
     }
 
-    const isProd = request.environment?.toLowerCase() === "prod"
+    const isProd = request.environment_key?.toLowerCase() === "prod"
     if (isProd && env.TFPILOT_PROD_ALLOWED_USERS.length > 0) {
       if (!env.TFPILOT_PROD_ALLOWED_USERS.includes(session.login)) {
         return NextResponse.json({ error: "Prod update not allowed for this user" }, { status: 403 })

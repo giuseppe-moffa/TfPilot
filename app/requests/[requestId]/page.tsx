@@ -47,6 +47,7 @@ import {
 import { StatusIndicator } from "@/components/status/StatusIndicator"
 import { AssistantHelper } from "@/components/assistant-helper"
 import { AssistantDrawer } from "@/components/assistant-drawer"
+import { formatEnvDisplay } from "@/lib/format/envDisplay"
 import { SuggestionPanel } from "@/components/suggestion-panel"
 
 type FieldMeta = {
@@ -1440,7 +1441,7 @@ function RequestDetailPage() {
               <StatusIndicator status={canonicalStatus} />
             </div>
             <p className="text-sm text-muted-foreground mt-1">
-              {request.project} · {request.environment} · {request.module ?? "—"}
+              {request.project_key} · {formatEnvDisplay(request.environment_key, request.environment_slug)} · {request.module ?? "—"}
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
@@ -1503,11 +1504,11 @@ function RequestDetailPage() {
               <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
                 <div>
                   <p className="text-muted-foreground text-xs">Project</p>
-                  <p className="font-normal capitalize mt-0.5">{request.project}</p>
+                  <p className="font-normal capitalize mt-0.5">{request.project_key}</p>
                 </div>
                 <div>
                   <p className="text-muted-foreground text-xs">Environment</p>
-                  <p className="font-normal capitalize mt-0.5">{request.environment}</p>
+                  <p className="font-normal mt-0.5">{formatEnvDisplay(request.environment_key, request.environment_slug)}</p>
                 </div>
                 <div>
                   <p className="text-muted-foreground text-xs">Resource Name</p>
@@ -2362,7 +2363,7 @@ function RequestDetailPage() {
                 <>
                   <div>Chat with the assistant about this request.</div>
                   <div className="text-[11px] text-muted-foreground">
-                    Working on: {request.module} • {request.project}/{request.environment}
+                    Working on: {request.module} • {request.project_key}/{formatEnvDisplay(request.environment_key, request.environment_slug)}
                   </div>
                 </>
               }
@@ -2395,8 +2396,8 @@ function RequestDetailPage() {
                 })()}
               <AssistantHelper
                 context={{
-                  project: request.project,
-                  environment: request.environment,
+                  project: request.project_key,
+                  environment: request.environment_key ?? "",
                   module: request.module,
                   fieldsMeta:
                     moduleSchemas

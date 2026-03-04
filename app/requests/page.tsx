@@ -34,11 +34,14 @@ import { cn } from "@/lib/utils"
 import { useAwsConnection } from "../providers"
 import { patchRequestCache } from "@/hooks/use-request"
 import { normalizeRequestStatus } from "@/lib/status/status-config"
+import { formatEnvDisplay } from "@/lib/format/envDisplay"
 
 type RequestRow = {
   id: string
   project: string
+  project_key?: string
   environment: string
+  environment_key?: string
   name?: string
   module?: string
   status?: string
@@ -85,7 +88,10 @@ function SkeletonRow() {
 function mapApiRequestToRow(r: {
   id?: string
   project?: string
+  project_key?: string
   environment?: string
+  environment_key?: string
+  environment_slug?: string
   module?: string
   config?: Record<string, unknown>
   status?: string
@@ -98,8 +104,10 @@ function mapApiRequestToRow(r: {
 }): RequestRow {
   return {
     id: r.id ?? "",
-    project: r.project ?? "",
-    environment: r.environment ?? "",
+    project: r.project_key ?? r.project ?? "",
+    project_key: r.project_key ?? r.project ?? "",
+    environment: formatEnvDisplay(r.environment_key ?? "", r.environment_slug ?? ""),
+    environment_key: r.environment_key ?? "",
     module: r.module,
     name:
       typeof r.config?.["name"] === "string" ? (r.config["name"] as string) : undefined,
@@ -226,14 +234,14 @@ export default function RequestsPage() {
       if (datasetMode === "active" && isFullyDestroyed) return false
       if (datasetMode === "drifted" && row.drift?.status !== "detected") return false
 
-      if (envFilter !== "all" && row.environment?.toLowerCase() !== envFilter) return false
+      if (envFilter !== "all" && (row.environment_key ?? "").toLowerCase() !== envFilter) return false
       if (moduleFilter !== "all" && row.module !== moduleFilter) return false
       if (projectFilter !== "all" && row.project !== projectFilter) return false
 
       if (!term) return true
       const haystack = [
         row.id,
-        row.project,
+        row.project ?? row.project_key,
         row.environment,
         row.module,
         row.name,

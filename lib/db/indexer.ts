@@ -19,7 +19,9 @@ export type RequestDocForIndex = {
   lastActionAt?: string
   targetOwner?: string
   targetRepo?: string
-  environment?: string
+  environment_key?: string
+  environment_slug?: string
+  environment_id?: string
   module?: string
   actor?: string
   config?: { tags?: Record<string, unknown> }
@@ -63,7 +65,8 @@ export function projectRequestToIndexValues(request: RequestDocForIndex): unknow
     request.targetOwner && request.targetRepo
       ? `${request.targetOwner}/${request.targetRepo}`
       : request.targetRepo ?? null
-  const environmentKey = request.environment ?? null
+  const environmentKey = request.environment_key ?? null
+  const environmentSlug = request.environment_slug ?? null
   const moduleKey = request.module ?? null
   const actor =
     request.actor ??
@@ -80,6 +83,7 @@ export function projectRequestToIndexValues(request: RequestDocForIndex): unknow
     updatedAt,
     repoFullName,
     environmentKey,
+    environmentSlug,
     moduleKey,
     actor,
     prNumber,
@@ -91,13 +95,14 @@ export function projectRequestToIndexValues(request: RequestDocForIndex): unknow
 
 export const INDEX_UPSERT_SQL = `
 INSERT INTO requests_index (
-  request_id, created_at, updated_at, repo_full_name, environment_key, module_key,
+  request_id, created_at, updated_at, repo_full_name, environment_key, environment_slug, module_key,
   actor, pr_number, merged_sha, last_activity_at, doc_hash
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 ON CONFLICT (request_id) DO UPDATE SET
   updated_at = EXCLUDED.updated_at,
   repo_full_name = EXCLUDED.repo_full_name,
   environment_key = EXCLUDED.environment_key,
+  environment_slug = EXCLUDED.environment_slug,
   module_key = EXCLUDED.module_key,
   actor = EXCLUDED.actor,
   pr_number = EXCLUDED.pr_number,

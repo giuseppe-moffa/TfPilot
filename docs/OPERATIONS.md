@@ -4,6 +4,70 @@ Short playbook for recovery and common operations. No application logic changes 
 
 ---
 
+## Environments (Model 2)
+
+Environments are first-class entities. Each has a bootstrap PR that creates `envs/<environment_key>/<environment_slug>/` in the terraform repo.
+
+| Task | Endpoint / Action |
+|------|-------------------|
+| List environments | `GET /api/environments?project_key=core` (optional filter) |
+| Create environment | `POST /api/environments` with `project_key`, `environment_key`, `environment_slug` |
+| Get single environment | `GET /api/environments/:id` |
+
+**Bootstrap flow:** POST create persists the row, then opens a PR that adds:
+- `envs/<key>/<slug>/backend.tf` (generic `backend "s3" {}`; key injected via workflow)
+- `envs/<key>/<slug>/providers.tf`, `versions.tf`
+- `envs/<key>/<slug>/tfpilot/base.tf`, `tfpilot/requests/.gitkeep`
+
+**Idempotency:** If `backend.tf` already exists at the env root on the base branch, the create returns `already_bootstrapped: true` and does not open a duplicate PR.
+
+**Failure modes:**
+- **409 Conflict** — Environment with same (project_key, environment_key, environment_slug) already exists. Response includes `environment_id` of existing.
+- **404** — No infra repo for project_key + environment_key. Check `config/infra-repos.ts`.
+- **503** — Database not configured or unavailable.
+- **GitHub errors** — Bootstrap PR creation fails (permissions, branch protection, rate limit). Check GitHub token and repo access.
+
+**Readiness:** Environment is "selectable" for requests only after the bootstrap PR is merged. Do not store a status column; infer from PR merge facts or repo path existence.
+
+---
+
+## Environment destroy (Phase 6)
+
+| Task | Endpoint / Action |
+|------|-------------------|
+| Destroy environment | `POST /api/environments/:id/destroy` |
+
+**Flow:**
+1. If pending exists: reconcile (fetch run status). In-progress/queued → 409. Completed success → archive, clear pending, return 200. Completed failure → clear pending, allow re-dispatch. Run not found + TTL expired (2h) → clear pending, allow re-dispatch.
+2. Dispatches `destroy_v2` workflow with `destroy_scope="environment"` (no `request_id`).
+3. On workflow success, webhook archives the environment (sets `archived_at`).
+4. Archived environments are excluded from request creation.
+
+**Idempotency:** If already archived, returns 200 with `alreadyArchived: true`. Safe to retry.
+
+**Refusals:**
+- **404** — Environment not found.
+- **400** — Environment already archived.
+- **409** — Another environment destroy in progress for this env.
+- **403** — Insufficient role (admin required).
+
+**Concurrency:** The workflow uses `concurrency` per `(environment_key, environment_slug)`. Only one destroy runs at a time per env. The app refuses (409) if a pending destroy run is still in progress. Pending records include `run_id`, `repo`, `created_at`; TTL 2h for stale cleanup when run not found.
+
+**Runbook:**
+1. Ensure no active requests target the environment (or they will fail when env is archived).
+2. Call `POST /api/environments/:id/destroy` (admin role).
+3. Response includes `runId` and `url` to the GitHub Actions run.
+4. Monitor the workflow. On success, the webhook automatically sets `archived_at`.
+5. The repo folder `envs/<key>/<slug>/` may remain as an empty shell; Terraform state is destroyed. No direct git folder deletion.
+
+**Facts-only ethos:** S3 indexes (`webhooks/github/env-destroy/`) are correlation caches, never authoritative. Correlation is derivable from the workflow dispatch (we pass `environment_id` in inputs; webhook uses index first, then payload inputs on miss). Authoritative state: Postgres `archived_at`, GitHub run status. Indexes are repairable — if lost, webhook can still archive when payload includes inputs.
+
+**Failure modes:**
+- **Run ID not resolved** — Dispatch succeeded but listing didn't find the run within ~24s. Check GitHub Actions manually; archive will still occur when webhook fires on completion.
+- **Webhook not received** — If the webhook delivery fails, the environment may not be archived. **Repair:** `UPDATE environments SET archived_at = NOW() WHERE environment_id = ?` (or use a future repair endpoint).
+
+---
+
 ## Rebuild and prune Postgres index
 
 The requests list is served from Postgres `requests_index`. The index is write-through (updated after each S3 save). If the index is missing rows or has stale/orphan rows, rebuild from S3.
@@ -23,7 +87,7 @@ The requests list is served from Postgres `requests_index`. The index is write-t
 
 - **Health endpoint:** `GET /api/health/db` returns `{ ok: true }` when the DB is reachable, or `{ ok: false, error: "..." }` with status 503 when not configured or unreachable.
 - **Local:** Ensure `DATABASE_URL` is set in `.env.local`, then `curl -s http://localhost:3000/api/health/db`.
-- **Migrations:** Run `npm run db:migrate` to apply pending migrations (see `migrations/`). Requires `DATABASE_URL` or `PGHOST`/`PGUSER`/etc.
+- **Migrations:** Run `npm run db:migrate` to apply pending migrations (see `migrations/`). Requires `DATABASE_URL` or `PGHOST`/`PGUSER`/etc. After adding `environment_slug` to `requests_index`: run `npm run db:rebuild-index` to backfill existing rows.
 
 ---
 

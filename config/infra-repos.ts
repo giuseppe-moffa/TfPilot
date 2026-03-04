@@ -37,6 +37,17 @@ export function resolveInfraRepo(project: string, environment: string): InfraRep
   return registry[key] ?? null
 }
 
+/**
+ * Resolve infra repo by project_key + environment_key ONLY.
+ * environment_slug MUST NOT influence repo selection (Model 2 contract).
+ */
+export function resolveInfraRepoByProjectAndEnvKey(
+  project_key: string,
+  environment_key: string
+): InfraRepo | null {
+  return resolveInfraRepo(project_key, environment_key)
+}
+
 export function listProjects(): string[] {
   const projects = new Set<string>()
   for (const key of Object.keys(registry)) {

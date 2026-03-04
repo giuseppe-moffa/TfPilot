@@ -26,7 +26,3 @@ export const networkPresets: NetworkPreset[] = [
 ]
 
 export const networkPresetIds = networkPresets.map((p) => p.id)
-
-export function getNetworkPreset(id: string): NetworkPreset | undefined {
-  return networkPresets.find((p) => p.id === id)
-}

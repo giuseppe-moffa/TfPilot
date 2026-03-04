@@ -58,3 +58,41 @@ GitHub’s `workflow_dispatch` API does **not** return the new run’s `runId`; 
 - **Read:** `getRequestIdByRunId(kind, runId)`; webhook tries this first for all kinds. If null, destroy falls back to list-based lookup; all kinds fall back to branch/title correlation.
 - **After resolve:** Once requestId is known, the webhook patches only the **attempt record** in `request.runs[kind]` that matches the incoming `workflow_run.id` (via `patchRunsAttemptByRunId`). No other run state is written; there is no legacy run state or canonicalization.
 - **Backwards compatibility:** `putDestroyRunIndex` / `getRequestIdByDestroyRunIdIndexed` remain as wrappers around the generic API.
+
+## Environment destroy index (separate, facts-only)
+
+For environment destroy (destroy_scope="environment"), correlation is stored under `webhooks/github/env-destroy/`:
+- `run-<runId>.json` — runId → environment_id (webhook fast path)
+- `pending-<environmentId>.json` — `{ run_id, repo, created_at }`; used for reconcile before dispatch. TTL 2h when run not found.
+
+**Facts-only:** These indexes are correlation caches, never authoritative. Correlation is derivable (we pass `environment_id` in workflow inputs; webhook uses index first, then payload inputs on miss). See **lib/github/envDestroyRunIndex.ts** and **docs/OPERATIONS.md** (Environment destroy).
+
+## Environment drift index (separate, facts-only)
+
+For drift plan v2 (env-scoped drift detection), correlation is stored under `webhooks/github/env-drift/`:
+- `run-<runId>.json` — `{ runId, environment_id, createdAt }` — runId → environment_id
+- `by-env/<environmentId>.json` — `{ runs: [{ runId, createdAt }] }` — used for pruning
+
+Used by `GET /api/environments/:id/drift-latest` to find the last drift run for an environment. Written when TfPilot dispatches drift_plan_v2 and resolves the runId. See **lib/github/envDriftRunIndex.ts**.
+
+### Pruning policy (TTL 30 days)
+
+- **Automatic:** On each `putEnvDriftRunIndex`, we prune entries for that environment older than 30 days. Pruning is **best-effort** and **fail-open** — it never blocks the main write. If pruning fails, the index write still succeeds.
+- **Scope:** Per-environment. Entries for env E older than 30 days are deleted when a new drift run for E is indexed.
+- **Retention:** 30 days. See `ENV_DRIFT_PRUNING_TTL_DAYS` in `lib/github/envDriftRunIndex.ts`.
+
+### Manual cleanup (optional)
+
+If the index grows unexpectedly (e.g. pruning was disabled or failed repeatedly), you can manually clean up:
+
+1. **List objects** under `webhooks/github/env-drift/`:
+   ```bash
+   aws s3 ls s3://TFPILOT_REQUESTS_BUCKET/webhooks/github/env-drift/ --recursive
+   ```
+
+2. **Delete objects** older than 30 days. The `run-<runId>.json` files contain `createdAt` (ISO string). You can write a script to:
+   - List all `run-*.json` under the prefix
+   - For each, fetch and parse; if `createdAt` < now - 30 days, delete
+   - Optionally delete `by-env/*.json` and let the next drift write recreate it (or delete only stale entries)
+
+3. **Bulk expire** via S3 lifecycle (optional): Add a lifecycle rule on `webhooks/github/env-drift/` to expire objects after 35 days (slightly longer than app TTL for safety). This is additive to in-app pruning.

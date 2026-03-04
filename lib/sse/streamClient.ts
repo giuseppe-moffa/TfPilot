@@ -78,17 +78,3 @@ export function subscribeToConnectionState(handler: ConnectionStateHandler): () 
   handler(connected)
   return () => connectionStateHandlers.delete(handler)
 }
-
-/**
- * Current connection state. Only accurate after at least one subscriber has been active.
- */
-export function getConnectionState(): boolean {
-  return connected
-}
-
-/**
- * Last event seq seen (since cursor). Used for reconnect URL; exposed for debugging.
- */
-export function getLastSeq(): number {
-  return lastSeq
-}

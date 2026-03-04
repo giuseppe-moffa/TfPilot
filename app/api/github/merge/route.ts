@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
       throw err
     }
 
-    const isProd = request.environment?.toLowerCase() === "prod"
+    const isProd = request.environment_key?.toLowerCase() === "prod"
     if (isProd && env.TFPILOT_PROD_ALLOWED_USERS.length > 0) {
       if (!env.TFPILOT_PROD_ALLOWED_USERS.includes(session.login)) {
         return NextResponse.json({ error: "Prod merge not allowed for this user" }, { status: 403 })

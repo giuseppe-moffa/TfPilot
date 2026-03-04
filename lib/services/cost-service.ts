@@ -5,7 +5,7 @@ const s3 = new S3Client({ region: env.TFPILOT_DEFAULT_REGION })
 const BUCKET = env.TFPILOT_REQUESTS_BUCKET
 const COST_PREFIX = "cost/"
 
-export type RequestCost = {
+type RequestCost = {
   monthlyCost?: number
   diffSummary?: string
   lastUpdated?: string

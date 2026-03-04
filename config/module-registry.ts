@@ -22,7 +22,7 @@ export type ModuleRegistryEntry = {
   type: string
   category?: string
   description?: string
-  compute?: (config: Record<string, unknown>, ctx: { requestId: string; project: string; environment: string }) => Record<string, unknown>
+  compute?: (config: Record<string, unknown>, ctx: { requestId: string; project_key: string; environment_key: string }) => Record<string, unknown>
   fields: ModuleField[]
 }
 
@@ -36,14 +36,14 @@ export const moduleRegistry: ModuleRegistryEntry[] = [
         config.tags && typeof config.tags === "object" && !Array.isArray(config.tags) ? (config.tags as Record<string, string>) : {}
       return {
         ...config,
-        project: ctx.project,
-        environment: ctx.environment,
+        project: ctx.project_key,
+        environment: ctx.environment_key,
         request_id: ctx.requestId,
         tags: {
           ManagedBy: "tfpilot",
           TfPilotRequestId: ctx.requestId,
-          Project: ctx.project,
-          Environment: ctx.environment,
+          Project: ctx.project_key,
+          Environment: ctx.environment_key,
           ...userTags,
         },
       }
@@ -162,14 +162,14 @@ export const moduleRegistry: ModuleRegistryEntry[] = [
         config.tags && typeof config.tags === "object" && !Array.isArray(config.tags) ? (config.tags as Record<string, string>) : {}
       return {
         ...config,
-        project: ctx.project,
-        environment: ctx.environment,
+        project: ctx.project_key,
+        environment: ctx.environment_key,
         request_id: ctx.requestId,
         tags: {
           ManagedBy: "tfpilot",
           TfPilotRequestId: ctx.requestId,
-          Project: ctx.project,
-          Environment: ctx.environment,
+          Project: ctx.project_key,
+          Environment: ctx.environment_key,
           ...userTags,
         },
       }
@@ -257,14 +257,14 @@ export const moduleRegistry: ModuleRegistryEntry[] = [
         config.tags && typeof config.tags === "object" && !Array.isArray(config.tags) ? (config.tags as Record<string, string>) : {}
       return {
         ...config,
-        project: ctx.project,
-        environment: ctx.environment,
+        project: ctx.project_key,
+        environment: ctx.environment_key,
         request_id: ctx.requestId,
         tags: {
           ManagedBy: "tfpilot",
           TfPilotRequestId: ctx.requestId,
-          Project: ctx.project,
-          Environment: ctx.environment,
+          Project: ctx.project_key,
+          Environment: ctx.environment_key,
           ...userTags,
         },
       }
@@ -285,6 +285,64 @@ export const moduleRegistry: ModuleRegistryEntry[] = [
       { name: "retain_images", type: "number", required: false, default: 5, description: "Lifecycle policy: retain last N images (1–100)" },
       { name: "force_delete", type: "boolean", required: false, default: false, description: "Allow force delete when repo has images", category: "advanced", risk_level: "high" },
       { name: "image_tag_mutability", type: "enum", required: false, default: "IMMUTABLE", enum: ["MUTABLE", "IMMUTABLE"], description: "Image tag mutability", category: "advanced" },
+      { name: "tags", type: "map", required: false, description: "Resource tags" },
+    ],
+  },
+  {
+    type: "cloudwatch-log-group",
+    category: "observability",
+    description: "CloudWatch log group for application logs",
+    compute: (config, ctx) => {
+      const userTags =
+        config.tags && typeof config.tags === "object" && !Array.isArray(config.tags) ? (config.tags as Record<string, string>) : {}
+      return {
+        ...config,
+        project: ctx.project_key,
+        environment: ctx.environment_key,
+        request_id: ctx.requestId,
+        tags: {
+          ManagedBy: "tfpilot",
+          TfPilotRequestId: ctx.requestId,
+          Project: ctx.project_key,
+          Environment: ctx.environment_key,
+          ...userTags,
+        },
+      }
+    },
+    fields: [
+      { name: "name", type: "string", label: "Log group name", required: true, immutable: true, description: "Log group name" },
+      { name: "project", type: "string", required: true, readOnly: true, immutable: true, description: "Project identifier" },
+      { name: "environment", type: "string", required: true, readOnly: true, immutable: true, description: "Environment identifier" },
+      { name: "request_id", type: "string", required: true, readOnly: true, immutable: true, description: "Request correlation id" },
+      { name: "tags", type: "map", required: false, description: "Resource tags" },
+    ],
+  },
+  {
+    type: "iam-role",
+    category: "iam",
+    description: "IAM role for service identity",
+    compute: (config, ctx) => {
+      const userTags =
+        config.tags && typeof config.tags === "object" && !Array.isArray(config.tags) ? (config.tags as Record<string, string>) : {}
+      return {
+        ...config,
+        project: ctx.project_key,
+        environment: ctx.environment_key,
+        request_id: ctx.requestId,
+        tags: {
+          ManagedBy: "tfpilot",
+          TfPilotRequestId: ctx.requestId,
+          Project: ctx.project_key,
+          Environment: ctx.environment_key,
+          ...userTags,
+        },
+      }
+    },
+    fields: [
+      { name: "name", type: "string", label: "Role name", required: true, immutable: true, description: "IAM role name" },
+      { name: "project", type: "string", required: true, readOnly: true, immutable: true, description: "Project identifier" },
+      { name: "environment", type: "string", required: true, readOnly: true, immutable: true, description: "Environment identifier" },
+      { name: "request_id", type: "string", required: true, readOnly: true, immutable: true, description: "Request correlation id" },
       { name: "tags", type: "map", required: false, description: "Resource tags" },
     ],
   },

@@ -60,8 +60,8 @@ export function formatRequestNotification(
     `${eventLabels[event]}`,
     "",
     `Request ID: ${request.id}`,
-    `Project: ${request.project}`,
-    `Environment: ${request.environment}`,
+    `Project: ${request.project_key}`,
+    `Environment: ${request.environment_key}`,
     `Module: ${request.module}`,
     `Actor: ${actor}`,
     request.targetOwner && request.targetRepo

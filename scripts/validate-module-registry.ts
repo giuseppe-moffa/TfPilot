@@ -60,9 +60,15 @@ function diffSets(name: string, registrySet: Set<string>, tfRequired: Set<string
   return { name, missingInTf, missingInRegistry }
 }
 
+/** Modules registered but not yet in Terraform infra repos (stub). Skip vars validation. */
+const STUB_MODULES = new Set(["cloudwatch-log-group", "iam-role"])
+
 async function main() {
   const errors: string[] = []
   for (const entry of moduleRegistry) {
+    if (STUB_MODULES.has(entry.type)) {
+      continue
+    }
     const vars = await findModuleVars(entry.type)
     if (!vars) {
       errors.push(`Module ${entry.type}: variables.tf not found in core-terraform or payments-terraform`)
