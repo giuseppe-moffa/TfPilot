@@ -96,7 +96,10 @@ function NewEnvironmentPageContent() {
     description: "Start with an empty environment (no predefined modules).",
     modules: [],
   }
-  const allTemplates = React.useMemo(() => [blankTemplate, ...templates], [templates])
+  const allTemplates = React.useMemo(() => {
+    const hasBlank = templates.some((t) => t.id === "blank")
+    return hasBlank ? templates : [blankTemplate, ...templates]
+  }, [templates])
   const filteredTemplates = React.useMemo(() => {
     const q = templateSearchQuery.trim().toLowerCase()
     if (!q) return allTemplates
@@ -332,11 +335,24 @@ function NewEnvironmentPageContent() {
                       {t.description && (
                         <p className="mt-1 text-xs text-muted-foreground line-clamp-2">{t.description}</p>
                       )}
-                      {t.id === "blank" && (
-                        <span className="mt-2 inline-block rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                          No modules
-                        </span>
-                      )}
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        {(t.modules?.length ?? 0) === 0 ? (
+                          <span className="inline-block rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                            No modules
+                          </span>
+                        ) : (
+                          (t.modules ?? [])
+                            .sort((a, b) => a.order - b.order)
+                            .map((m) => (
+                              <span
+                                key={m.module}
+                                className="inline-block rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+                              >
+                                {m.module}
+                              </span>
+                            ))
+                        )}
+                      </div>
                     </button>
                   ))}
                 </div>

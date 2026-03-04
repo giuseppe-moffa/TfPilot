@@ -437,8 +437,23 @@ export default function TemplatesListPage() {
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <div className="font-semibold text-foreground">{t.label ?? t.id}</div>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      {t.modules?.length ?? 0} module{t.modules?.length === 1 ? "" : "s"}
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {(t.modules?.length ?? 0) === 0 ? (
+                        <span className="inline-block rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                          No modules
+                        </span>
+                      ) : (
+                        [...(t.modules ?? [])]
+                          .sort((a, b) => a.order - b.order)
+                          .map((m) => (
+                            <span
+                              key={m.module}
+                              className="inline-block rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+                            >
+                              {m.module}
+                            </span>
+                          ))
+                      )}
                     </div>
                   </div>
                 </div>

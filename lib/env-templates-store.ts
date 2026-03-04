@@ -409,6 +409,7 @@ export async function enableEnvTemplate(
 export type EnvTemplateSeedInput = {
   id: string
   label?: string
+  description?: string
   modules?: { module: string; order: number; defaultConfig?: Record<string, unknown> }[]
 }
 
@@ -435,6 +436,7 @@ export async function seedEnvTemplatesFromConfig(
     const template: StoredEnvTemplate = {
       id: t.id,
       label,
+      description: typeof t.description === "string" ? t.description : undefined,
       modules: t.modules ?? [],
       enabled: true,
       createdAt: now,

@@ -11,9 +11,9 @@ import { useAuth } from "./providers"
 import { useTheme } from "./theme-provider"
 
 const navItems = [
+  { label: "Environments", href: "/environments" },
   { label: "Requests", href: "/requests" },
   { label: "Catalogue", href: "/catalogue" },
-  { label: "Environments", href: "/environments" },
   { label: "Insights", href: "/insights" },
 ]
 
