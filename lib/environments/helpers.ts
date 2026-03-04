@@ -8,28 +8,28 @@ const SLUG_REGEX = /^[a-z][a-z0-9-]*$/
 
 export function validateEnvironmentSlug(slug: string): { ok: true } | { ok: false; error: string } {
   if (typeof slug !== "string") {
-    return { ok: false, error: "Slug must be a string." }
+    return { ok: false, error: "Name must be a string." }
   }
   const s = slug.trim()
   if (!s) {
-    return { ok: false, error: "Slug is required." }
+    return { ok: false, error: "Name is required." }
   }
   if (s !== s.toLowerCase()) {
-    return { ok: false, error: "Slug must be lowercase only." }
+    return { ok: false, error: "Name must be lowercase only." }
   }
   if (s.includes(" ")) {
-    return { ok: false, error: "Slug must not contain spaces." }
+    return { ok: false, error: "Name must not contain spaces." }
   }
   if (s.includes("_")) {
-    return { ok: false, error: "Slug must not contain underscores." }
+    return { ok: false, error: "Name must not contain underscores." }
   }
   if (s.length > 63) {
-    return { ok: false, error: "Slug must be at most 63 characters." }
+    return { ok: false, error: "Name must be at most 63 characters." }
   }
   if (!SLUG_REGEX.test(s)) {
     return {
       ok: false,
-      error: "Slug must start with a letter and contain only lowercase letters, numbers, and hyphens.",
+      error: "Name must start with a letter and contain only lowercase letters, numbers, and hyphens.",
     }
   }
   return { ok: true }
@@ -72,7 +72,7 @@ export function validateCreateEnvironmentBody(body: {
 
   if (!project_key) errors.push("project_key is required")
   if (!environment_key) errors.push("environment_key is required")
-  if (!environment_slug) errors.push("environment_slug is required")
+  if (!environment_slug) errors.push("Name is required")
   if (environment_key && !["dev", "prod"].includes(environment_key)) {
     errors.push("environment_key must be dev or prod")
   }

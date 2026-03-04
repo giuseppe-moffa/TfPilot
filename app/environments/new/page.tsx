@@ -80,7 +80,6 @@ function NewEnvironmentPageContent() {
   const [projectKey, setProjectKey] = React.useState("")
   const [environmentKey, setEnvironmentKey] = React.useState("")
   const [environmentSlug, setEnvironmentSlug] = React.useState("")
-  const [slugError, setSlugError] = React.useState<string | null>(null)
 
   const [submitting, setSubmitting] = React.useState(false)
   const [showProgress, setShowProgress] = React.useState(false)
@@ -189,10 +188,9 @@ function NewEnvironmentPageContent() {
     const slug = environmentSlug.trim()
     const slugResult = validateEnvironmentSlug(slug)
     if (!slugResult.ok) {
-      setSlugError(slugResult.error)
+      setSubmitError(slugResult.error)
       return
     }
-    setSlugError(null)
     setSubmitError(null)
     setShowProgress(true)
     setSubmitting(true)
@@ -416,7 +414,7 @@ function NewEnvironmentPageContent() {
                   )}
                 </FieldCard>
                 <FieldCard
-                  label="Environment slug"
+                  label="Name"
                   required
                   description="Lowercase, letters/numbers/hyphens. e.g. my-app"
                   fullWidth
@@ -426,11 +424,41 @@ function NewEnvironmentPageContent() {
                       value={environmentSlug}
                       onChange={(e) => {
                         setEnvironmentSlug(e.target.value.toLowerCase())
-                        setSlugError(null)
                       }}
                       placeholder="my-app"
                     />
-                    {slugError && <p className="text-xs text-destructive">{slugError}</p>}
+                    {(() => {
+                      const slugResult = validateEnvironmentSlug(environmentSlug)
+                      const slugInvalid = environmentSlug.trim().length > 0 && !slugResult.ok
+                      const slugErr = slugInvalid ? slugResult.error : null
+                      const normalizedSlug = environmentSlug.trim().toLowerCase()
+                      const rawSuggest =
+                        slugErr && (/\s/.test(normalizedSlug) || /_/.test(normalizedSlug))
+                          ? normalizedSlug
+                              .replace(/\s+/g, "-")
+                              .replace(/_+/g, "-")
+                              .replace(/-+/g, "-")
+                              .replace(/^-+|-+$/g, "") || ""
+                          : ""
+                      const slugSuggest =
+                        rawSuggest && validateEnvironmentSlug(rawSuggest).ok ? rawSuggest : ""
+                      return (
+                        <>
+                          {slugErr ? (
+                            <>
+                              <p className="text-xs text-destructive" role="alert">
+                                {slugErr}
+                              </p>
+                              {slugSuggest ? (
+                                <p className="text-xs text-muted-foreground">Try: {slugSuggest}</p>
+                              ) : null}
+                            </>
+                          ) : environmentSlug.trim().length === 0 ? (
+                            <p className="text-xs text-muted-foreground">Enter a name to continue.</p>
+                          ) : null}
+                        </>
+                      )
+                    })()}
                   </div>
                 </FieldCard>
               </div>
@@ -470,7 +498,7 @@ function NewEnvironmentPageContent() {
                   <dd>{environmentKey}</dd>
                 </div>
                 <div>
-                  <dt className="text-muted-foreground">Environment slug</dt>
+                  <dt className="text-muted-foreground">Name</dt>
                   <dd>{environmentSlug}</dd>
                 </div>
               </dl>

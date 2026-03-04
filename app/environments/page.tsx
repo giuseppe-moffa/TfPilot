@@ -156,7 +156,7 @@ export default function EnvironmentsPage() {
             <div className="relative h-11 flex items-center">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                placeholder="Search by project, key, slug, repo…"
+                placeholder="Search by project, key, name, repo…"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="h-11 w-72 shrink-0 pl-9 pr-3 py-0 text-sm focus-visible:ring-0 focus-visible:ring-offset-0"
@@ -243,7 +243,7 @@ export default function EnvironmentsPage() {
                 <TableRow>
                   <TableHead>Project</TableHead>
                   <TableHead>Key</TableHead>
-                  <TableHead>Slug</TableHead>
+                  <TableHead>Name</TableHead>
                   <TableHead>Repo</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Created</TableHead>

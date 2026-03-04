@@ -361,7 +361,7 @@ export default function EnvironmentDetailPage() {
             <dd>{env.environment_key}</dd>
           </div>
           <div>
-            <dt className="text-muted-foreground">Slug</dt>
+            <dt className="text-muted-foreground">Name</dt>
             <dd>{env.environment_slug}</dd>
           </div>
           <div>
