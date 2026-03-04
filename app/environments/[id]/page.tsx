@@ -6,7 +6,6 @@ import { useParams, useRouter } from "next/navigation"
 import { ArrowLeft, ExternalLink, Loader2, Plus, RefreshCw, Rocket, Trash2 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { getNewRequestGate } from "@/lib/new-request-gate"
 
 type Environment = {
@@ -51,6 +50,48 @@ function formatRelativeTime(iso: string): string {
   if (diff < 86400_000) return `${Math.floor(diff / 3600_000)}h ago`
   if (diff < 604800_000) return `${Math.floor(diff / 86400_000)}d ago`
   return d.toLocaleDateString()
+}
+
+function EnvironmentDetailSkeleton() {
+  return (
+    <div className="mx-auto max-w-7xl space-y-8">
+      <div className="mb-4">
+        <div className="h-9 w-20 animate-pulse rounded-md bg-muted" />
+      </div>
+      <section className="rounded-lg bg-card p-6 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="h-6 w-48 animate-pulse rounded bg-muted" />
+              <div className="h-5 w-16 animate-pulse rounded bg-muted" />
+            </div>
+            <div className="mt-1 h-4 w-64 animate-pulse rounded bg-muted" />
+          </div>
+        </div>
+        <div className="mt-4 border-t border-border/50 dark:border-slate-800/50 pt-4">
+          <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+            {[...Array(5)].map((_, i) => (
+              <div key={i}>
+                <div className="h-3 w-20 animate-pulse rounded bg-muted" />
+                <div className="mt-1 h-4 w-28 animate-pulse rounded bg-muted" />
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="pt-4 border-t border-border/50 dark:border-slate-800/50 mt-4">
+          <div className="h-4 w-32 animate-pulse rounded bg-muted mb-2" />
+          <div className="h-3 w-24 animate-pulse rounded bg-muted" />
+        </div>
+        <div className="pt-4 border-t border-border/50 dark:border-slate-800/50 mt-4">
+          <div className="flex flex-wrap items-center gap-2">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="h-9 w-24 animate-pulse rounded-md bg-muted" />
+            ))}
+          </div>
+        </div>
+      </section>
+    </div>
+  )
 }
 
 export default function EnvironmentDetailPage() {
@@ -218,35 +259,34 @@ export default function EnvironmentDetailPage() {
   }
 
   if (loading) {
-    return (
-      <div className="flex min-h-[40vh] items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-      </div>
-    )
+    return <EnvironmentDetailSkeleton />
   }
 
   if (error || !env) {
     return (
-      <div className="container max-w-2xl py-8">
+      <div className="mx-auto max-w-7xl space-y-8">
         <p className="text-destructive">{error ?? "Environment not found"}</p>
-        <Button variant="link" asChild className="mt-2">
-          <Link href="/environments">← Back to environments</Link>
+        <Button variant="ghost" size="sm" asChild>
+          <Link href="/environments" className="gap-2">
+            <ArrowLeft className="h-4 w-4" />
+            Back to environments
+          </Link>
         </Button>
       </div>
     )
   }
 
   return (
-    <div className="container max-w-2xl py-8">
-      <Button variant="ghost" size="sm" asChild className="mb-4 -ml-2">
-        <Link href="/environments" className="gap-1">
+    <div className="mx-auto max-w-7xl space-y-8">
+      <Button variant="ghost" size="sm" asChild>
+        <Link href="/environments" className="gap-2">
           <ArrowLeft className="h-4 w-4" />
-          Environments
+          Back
         </Link>
       </Button>
 
       {!env.archived_at && deployStatus && (
-        <div className="mb-6 rounded-lg border bg-muted/30 dark:bg-muted/20 px-4 py-3">
+        <section className="rounded-lg border bg-muted/30 dark:bg-muted/20 px-4 py-3">
           <div className="flex flex-wrap items-center gap-3">
             {deployStatus.error === "ENV_DEPLOY_CHECK_FAILED" ? (
               <>
@@ -297,156 +337,151 @@ export default function EnvironmentDetailPage() {
               {deployError ?? deploySuccess}
             </p>
           )}
-        </div>
+        </section>
       )}
 
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-2 flex-wrap">
-            <CardTitle>
-              {env.project_key} · {env.environment_key} / {env.environment_slug}
-            </CardTitle>
-            {env.archived_at ? (
-              <Badge variant="secondary">Archived</Badge>
-            ) : null}
+      <section className="rounded-lg bg-card p-6 shadow-sm">
+        <div className="flex items-center gap-2 flex-wrap">
+          <h1 className="text-xl font-semibold leading-none">
+            {env.project_key} · {env.environment_key} / {env.environment_slug}
+          </h1>
+          {env.archived_at ? (
+            <Badge variant="secondary">Archived</Badge>
+          ) : null}
+        </div>
+        <p className="mt-1 text-sm text-muted-foreground">{env.repo_full_name}</p>
+
+        <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm mt-6">
+          <div>
+            <dt className="text-muted-foreground">Project</dt>
+            <dd>{env.project_key}</dd>
           </div>
-          <CardDescription>
-            {env.repo_full_name}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <dl className="grid gap-2 text-sm">
+          <div>
+            <dt className="text-muted-foreground">Environment key</dt>
+            <dd>{env.environment_key}</dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">Slug</dt>
+            <dd>{env.environment_slug}</dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">Repo</dt>
+            <dd>{env.repo_full_name}</dd>
+          </div>
+          {env.archived_at ? (
             <div>
-              <dt className="text-muted-foreground">Project</dt>
-              <dd>{env.project_key}</dd>
+              <dt className="text-muted-foreground">Archived</dt>
+              <dd className="text-amber-600">{new Date(env.archived_at).toLocaleString()}</dd>
             </div>
-            <div>
-              <dt className="text-muted-foreground">Environment key</dt>
-              <dd>{env.environment_key}</dd>
-            </div>
-            <div>
-              <dt className="text-muted-foreground">Slug</dt>
-              <dd>{env.environment_slug}</dd>
-            </div>
-            <div>
-              <dt className="text-muted-foreground">Repo</dt>
-              <dd>{env.repo_full_name}</dd>
-            </div>
-            {env.archived_at ? (
-              <div>
-                <dt className="text-muted-foreground">Archived</dt>
-                <dd className="text-amber-600">{new Date(env.archived_at).toLocaleString()}</dd>
-              </div>
-            ) : null}
-          </dl>
+          ) : null}
+        </dl>
 
-          {lastDrift && (
-            <div className="pt-4 border-t">
-              <h4 className="text-sm font-medium mb-1">Last drift plan</h4>
-              <div className="flex items-center gap-2 text-sm">
-                <span className={lastDrift.conclusion === "success" ? "text-green-600" : lastDrift.conclusion === "failure" ? "text-destructive" : "text-muted-foreground"}>
-                  {lastDrift.status === "in_progress" || lastDrift.status === "queued" ? "Running…" : lastDrift.conclusion ?? lastDrift.status}
-                </span>
-                {lastDrift.createdAt && (
-                  <span className="text-muted-foreground">{new Date(lastDrift.createdAt).toLocaleString()}</span>
-                )}
-                <a href={lastDrift.url} target="_blank" rel="noreferrer" className="text-primary hover:underline inline-flex items-center gap-1">
-                  View run
-                  <ExternalLink className="h-3 w-3" />
-                </a>
-              </div>
+        {lastDrift && (
+          <div className="pt-4 border-t mt-4">
+            <h4 className="text-sm font-medium mb-1">Last drift plan</h4>
+            <div className="flex items-center gap-2 text-sm">
+              <span className={lastDrift.conclusion === "success" ? "text-green-600" : lastDrift.conclusion === "failure" ? "text-destructive" : "text-muted-foreground"}>
+                {lastDrift.status === "in_progress" || lastDrift.status === "queued" ? "Running…" : lastDrift.conclusion ?? lastDrift.status}
+              </span>
+              {lastDrift.createdAt && (
+                <span className="text-muted-foreground">{new Date(lastDrift.createdAt).toLocaleString()}</span>
+              )}
+              <a href={lastDrift.url} target="_blank" rel="noreferrer" className="text-primary hover:underline inline-flex items-center gap-1">
+                View run
+                <ExternalLink className="h-3 w-3" />
+              </a>
             </div>
+          </div>
+        )}
+
+        <div className="pt-4 border-t mt-4">
+          <h4 className="text-sm font-medium mb-2">Environment Activity</h4>
+          {activity.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No activity yet</p>
+          ) : (
+            <ul className="space-y-2 text-sm">
+              {(activity.slice(0, 20)).map((evt, i) => (
+                <li key={i} className="flex items-center gap-2 flex-wrap">
+                  <span className="text-muted-foreground shrink-0">
+                    {formatActivityLabel(evt.type)}
+                  </span>
+                  <span className="text-muted-foreground shrink-0">
+                    {formatRelativeTime(evt.timestamp)}
+                  </span>
+                  {evt.request_id && (
+                    <Link href={`/requests/${evt.request_id}`} className="text-primary hover:underline">
+                      {evt.module ? `${evt.module} · ` : ""}{evt.request_id.slice(0, 8)}
+                    </Link>
+                  )}
+                  {evt.pr_url && !evt.request_id && (
+                    <a href={evt.pr_url} target="_blank" rel="noreferrer" className="text-primary hover:underline inline-flex items-center gap-1">
+                      Deploy PR
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                  )}
+                </li>
+              ))}
+            </ul>
           )}
+        </div>
 
-          <div className="pt-4 border-t">
-            <h4 className="text-sm font-medium mb-2">Environment Activity</h4>
-            {activity.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No activity yet</p>
-            ) : (
-              <ul className="space-y-2 text-sm">
-                {(activity.slice(0, 20)).map((evt, i) => (
-                  <li key={i} className="flex items-center gap-2 flex-wrap">
-                    <span className="text-muted-foreground shrink-0">
-                      {formatActivityLabel(evt.type)}
-                    </span>
-                    <span className="text-muted-foreground shrink-0">
-                      {formatRelativeTime(evt.timestamp)}
-                    </span>
-                    {evt.request_id && (
-                      <Link href={`/requests/${evt.request_id}`} className="text-primary hover:underline">
-                        {evt.module ? `${evt.module} · ` : ""}{evt.request_id.slice(0, 8)}
+        {!env.archived_at && (
+          <div className="pt-4 border-t mt-4 space-y-3">
+            {(() => {
+              const gate = getNewRequestGate(deployStatus ?? { error: "ENV_DEPLOY_CHECK_FAILED" })
+              return (
+                <div className="flex flex-col gap-2">
+                  {gate.allowed ? (
+                    <Button variant="default" asChild className="gap-2 w-fit">
+                      <Link href={`/requests/new?environmentId=${env.environment_id}`}>
+                        <Plus className="h-4 w-4" />
+                        New Request
                       </Link>
-                    )}
-                    {evt.pr_url && !evt.request_id && (
-                      <a href={evt.pr_url} target="_blank" rel="noreferrer" className="text-primary hover:underline inline-flex items-center gap-1">
-                        Deploy PR
-                        <ExternalLink className="h-3 w-3" />
-                      </a>
-                    )}
-                  </li>
-                ))}
-              </ul>
+                    </Button>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <Button variant="outline" disabled className="gap-2 w-fit">
+                        <Plus className="h-4 w-4" />
+                        New Request
+                      </Button>
+                      <span className="text-sm text-muted-foreground">{gate.message}</span>
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={handleDriftPlan}
+                disabled={drifting}
+                className="gap-2"
+              >
+                {drifting ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : null}
+                Drift plan
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={handleDestroy}
+                disabled={destroying}
+                className="gap-2"
+              >
+                {destroying ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Trash2 className="h-4 w-4" />
+                )}
+                Destroy environment
+              </Button>
+            </div>
+            {(driftError || destroyError) && (
+              <p className="text-sm text-destructive">{driftError ?? destroyError}</p>
             )}
           </div>
-
-          {!env.archived_at && (
-            <div className="pt-4 border-t space-y-3">
-              {(() => {
-                const gate = getNewRequestGate(deployStatus ?? { error: "ENV_DEPLOY_CHECK_FAILED" })
-                return (
-                  <div className="flex flex-col gap-2">
-                    {gate.allowed ? (
-                      <Button variant="default" asChild className="gap-2 w-fit">
-                        <Link href={`/requests/new?environmentId=${env.environment_id}`}>
-                          <Plus className="h-4 w-4" />
-                          New Request
-                        </Link>
-                      </Button>
-                    ) : (
-                      <div className="flex items-center gap-2">
-                        <Button variant="outline" disabled className="gap-2 w-fit">
-                          <Plus className="h-4 w-4" />
-                          New Request
-                        </Button>
-                        <span className="text-sm text-muted-foreground">{gate.message}</span>
-                      </div>
-                    )}
-                  </div>
-                )
-              })()}
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  onClick={handleDriftPlan}
-                  disabled={drifting}
-                  className="gap-2"
-                >
-                  {drifting ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : null}
-                  Drift plan
-                </Button>
-                <Button
-                  variant="destructive"
-                  onClick={handleDestroy}
-                  disabled={destroying}
-                  className="gap-2"
-                >
-                  {destroying ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Trash2 className="h-4 w-4" />
-                  )}
-                  Destroy environment
-                </Button>
-              </div>
-              {(driftError || destroyError) && (
-                <p className="text-sm text-destructive">{driftError ?? destroyError}</p>
-              )}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+        )}
+      </section>
     </div>
   )
 }

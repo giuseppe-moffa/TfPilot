@@ -1,12 +1,16 @@
 import { NextResponse } from "next/server"
 
-import { environmentTemplates } from "@/config/environment-templates"
 import { getSessionFromCookies } from "@/lib/auth/session"
+import {
+  getEnvTemplatesIndex,
+  getEnvTemplateIfExists,
+} from "@/lib/env-templates-store"
 
 /**
  * GET /api/environment-templates
- * Returns environment templates (raw array). Requires authenticated session.
- * Per ENVIRONMENT_TEMPLATES_DELTA §11.2.
+ * Returns enabled environment templates (full objects) from S3.
+ * Requires authenticated session. Index missing → [].
+ * If index references a doc that is missing → skip item, log warn, continue.
  */
 export async function GET() {
   const session = await getSessionFromCookies()
@@ -14,9 +18,20 @@ export async function GET() {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
   }
   try {
-    return NextResponse.json(environmentTemplates)
+    const index = await getEnvTemplatesIndex()
+    const enabled = index.filter((e) => e.enabled)
+    const templates = []
+    for (const entry of enabled) {
+      const doc = await getEnvTemplateIfExists(entry.id)
+      if (doc) {
+        templates.push(doc)
+      } else {
+        console.warn("[env-templates] missing doc for id:", entry.id)
+      }
+    }
+    return NextResponse.json(templates)
   } catch (err) {
-    console.error("[environment-templates] GET error:", err)
+    console.error("[env-templates] GET error:", err)
     return NextResponse.json(
       { error: "Failed to load environment templates" },
       { status: 500 }

@@ -14,7 +14,11 @@ import {
   PG_UNIQUE_VIOLATION,
 } from "@/lib/db/environments"
 import { validateCreateEnvironmentBody } from "@/lib/environments/helpers"
-import { isValidTemplateId } from "@/lib/environments/validateTemplateId"
+import {
+  validateTemplateIdOrThrow,
+  INVALID_ENV_TEMPLATE,
+  ENV_TEMPLATES_NOT_INITIALIZED,
+} from "@/lib/environments/validateTemplateId"
 import { resolveInfraRepoByProjectAndEnvKey } from "@/config/infra-repos"
 import { createBootstrapPr } from "@/lib/github/bootstrapPr"
 import { logInfo } from "@/lib/observability/logger"
@@ -67,8 +71,24 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Validation failed", errors }, { status: 400 })
   }
 
-  if (!isValidTemplateId(body.template_id)) {
-    return NextResponse.json({ error: "INVALID_ENV_TEMPLATE" }, { status: 400 })
+  try {
+    await validateTemplateIdOrThrow(body.template_id)
+  } catch (err: unknown) {
+    const code = (err as { code?: string })?.code
+    if (code === INVALID_ENV_TEMPLATE) {
+      return NextResponse.json({ error: INVALID_ENV_TEMPLATE }, { status: 400 })
+    }
+    if (code === ENV_TEMPLATES_NOT_INITIALIZED) {
+      return NextResponse.json(
+        { error: ENV_TEMPLATES_NOT_INITIALIZED },
+        { status: 503 }
+      )
+    }
+    console.error("[environments] template validation error:", err)
+    return NextResponse.json(
+      { error: "Failed to load environment templates" },
+      { status: 500 }
+    )
   }
 
   const project_key = (typeof body.project_key === "string" ? body.project_key : "").trim()

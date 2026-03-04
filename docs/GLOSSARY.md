@@ -21,9 +21,9 @@ Consistent terminology for TfPilot docs and code.
 | **apply** | Terraform apply workflow (env-state serialized). |
 | **destroy** | Terraform destroy workflow (env-state serialized). |
 | **cleanup** | Cleanup workflow: strip TfPilot block, open cleanup PR. |
-| **drift_plan** | Drift detection plan (e.g. nightly on base branch). |
+| **drift_plan** | Drift detection plan (e.g. nightly on base branch). Env-scoped in Model 2 (`environment_key` + `environment_slug`). |
 
-Defined in **lib/github/workflowClassification.ts** (`WorkflowKind`). Used in run index and webhook classification.
+Defined in **lib/github/workflowClassification.ts** (`WorkflowKind`). Used in run index and webhook classification. See **docs/DRIFT_DETECTION.md**.
 
 ---
 

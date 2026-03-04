@@ -1,10 +1,11 @@
 /**
  * Environment skeleton generator for deploy.
  * Creates Terraform root structure from environment template.
- * Pure function: no I/O, no GitHub, no PRs.
+ * Step 7: Resolves templates from S3 (non-blank) or built-in "blank". No static config.
  */
 
-import { environmentTemplates } from "@/config/environment-templates"
+import { getEnvTemplate } from "@/lib/env-templates-store"
+import { INVALID_ENV_TEMPLATE } from "@/lib/environments/validateTemplateId"
 import { moduleRegistry } from "@/config/module-registry"
 import { generateModel2RequestFile } from "@/lib/renderer/model2"
 import { generateRequestId } from "@/lib/requests/id"
@@ -68,19 +69,34 @@ export type EnvSkeletonResult = {
   files: Array<{ path: string; content: string }>
 }
 
+/** Built-in blank template; no S3 lookup. */
+const BLANK_TEMPLATE = { modules: [] as { module: string; order: number; defaultConfig?: Record<string, unknown> }[] }
+
 /**
  * Generate environment skeleton file map from template.
- * No I/O. Returns path→content map for commit.
+ * Assumes validateTemplateIdOrThrow already ran. Blank → built-in; non-blank → S3.
  */
-export function envSkeleton(params: EnvSkeletonParams): EnvSkeletonResult {
+export async function envSkeleton(params: EnvSkeletonParams): Promise<EnvSkeletonResult> {
   const { environment_key, environment_slug, template_id, project_key = "default" } = params
+  const tid = (template_id ?? "blank").trim()
   const envRoot = `envs/${environment_key}/${environment_slug}`
   const files: Array<{ path: string; content: string }> = []
 
-  const template = environmentTemplates.find((t) => t.id === template_id)
-  if (!template) {
-    throw new Error(`Unknown template_id: ${template_id}`)
-  }
+  const template =
+    tid === "blank"
+      ? BLANK_TEMPLATE
+      : await (async () => {
+          try {
+            return await getEnvTemplate(tid)
+          } catch (err: unknown) {
+            if ((err as { name?: string })?.name === "NoSuchKey") {
+              const e = new Error(INVALID_ENV_TEMPLATE) as Error & { code?: string }
+              e.code = INVALID_ENV_TEMPLATE
+              throw e
+            }
+            throw err
+          }
+        })()
 
   files.push({ path: `${envRoot}/backend.tf`, content: backendTfContent() })
   files.push({

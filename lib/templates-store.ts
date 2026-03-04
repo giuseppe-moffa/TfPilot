@@ -9,7 +9,7 @@ import { env } from "@/lib/config/env"
 
 const s3 = new S3Client({ region: env.TFPILOT_DEFAULT_REGION })
 const BUCKET = env.TFPILOT_TEMPLATES_BUCKET
-const PREFIX = "templates/"
+const PREFIX = "request-templates/"
 const INDEX_KEY = `${PREFIX}index.json`
 
 async function streamToString(stream: unknown): Promise<string> {
@@ -111,7 +111,7 @@ function generateId(label: string, existingIds: Set<string>): string {
 }
 
 /**
- * Read templates/index.json. Returns [] if the key does not exist.
+ * Read request-templates/index.json. Returns [] if the key does not exist.
  */
 export async function getTemplatesIndex(): Promise<TemplateIndexEntry[]> {
   try {

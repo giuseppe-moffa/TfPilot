@@ -16,7 +16,11 @@ import {
   type IsEnvironmentDeployedParams,
   type IsEnvironmentDeployedResult,
 } from "@/lib/environments/isEnvironmentDeployed"
-import { isValidTemplateId } from "@/lib/environments/validateTemplateId"
+import {
+  validateTemplateIdOrThrow,
+  INVALID_ENV_TEMPLATE,
+  ENV_TEMPLATES_NOT_INITIALIZED,
+} from "@/lib/environments/validateTemplateId"
 import { envSkeleton } from "@/lib/environments/envSkeleton"
 import { getDeployBranchName } from "@/lib/environments/checkDeployBranch"
 import {
@@ -89,9 +93,25 @@ export function makePOST(deps: DeployRouteDeps) {
       )
     }
 
-    const template_id = envRow.template_id ?? "blank"
-    if (!isValidTemplateId(template_id)) {
-      return NextResponse.json({ error: "INVALID_ENV_TEMPLATE" }, { status: 400 })
+    const template_id = (envRow.template_id ?? "blank").trim()
+    try {
+      await validateTemplateIdOrThrow(template_id)
+    } catch (err: unknown) {
+      const code = (err as { code?: string })?.code
+      if (code === INVALID_ENV_TEMPLATE) {
+        return NextResponse.json({ error: INVALID_ENV_TEMPLATE }, { status: 400 })
+      }
+      if (code === ENV_TEMPLATES_NOT_INITIALIZED) {
+        return NextResponse.json(
+          { error: ENV_TEMPLATES_NOT_INITIALIZED },
+          { status: 503 }
+        )
+      }
+      console.error("[environments/deploy] template validation error:", err)
+      return NextResponse.json(
+        { error: "Failed to load environment templates" },
+        { status: 500 }
+      )
     }
 
     const checkResult = await deps.isEnvironmentDeployed(token, {
@@ -122,7 +142,7 @@ export function makePOST(deps: DeployRouteDeps) {
       )
     }
 
-    const { envRoot, files } = envSkeleton({
+    const { envRoot, files } = await envSkeleton({
       environment_key: envRow.environment_key,
       environment_slug: envRow.environment_slug,
       template_id,

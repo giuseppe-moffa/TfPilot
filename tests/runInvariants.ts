@@ -32,6 +32,10 @@ import { tests as environmentDeployErrorsRouteTests } from "./api/environmentDep
 import { tests as environmentActivityRouteTests } from "./api/environmentActivityRoute.test"
 import { tests as deployErrorsTests } from "./invariants/deployErrors.test"
 import { tests as environmentActivityTests } from "./unit/environmentActivity.test"
+import { tests as envTemplatesStoreTests } from "./unit/envTemplatesStore.test"
+import { tests as envTemplatesValidationTests } from "./unit/envTemplatesValidation.test"
+import { tests as envTemplatesAdminRouteTests } from "./api/envTemplatesAdminRoute.test"
+import { tests as validateTemplateIdOrThrowTests } from "./unit/validateTemplateIdOrThrow.test"
 
 const allSuites = [
   reconcileTests,
@@ -62,6 +66,10 @@ const allSuites = [
   environmentActivityRouteTests,
   deployErrorsTests,
   environmentActivityTests,
+  envTemplatesStoreTests,
+  envTemplatesValidationTests,
+  envTemplatesAdminRouteTests,
+  validateTemplateIdOrThrowTests,
 ]
 
 let passed = 0

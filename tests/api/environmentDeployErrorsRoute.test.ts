@@ -1,12 +1,17 @@
 /**
  * Route-level tests: POST /api/environments/:id/deploy error contract.
  * Chunk 7.1 — asserts HTTP status + JSON { error: CODE } for each deploy error.
- * Uses makePOST() with injected mocks; no real GitHub/S3.
+ * Uses makePOST() with injected mocks; no real GitHub. S3 stubbed for template validation.
  */
 
 import { NextRequest } from "next/server"
 import { DeployBranchExistsError } from "@/lib/github/createDeployPR"
 import { makePOST, type DeployRouteDeps } from "@/app/api/environments/[id]/deploy/route"
+import { createS3Stub, TEST_BUCKET } from "../fixtures/s3-stub"
+import {
+  __testOnlySetS3,
+  seedEnvTemplatesFromConfig,
+} from "@/lib/env-templates-store"
 
 function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(`Assertion failed: ${message}`)
@@ -52,6 +57,12 @@ export const tests = [
   {
     name: "POST /deploy route: 400 INVALID_ENV_TEMPLATE when env has invalid template_id",
     fn: async () => {
+      const stub = createS3Stub()
+      __testOnlySetS3(stub, TEST_BUCKET)
+      stub.clear()
+      await seedEnvTemplatesFromConfig([
+        { id: "baseline-ai-service", label: "Baseline AI", modules: [] },
+      ])
       const res = await callDeployRoute("env_bad_template", {
         ...SESSION_MOCKS,
         getEnvironmentById: async () => ({
@@ -65,6 +76,30 @@ export const tests = [
       assert(res.status === 400, `expected 400, got ${res.status}`)
       const body = await res.json()
       assert(body?.error === "INVALID_ENV_TEMPLATE", `expected INVALID_ENV_TEMPLATE, got ${JSON.stringify(body)}`)
+    },
+  },
+  {
+    name: "POST /deploy route: 503 ENV_TEMPLATES_NOT_INITIALIZED when index missing and non-blank template",
+    fn: async () => {
+      const stub = createS3Stub()
+      __testOnlySetS3(stub, TEST_BUCKET)
+      stub.clear()
+      const res = await callDeployRoute("env_not_initialized", {
+        ...SESSION_MOCKS,
+        getEnvironmentById: async () => ({
+          ...BASE_ENV_ROW,
+          environment_id: "env_not_initialized",
+          template_id: "baseline-ai-service",
+        }),
+        isEnvironmentDeployed: async () => ({ ok: true, deployed: false, deployPrOpen: false, envRootExists: false }),
+        createDeployPR: STUB_CREATE_DEPLOY_PR,
+      })
+      assert(res.status === 503, `expected 503, got ${res.status}`)
+      const body = await res.json()
+      assert(
+        body?.error === "ENV_TEMPLATES_NOT_INITIALIZED",
+        `expected ENV_TEMPLATES_NOT_INITIALIZED, got ${JSON.stringify(body)}`
+      )
     },
   },
   {

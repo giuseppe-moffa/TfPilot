@@ -6,11 +6,16 @@
  */
 
 const BASE = process.env.TEST_API_BASE_URL || "http://localhost:3000"
-// Skip by default so test:invariants passes without dev server. Use TEST_SKIP_API=0 to run.
 const SKIP = process.env.TEST_SKIP_API !== "0"
 
 async function fetchEnvTemplates(cookie?: string): Promise<Response> {
   return fetch(`${BASE}/api/environment-templates`, {
+    headers: cookie ? { Cookie: cookie } : {},
+  })
+}
+
+async function fetchEnvTemplateDetail(id: string, cookie?: string): Promise<Response> {
+  return fetch(`${BASE}/api/environment-templates/${id}`, {
     headers: cookie ? { Cookie: cookie } : {},
   })
 }
@@ -49,13 +54,13 @@ export const tests = [
     fn: async () => {
       if (SKIP) return
       const cookie = process.env.TEST_SESSION_COOKIE
-      if (!cookie) return // Skip authenticated path without cookie
+      if (!cookie) return
       try {
         const res = await fetchEnvTemplates(cookie)
         assert(res.status === 200, `expected 200 when authenticated, got ${res.status}`)
         const data = await res.json()
         assert(Array.isArray(data), "response must be array")
-        assert(data.length === 4, "expected 4 templates")
+        assert(data.length >= 4, "expected at least 4 templates (after seed)")
         const blank = data.find((t: { id: string }) => t.id === "blank")
         assert(blank != null && Array.isArray(blank.modules), "blank template with modules array")
         assert(blank.modules.length === 0, "blank has no modules")
@@ -65,6 +70,66 @@ export const tests = [
           ai.modules?.some((m: { module: string }) => m.module === "ecr-repo"),
           "baseline-ai-service includes ecr-repo"
         )
+      } catch (err: unknown) {
+        handleConnectionError(err)
+      }
+    },
+  },
+  {
+    name: "GET /api/environment-templates: list returns enabled only",
+    fn: async () => {
+      if (SKIP) return
+      const cookie = process.env.TEST_SESSION_COOKIE
+      if (!cookie) return
+      try {
+        const res = await fetchEnvTemplates(cookie)
+        assert(res.status === 200, `expected 200, got ${res.status}`)
+        const data = await res.json()
+        assert(Array.isArray(data), "response must be array")
+        for (const t of data) {
+          assert(t.enabled !== false, `template ${t.id} must be enabled (list returns enabled only)`)
+        }
+      } catch (err: unknown) {
+        handleConnectionError(err)
+      }
+    },
+  },
+  {
+    name: "GET /api/environment-templates/[id]: disabled template returns 404",
+    fn: async () => {
+      if (SKIP) return
+      const cookie = process.env.TEST_SESSION_COOKIE
+      if (!cookie) return
+      try {
+        const createRes = await fetch(`${BASE}/api/environment-templates/admin`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Cookie: cookie },
+          body: JSON.stringify({ label: "ToDisableForDetail", modules: [], enabled: true }),
+        })
+        if (createRes.status === 404) return
+        const created = await createRes.json()
+        const id = created?.id
+        if (!id) return
+        await fetch(`${BASE}/api/environment-templates/admin/${id}`, {
+          method: "DELETE",
+          headers: { Cookie: cookie },
+        })
+        const res = await fetchEnvTemplateDetail(id, cookie)
+        assert(res.status === 404, `disabled template expected 404, got ${res.status}`)
+      } catch (err: unknown) {
+        handleConnectionError(err)
+      }
+    },
+  },
+  {
+    name: "GET /api/environment-templates/[id]: nonexistent returns 404",
+    fn: async () => {
+      if (SKIP) return
+      const cookie = process.env.TEST_SESSION_COOKIE
+      if (!cookie) return
+      try {
+        const res = await fetchEnvTemplateDetail("nonexistent-id-xyz", cookie)
+        assert(res.status === 404, `nonexistent id expected 404, got ${res.status}`)
       } catch (err: unknown) {
         handleConnectionError(err)
       }

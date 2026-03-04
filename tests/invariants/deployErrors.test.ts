@@ -166,11 +166,13 @@ export const tests = [
     fn: () => {
       const contract: Record<string, number> = {
         INVALID_ENV_TEMPLATE: 400,
+        ENV_TEMPLATES_NOT_INITIALIZED: 503,
         ENV_ALREADY_DEPLOYED: 409,
         ENV_DEPLOY_IN_PROGRESS: 409,
         ENV_DEPLOY_CHECK_FAILED: 503,
       }
       assert(contract.INVALID_ENV_TEMPLATE === 400, "INVALID_ENV_TEMPLATE → 400")
+      assert(contract.ENV_TEMPLATES_NOT_INITIALIZED === 503, "ENV_TEMPLATES_NOT_INITIALIZED → 503")
       assert(contract.ENV_ALREADY_DEPLOYED === 409, "ENV_ALREADY_DEPLOYED → 409")
       assert(contract.ENV_DEPLOY_IN_PROGRESS === 409, "ENV_DEPLOY_IN_PROGRESS → 409")
       assert(contract.ENV_DEPLOY_CHECK_FAILED === 503, "ENV_DEPLOY_CHECK_FAILED → 503")
