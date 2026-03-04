@@ -876,10 +876,10 @@ export async function GET(req: NextRequest) {
         }
       }
 
-      const lastRow = pageRows[pageRows.length - 1]
-      const sortKey = lastRow.last_activity_at ?? lastRow.updated_at
+      const lastRow = pageRows.length > 0 ? pageRows[pageRows.length - 1] : null
+      const sortKey = lastRow ? (lastRow.last_activity_at ?? lastRow.updated_at) : null
       const next_cursor =
-        indexRows.length > limit
+        lastRow != null && sortKey != null && indexRows.length > limit
           ? encodeCursor({
               sort_key: sortKey,
               request_id: lastRow.request_id,
