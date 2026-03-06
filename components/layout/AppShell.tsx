@@ -3,9 +3,16 @@
 import * as React from "react"
 import Link from "next/link"
 import Image from "next/image"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import { ChevronDown, ChevronRight, Github, Moon, Sun } from "lucide-react"
 
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -25,6 +32,7 @@ const navItems = [
     ],
   },
   { label: "Insights", href: "/insights" },
+  { label: "Organisations", href: "/settings/org" },
 ] as const
 
 function getPageTitle(pathname: string): string {
@@ -32,21 +40,52 @@ function getPageTitle(pathname: string): string {
   if (pathname.startsWith("/requests")) return "Resources"
   if (pathname.startsWith("/catalogue")) return "Catalogue"
   if (pathname.startsWith("/insights")) return "Insights"
+  if (pathname.startsWith("/settings/org")) return "Organisation Settings"
   return ""
 }
 
+type UserOrg = { orgId: string; orgSlug: string; orgName: string }
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
-  const { user, loading, logout } = useAuth()
+  const router = useRouter()
+  const { user, loading, logout, refresh } = useAuth()
   const { theme, toggleTheme } = useTheme()
   const pageTitle = getPageTitle(pathname)
 
+  const [orgs, setOrgs] = React.useState<UserOrg[]>([])
   const [catalogueExpanded, setCatalogueExpanded] = React.useState(() =>
     pathname.startsWith("/catalogue")
   )
+
+  React.useEffect(() => {
+    if (user?.login) {
+      fetch("/api/auth/orgs", { credentials: "include" })
+        .then((res) => (res.ok ? res.json() : { orgs: [] }))
+        .then((data: { orgs?: UserOrg[] }) => setOrgs(data.orgs ?? []))
+        .catch(() => setOrgs([]))
+    } else {
+      setOrgs([])
+    }
+  }, [user?.login])
+
   React.useEffect(() => {
     if (pathname.startsWith("/catalogue")) setCatalogueExpanded(true)
   }, [pathname])
+
+  const handleOrgChange = async (orgId: string) => {
+    if (!orgId || orgId === user?.orgId) return
+    const res = await fetch("/api/auth/switch-org", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ orgId }),
+    })
+    if (res.ok) {
+      await refresh()
+      router.refresh()
+    }
+  }
 
   return (
     <div className="flex min-h-screen">
@@ -175,14 +214,31 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     className="rounded-full border"
                   />
                 )}
-                {user.orgSlug && (
-                  <Badge
-                    variant="outline"
-                    className="text-[10px] px-1.5 py-0 font-normal text-muted-foreground border-muted-foreground/30"
-                  >
-                    {user.orgSlug}
-                  </Badge>
-                )}
+                {user.orgSlug &&
+                  (orgs.length > 1 ? (
+                    <Select
+                      value={user.orgId ?? ""}
+                      onValueChange={handleOrgChange}
+                    >
+                      <SelectTrigger size="sm" className="h-7 w-fit min-w-[100px] text-[10px]">
+                        <SelectValue placeholder="Org" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {orgs.map((o) => (
+                          <SelectItem key={o.orgId} value={o.orgId}>
+                            {o.orgSlug}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Badge
+                      variant="outline"
+                      className="text-[10px] px-1.5 py-0 font-normal text-muted-foreground border-muted-foreground/30"
+                    >
+                      {user.orgSlug}
+                    </Badge>
+                  ))}
                 <Button
                   variant="outline"
                   size="sm"

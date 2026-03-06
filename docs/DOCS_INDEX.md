@@ -173,6 +173,7 @@ Canonical docs only. For archived/retired docs see `docs/archive/`.
 | `docs/GLOSSARY.md` | Terminology: workflow kinds, statuses, Repair, observability | **KEEP** | — | Current |
 | `docs/INSIGHTS.md` | Insights dashboard: ops metrics, GitHub API usage, API, code layout | **KEEP** | — | Current |
 | `docs/RBAC.md` | Role-based access control: roles, permissions, allowlists, API enforcement | **KEEP** | — | Current |
+| `docs/ORGANISATIONS.md` | Org tenancy: membership, add member (write flow), roles, org switcher | **KEEP** | — | Current |
 | `docs/DRIFT_DETECTION.md` | Infrastructure drift: env-scoped (UI) and request-level (scheduled), APIs, workflows | **KEEP** | — | Current |
 | **Roadmap / agent** | | | | |
 | `docs/prompts/MASTER.md` | Master system prompt (referenced by .cursor rules) | **KEEP** | — | Current |
