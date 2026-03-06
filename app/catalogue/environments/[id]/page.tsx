@@ -3,8 +3,9 @@
 import * as React from "react"
 import Link from "next/link"
 import { useParams } from "next/navigation"
-import { ArrowLeft, Loader2 } from "lucide-react"
+import { Loader2 } from "lucide-react"
 
+import { ModuleTag } from "@/components/icons/module-icon"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import {
@@ -91,14 +92,9 @@ export default function EnvTemplateDetailPage() {
 
   if (authRequired) {
     return (
-      <div className="mx-auto max-w-3xl space-y-6 p-4">
-        <Link href="/catalogue">
-          <Button variant="ghost" size="sm" className="gap-2">
-            <ArrowLeft className="h-4 w-4" />
-            Back
-          </Button>
-        </Link>
-        <div className="flex min-h-[40vh] flex-col items-center justify-center gap-4">
+      <div className="flex min-h-0 flex-1 flex-col gap-4">
+        <Card className="flex min-h-0 flex-1 flex-col pt-0 shadow-none">
+          <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 py-12">
           <h1 className="text-xl font-semibold">Sign in to browse templates</h1>
           <p className="text-center text-muted-foreground">
             You need to be signed in to view the template catalogue.
@@ -106,64 +102,57 @@ export default function EnvTemplateDetailPage() {
           <Link href="/login">
             <Button variant="outline">Sign in</Button>
           </Link>
-        </div>
+          </div>
+        </Card>
       </div>
     )
   }
 
   if (notFound) {
     return (
-      <div className="mx-auto max-w-3xl space-y-6 p-4">
-        <Link href="/catalogue">
-          <Button variant="ghost" size="sm" className="gap-2">
-            <ArrowLeft className="h-4 w-4" />
-            Back
-          </Button>
-        </Link>
-        <div className="flex min-h-[40vh] flex-col items-center justify-center gap-4">
-          <h1 className="text-xl font-semibold">Template not found</h1>
-          <p className="text-center text-muted-foreground">
-            The template may have been removed or disabled.
-          </p>
-          <Link href="/catalogue">
-            <Button variant="outline">Back to catalogue</Button>
-          </Link>
-        </div>
+      <div className="flex min-h-0 flex-1 flex-col gap-4">
+        <Card className="flex min-h-0 flex-1 flex-col pt-0 shadow-none">
+          <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 py-12">
+            <h1 className="text-xl font-semibold">Template not found</h1>
+            <p className="text-center text-muted-foreground">
+              The template may have been removed or disabled.
+            </p>
+            <Link href="/catalogue/environments">
+              <Button variant="outline">Back to catalogue</Button>
+            </Link>
+          </div>
+        </Card>
       </div>
     )
   }
 
   if (loading) {
     return (
-      <div className="mx-auto max-w-3xl space-y-6 p-4">
-        <Link href="/catalogue">
-          <Button variant="ghost" size="sm" className="gap-2">
-            <ArrowLeft className="h-4 w-4" />
-            Back
-          </Button>
-        </Link>
-        <div className="flex min-h-[40vh] items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-        </div>
+      <div className="flex min-h-0 flex-1 flex-col gap-4">
+        <Card className="flex min-h-0 flex-1 flex-col pt-0 shadow-none">
+          <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 py-12">
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+          </div>
+        </Card>
       </div>
     )
   }
 
   if (error || !template) {
     return (
-      <div className="mx-auto max-w-3xl space-y-6 p-4">
-        <Link href="/catalogue">
-          <Button variant="ghost" size="sm" className="gap-2">
-            <ArrowLeft className="h-4 w-4" />
-            Back
-          </Button>
-        </Link>
-        <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          {error ?? "Failed to load template"}
-        </div>
-        <Button variant="outline" size="sm" onClick={() => window.location.reload()}>
-          Retry
-        </Button>
+      <div className="flex min-h-0 flex-1 flex-col gap-4">
+        <Card className="flex min-h-0 flex-1 flex-col pt-0 shadow-none">
+          <div className="flex flex-1 flex-col gap-4 px-6 py-6">
+            <div className="bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {error ?? "Failed to load template"}
+            </div>
+            <div className="flex justify-end">
+              <Button variant="outline" size="sm" onClick={() => window.location.reload()}>
+                Retry
+              </Button>
+            </div>
+          </div>
+        </Card>
       </div>
     )
   }
@@ -171,54 +160,57 @@ export default function EnvTemplateDetailPage() {
   const sortedModules = [...(template.modules ?? [])].sort((a, b) => a.order - b.order)
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6 p-4">
-      <header className="flex items-center justify-between gap-3">
-        <Link href="/catalogue">
-          <Button variant="ghost" size="sm" className="gap-2">
-            <ArrowLeft className="h-4 w-4" />
-            Back
-          </Button>
-        </Link>
-        <h1 className="text-lg font-semibold">{template.label ?? template.id}</h1>
-        <Link href={`/environments/new?template_id=${template.id}`}>
-          <Button size="sm">Use this template</Button>
-        </Link>
-      </header>
+    <div className="flex min-h-0 flex-1 flex-col gap-4">
+      <Card className="flex min-h-0 flex-1 flex-col pt-0 shadow-none">
+        <div className="flex flex-1 flex-col gap-4 px-6 py-6">
+          <h1 className="text-lg font-semibold">{template.label ?? template.id}</h1>
 
-      <Card className="space-y-4 p-4">
-        {template.description ? (
-          <div>
-            <h2 className="text-sm font-medium text-muted-foreground mb-1">Description</h2>
-            <p className="text-sm">{template.description}</p>
+          <div className="space-y-4">
+            {template.description ? (
+              <div>
+                <h2 className="text-sm font-medium text-muted-foreground mb-1">Description</h2>
+                <p className="text-sm">{template.description}</p>
+              </div>
+            ) : null}
+
+            <div>
+              <h2 className="text-sm font-medium text-muted-foreground mb-2">Modules</h2>
+              {sortedModules.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No modules defined.</p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-[80px]">Order</TableHead>
+                      <TableHead>Module</TableHead>
+                      <TableHead>Default config</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {sortedModules.map((mod, i) => (
+                      <TableRow key={`${mod.module}-${i}`}>
+                        <TableCell className="font-mono text-sm">{mod.order}</TableCell>
+                        <TableCell className="font-medium">
+                          <div className="flex items-center gap-1">
+                            <ModuleTag module={mod.module} />
+                          </div>
+                        </TableCell>
+                        <TableCell className="font-mono text-xs text-muted-foreground max-w-[300px] truncate" title={JSON.stringify(mod.defaultConfig ?? {})}>
+                          {defaultConfigPreview(mod.defaultConfig)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </div>
           </div>
-        ) : null}
 
-        <div>
-          <h2 className="text-sm font-medium text-muted-foreground mb-2">Modules</h2>
-          {sortedModules.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No modules defined.</p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-[80px]">Order</TableHead>
-                  <TableHead>Module</TableHead>
-                  <TableHead>Default config</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {sortedModules.map((mod, i) => (
-                  <TableRow key={`${mod.module}-${i}`}>
-                    <TableCell className="font-mono text-sm">{mod.order}</TableCell>
-                    <TableCell className="font-medium">{mod.module}</TableCell>
-                    <TableCell className="font-mono text-xs text-muted-foreground max-w-[300px] truncate" title={JSON.stringify(mod.defaultConfig ?? {})}>
-                      {defaultConfigPreview(mod.defaultConfig)}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
+          <div className="mt-auto flex justify-end pt-4">
+            <Link href={`/environments/new?template_id=${template.id}`}>
+              <Button size="sm">Use this template</Button>
+            </Link>
+          </div>
         </div>
       </Card>
     </div>

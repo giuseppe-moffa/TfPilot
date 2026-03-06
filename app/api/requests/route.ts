@@ -55,6 +55,7 @@ type RequestPayload = {
 
 type StoredRequest = {
   id: string
+  org_id: string
   project_key: string
   environment_key: string
   environment_slug: string
@@ -526,6 +527,9 @@ export async function POST(request: NextRequest) {
     if (role === "viewer") {
       return NextResponse.json({ success: false, error: "Insufficient role" }, { status: 403 })
     }
+    if (!session.orgId) {
+      return NextResponse.json({ success: false, error: "No org context" }, { status: 403 })
+    }
 
     // validate module exists based on registry
     const regEntry = moduleRegistry.find((m) => m.type === body.module)
@@ -586,6 +590,7 @@ export async function POST(request: NextRequest) {
     const nowIso = new Date().toISOString()
     const newRequest: StoredRequest = {
       id: requestId,
+      org_id: session.orgId,
       project_key: resolved.project_key,
       environment_key: resolved.environment_key,
       environment_slug: resolved.environment_slug,
@@ -776,6 +781,10 @@ export async function POST(request: NextRequest) {
 export async function GET(req: NextRequest) {
   const sessionOr401 = await requireSession()
   if (sessionOr401 instanceof NextResponse) return sessionOr401
+  const session = sessionOr401
+  if (!session.orgId) {
+    return NextResponse.json({ success: false, error: "No org context" }, { status: 403 })
+  }
   const correlation = withCorrelation(req, {})
 
   const limitParam = req.nextUrl.searchParams.get("limit")
@@ -792,7 +801,7 @@ export async function GET(req: NextRequest) {
 
   let indexRows: Awaited<ReturnType<typeof listRequestIndexRowsPage>>
   try {
-    indexRows = await listRequestIndexRowsPage({ limit: limit + 1, cursor })
+    indexRows = await listRequestIndexRowsPage({ orgId: session.orgId, limit: limit + 1, cursor })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     return NextResponse.json(

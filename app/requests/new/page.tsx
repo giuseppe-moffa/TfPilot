@@ -4,13 +4,11 @@ import * as React from "react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Suspense } from "react"
-import { ArrowLeft, Info, Loader2, Search, Sparkles } from "lucide-react"
+import { Info, Loader2, Search } from "lucide-react"
 
 import { ActionProgressDialog } from "@/components/action-progress-dialog"
+import { ModuleTag } from "@/components/icons/module-icon"
 
-import { AssistantHelper } from "@/components/assistant-helper"
-import { AssistantDrawer } from "@/components/assistant-drawer"
-import { SuggestionPanel } from "@/components/suggestion-panel"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -94,7 +92,7 @@ const FieldCard = ({
 }) => (
   <div
     id={id}
-    className={`rounded-lg bg-muted/50 dark:bg-muted/40 px-3 py-3 transition focus-within:ring-2 focus-within:ring-primary/20 focus-within:ring-offset-0 ${
+    className={`bg-white px-3 py-3 transition focus-within:ring-2 focus-within:ring-primary/20 focus-within:ring-offset-0 ${
       fullWidth ? 'md:col-span-2' : ''
     }`}
   >
@@ -134,11 +132,8 @@ function NewRequestPageContent() {
   const createDialogTimerRef = React.useRef<number | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const [formValues, setFormValues] = React.useState<Record<string, any>>({})
-  const [assistantState, setAssistantState] = React.useState<any>(null)
   const projects = listProjects()
   const environments = project ? listEnvironments(project) : []
-  const [assistantOpen, setAssistantOpen] = React.useState(false)
-  const drawerWidth = 520
   const [activeField, setActiveField] = React.useState<string | null>(null)
   const [selectedTemplateId, setSelectedTemplateId] = React.useState<string | null>(null)
   const hasAppliedTemplateFromQuery = React.useRef(false)
@@ -766,36 +761,13 @@ function NewRequestPageContent() {
   }, [configObject.name])
 
   return (
-    <div
-      className="flex h-[calc(100vh-4rem)] flex-col bg-background text-foreground transition-[margin-right]"
-      style={{ marginRight: assistantOpen ? drawerWidth : 0 }}
-    >
-      <header className="flex items-center justify-between gap-3 bg-background/80 px-4 py-3 backdrop-blur">
-        <div className="flex items-center gap-3">
-          <Link href="/requests">
-            <Button variant="ghost" size="sm" className="gap-2">
-              <ArrowLeft className="h-4 w-4" />
-              Back
-            </Button>
-          </Link>
-          <h1 className="text-lg font-semibold">New Request</h1>
-        </div>
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={envStep !== 3}
-          onClick={() => setAssistantOpen(true)}
-        >
-          <Sparkles className="mr-2 h-4 w-4" /> Assistant
-        </Button>
-      </header>
-
-      <div className="flex-1 p-4 overflow-auto">
-        <div className="mx-auto max-w-4xl space-y-6">
+    <div className="flex min-h-0 flex-1 flex-col">
+      <Card className="flex min-h-0 flex-1 flex-col pt-0">
+        <div className="flex flex-1 flex-col gap-4 px-6 py-6">
           {envStep === 1 ? (
-              <Card className="rounded-lg border-0 bg-card p-6 shadow-sm space-y-4">
-                <div className="text-base font-semibold">Choose a template</div>
-                <div className="relative">
+            <>
+                <div className="text-base font-semibold">New Request</div>
+                <div className="relative max-w-md">
                   <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
                     type="search"
@@ -839,23 +811,24 @@ function NewRequestPageContent() {
                           }
                           setEnvStep(2)
                         }}
-                        className={`rounded-lg border px-4 py-3 text-left transition hover:shadow-md hover:outline hover:outline-1 hover:outline-primary/30 ${
-                          selectedTemplateId === t.id
-                            ? "border-primary bg-primary/10 ring-1 ring-primary/20 shadow-sm"
-                            : "border-border bg-background hover:bg-muted/30"
-                        }`}
+                        className="border border-border bg-white px-4 py-3 text-left shadow-sm transition hover:bg-slate-50 hover:shadow-md hover:outline hover:outline-1 hover:outline-primary/30"
                       >
                         <div className="font-semibold text-foreground">{t.label}</div>
                         {t.description && (
                           <p className="mt-1 text-xs text-muted-foreground line-clamp-2">{t.description}</p>
                         )}
                         <div className="mt-2 flex flex-wrap gap-1.5">
+                          {t.moduleKey ? (
+                            <span className="inline-flex items-center gap-1 bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                              <ModuleTag module={t.moduleKey} />
+                            </span>
+                          ) : null}
                           {t.id === "blank" || !t.environment ? (
-                            <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                            <span className="bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
                               Custom
                             </span>
                           ) : (
-                            <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                            <span className="bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
                               {t.environment === "prod" ? "Prod" : "Dev"}
                             </span>
                           )}
@@ -864,9 +837,9 @@ function NewRequestPageContent() {
                     ))}
                   </div>
                 )}
-              </Card>
+            </>
             ) : envStep === 2 ? (
-              <Card className="rounded-lg border-0 bg-card p-6 shadow-sm space-y-4">
+            <>
                 <div className="text-base font-semibold">Environment details</div>
                 {(() => {
                   const t = selectedTemplateId ? getRequestTemplate(requestTemplates, selectedTemplateId) : null
@@ -891,32 +864,31 @@ function NewRequestPageContent() {
                     : ""
                   return (
                     <>
-                      <div className="space-y-2">
-                        <Label className="text-sm font-medium">Name *</Label>
-                        <Input
-                          value={environmentName}
-                          onChange={(e) => setEnvironmentName(e.target.value.toLowerCase())}
-                          placeholder="e.g. my-app"
-                          className="mt-1"
-                        />
-                        <p className="text-xs text-muted-foreground">
-                          Logical name for this resource. A unique suffix is automatically appended.
-                        </p>
-                        {step2NameError ? (
-                          <>
-                            <p className="text-xs text-destructive" role="alert">{step2NameError}</p>
-                            {step2SuggestHyphens ? (
-                              <p className="text-xs text-muted-foreground">Try: {step2SuggestHyphens}</p>
-                            ) : null}
-                          </>
-                        ) : environmentName.length === 0 ? (
-                          <p className="text-xs text-muted-foreground">Enter a name to continue.</p>
-                        ) : null}
-                      </div>
                       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                        <div className="space-y-2">
+                          <Label className="text-sm font-medium">Name *</Label>
+                          <Input
+                            value={environmentName}
+                            onChange={(e) => setEnvironmentName(e.target.value.toLowerCase())}
+                            placeholder="e.g. my-app"
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            Logical name for this resource. A unique suffix is automatically appended.
+                          </p>
+                          {step2NameError ? (
+                            <>
+                              <p className="text-xs text-destructive" role="alert">{step2NameError}</p>
+                              {step2SuggestHyphens ? (
+                                <p className="text-xs text-muted-foreground">Try: {step2SuggestHyphens}</p>
+                              ) : null}
+                            </>
+                          ) : environmentName.length === 0 ? (
+                            <p className="text-xs text-muted-foreground">Enter a name to continue.</p>
+                          ) : null}
+                        </div>
                         {showProjectSelector ? (
                           <>
-                            <div className="space-y-2 sm:col-span-2">
+                            <div className="space-y-2">
                               <Label className="text-sm font-medium">Project</Label>
                               <Select
                                 value={project}
@@ -938,7 +910,7 @@ function NewRequestPageContent() {
                                 </SelectContent>
                               </Select>
                             </div>
-                            <div className="space-y-2 sm:col-span-2">
+                            <div className="space-y-2">
                               <Label className="text-sm font-medium">Environment *</Label>
                               <Select
                                 value={selectedEnvironmentId}
@@ -1016,7 +988,7 @@ function NewRequestPageContent() {
                           </>
                         ) : (
                           <>
-                            <div className="space-y-2 sm:col-span-2">
+                            <div className="space-y-2">
                               <Label className="text-sm font-medium">Project</Label>
                               <Select
                                 value={project}
@@ -1038,7 +1010,7 @@ function NewRequestPageContent() {
                                 </SelectContent>
                               </Select>
                             </div>
-                            <div className="space-y-2 sm:col-span-2">
+                            <div className="space-y-2">
                               <Label className="text-sm font-medium">Environment *</Label>
                               <Select
                                 value={selectedEnvironmentId}
@@ -1081,7 +1053,7 @@ function NewRequestPageContent() {
                           </>
                         )}
                       </div>
-                      <div className="flex justify-end gap-2 pt-2">
+                      <div className="mt-auto flex justify-end gap-2 pt-2">
                         <Button
                           type="button"
                           variant="secondary"
@@ -1093,8 +1065,8 @@ function NewRequestPageContent() {
                           Back
                         </Button>
                         <Button
-                        type="button"
-                        disabled={
+                          type="button"
+                          disabled={
                             !nameValid ||
                             !project ||
                             !selectedEnvironmentId ||
@@ -1143,29 +1115,29 @@ function NewRequestPageContent() {
                     </>
                   )
                 })()}
-              </Card>
+            </>
             ) : (
-            <>
+            <div className="space-y-6">
               {selectedTemplateId && (() => {
                 const t = getRequestTemplate(requestTemplates, selectedTemplateId)
                 if (!t) return null
                 return (
-                  <Card className="rounded-lg border-0 bg-card p-4 shadow-sm">
+                  <div className="border border-border rounded-md p-4 bg-muted/30">
                     <div className="flex flex-wrap items-center gap-2 text-sm">
                       <span className="font-semibold">{t.label}</span>
                       <span className="text-muted-foreground">·</span>
                       <span className="text-muted-foreground">{generatedName || environmentName.trim() || "—"}</span>
-                      <span className="rounded bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
+                      <span className="bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
                         {project}
                       </span>
-                      <span className="rounded bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
+                      <span className="bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
                         {t.environment || "—"}
                       </span>
                     </div>
-                  </Card>
+                  </div>
                 )
               })()}
-              <Card className="rounded-lg border-0 bg-card p-6 shadow-sm space-y-4">
+              <div className="space-y-4">
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                   <div className="space-y-2">
                     <Label className="text-sm font-medium">Project</Label>
@@ -1186,15 +1158,15 @@ function NewRequestPageContent() {
                     Loading modules...
                   </div>
                 )}
-              </Card>
-              <Card className="rounded-lg border-0 bg-card p-6 shadow-sm space-y-4">
+              </div>
+              <div className="space-y-4">
                 <div className="text-base font-semibold">Configuration</div>
                 {!selectedModule && (
                   <div className="text-sm text-muted-foreground">Select a module to view its inputs.</div>
                 )}
                 {selectedModule && (
                   <div className="space-y-6">
-                    <div className="flex items-center gap-2 rounded-lg bg-muted/30 dark:bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                    <div className="flex items-center gap-2 bg-white px-3 py-2 text-xs text-muted-foreground">
                       <Info className="h-4 w-4" />
                       Fill required fields; optional fields may be left empty. Values are sent to the server for validation.
                     </div>
@@ -1205,7 +1177,7 @@ function NewRequestPageContent() {
                       </div>
                     </div>
                     {fieldsAdvanced.length > 0 && (
-                      <details className="rounded-lg bg-muted/30 dark:bg-muted/40 p-3" open={false}>
+                      <details className="bg-white p-3" open={false}>
                         <summary className="cursor-pointer text-sm font-semibold">Advanced settings</summary>
                         <div className="mt-3 space-y-3">
                           {fieldsAdvanced.map((f) => renderField(f))}
@@ -1214,8 +1186,8 @@ function NewRequestPageContent() {
                     )}
                   </div>
                 )}
-              </Card>
-              <Card className="rounded-lg border-0 bg-card p-6 shadow-sm space-y-3">
+              </div>
+              <div className="space-y-3">
                 <div className="text-base font-semibold">Configuration Summary</div>
                 <div className="space-y-2 text-sm">
                   {summaryItems.length === 0 && (
@@ -1224,7 +1196,7 @@ function NewRequestPageContent() {
                   {summaryItems.map((item) => (
                     <div
                       key={item.label}
-                      className="flex items-center justify-between rounded-lg bg-muted/30 dark:bg-muted/40 px-3 py-2"
+                      className="flex items-center justify-between bg-white px-3 py-2"
                     >
                       <span className="font-medium">{item.label}</span>
                       <span className="text-muted-foreground text-xs">
@@ -1255,68 +1227,22 @@ function NewRequestPageContent() {
                     {loadingSubmit ? "Creating..." : "Create Request"}
                   </Button>
                 </div>
-              </Card>
-            </>
+              </div>
+            </div>
           )}
         </div>
+      </Card>
 
-        <ActionProgressDialog
-          open={showCreateDialog}
-          title="Creating request…"
-          body="Generating Terraform configuration and opening pull request."
-          steps={[
-            { label: "Saving configuration", status: "done" },
-            { label: "Generating Terraform", status: "in_progress" },
-            { label: "Opening pull request", status: "pending" },
-          ]}
-        />
-
-        <AssistantDrawer
-          isOpen={assistantOpen}
-          onClose={() => setAssistantOpen(false)}
-          subheader={
-            <>
-              <div>Chat with the assistant about this request.</div>
-              <div className="text-[11px] text-muted-foreground">
-                Working on: {moduleName || "module"} • {project || "project"}/{environment || "env"}
-              </div>
-            </>
-          }
-          width={drawerWidth}
-        >
-          <div className="h-full">
-            <SuggestionPanel
-              request={React.useMemo(() => ({
-                id: "new-request",
-                project,
-                environment,
-                module: moduleName,
-                config: configObject,
-                assistant_state: assistantState,
-              }), [project, environment, moduleName, configObject, assistantState])}
-              requestId="new-request"
-              onRefresh={() => {}} // No-op for new requests
-              onConfigUpdate={(updates) => {
-                setFormValues(prev => ({ ...prev, ...updates }))
-              }}
-              onAssistantStateClear={() => {
-                console.log("[NewRequest] Clearing assistant state")
-                setAssistantState(null)
-              }}
-            />
-            <AssistantHelper
-              context={{
-                project,
-                environment,
-                module: moduleName,
-                currentValues: configObject,
-                fieldsMeta: selectedModule?.fields ?? [],
-              }}
-              onAssistantState={setAssistantState}
-            />
-          </div>
-        </AssistantDrawer>
-      </div>
+      <ActionProgressDialog
+        open={showCreateDialog}
+        title="Creating request…"
+        body="Generating Terraform configuration and opening pull request."
+        steps={[
+          { label: "Saving configuration", status: "done" },
+          { label: "Generating Terraform", status: "in_progress" },
+          { label: "Opening pull request", status: "pending" },
+        ]}
+      />
     </div>
   )
 }

@@ -11,8 +11,12 @@ import {
 export async function GET() {
   const forbidden = await requireAdminByEmail()
   if (forbidden) return forbidden
+  const session = await getSessionFromCookies()
+  if (!session?.orgId) {
+    return NextResponse.json({ error: "No org context" }, { status: 403 })
+  }
   try {
-    const index = await getEnvTemplatesIndex()
+    const index = await getEnvTemplatesIndex(session.orgId)
     return NextResponse.json(index)
   } catch (err) {
     console.error("[env-templates/admin] GET error:", err)
@@ -26,6 +30,10 @@ export async function GET() {
 export async function POST(req: Request) {
   const forbidden = await requireAdminByEmail()
   if (forbidden) return forbidden
+  const session = await getSessionFromCookies()
+  if (!session?.orgId) {
+    return NextResponse.json({ error: "No org context" }, { status: 403 })
+  }
   try {
     const body = (await req.json()) as {
       label?: string
@@ -39,7 +47,7 @@ export async function POST(req: Request) {
       modules: body.modules ?? [],
       enabled: body.enabled ?? true,
     }
-    const template = await createEnvTemplate(payload)
+    const template = await createEnvTemplate(session.orgId, payload)
     return NextResponse.json(template, { status: 201 })
   } catch (err: unknown) {
     const code = (err as { code?: string })?.code

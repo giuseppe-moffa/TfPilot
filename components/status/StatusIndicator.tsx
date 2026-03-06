@@ -17,7 +17,7 @@ export function StatusIndicator({ status, variant = "default" }: StatusIndicator
 
   const dot = (
     <span
-      className="shrink-0 rounded-full opacity-95"
+      className="shrink-0 opacity-95"
       style={{
         width: variant === "pill" ? 8 : 9,
         height: variant === "pill" ? 8 : 9,
@@ -40,7 +40,7 @@ export function StatusIndicator({ status, variant = "default" }: StatusIndicator
   if (variant === "pill") {
     return (
       <span
-        className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5"
+        className="inline-flex items-center gap-1.5 px-1.5 py-0.5"
         style={{
           backgroundColor: bgTint,
           border: `1px solid ${borderTint}`,

@@ -60,6 +60,8 @@ export type EnvSkeletonParams = {
   environment_key: string
   environment_slug: string
   template_id: string
+  /** Org id from session; required for S3 template lookup. */
+  orgId: string
   /** Optional; deploy API passes from environment. Default "default" for standalone use. */
   project_key?: string
 }
@@ -77,7 +79,7 @@ const BLANK_TEMPLATE = { modules: [] as { module: string; order: number; default
  * Assumes validateTemplateIdOrThrow already ran. Blank → built-in; non-blank → S3.
  */
 export async function envSkeleton(params: EnvSkeletonParams): Promise<EnvSkeletonResult> {
-  const { environment_key, environment_slug, template_id, project_key = "default" } = params
+  const { environment_key, environment_slug, template_id, orgId, project_key = "default" } = params
   const tid = (template_id ?? "blank").trim()
   const envRoot = `envs/${environment_key}/${environment_slug}`
   const files: Array<{ path: string; content: string }> = []
@@ -87,7 +89,7 @@ export async function envSkeleton(params: EnvSkeletonParams): Promise<EnvSkeleto
       ? BLANK_TEMPLATE
       : await (async () => {
           try {
-            return await getEnvTemplate(tid)
+            return await getEnvTemplate(orgId, tid)
           } catch (err: unknown) {
             if ((err as { name?: string })?.name === "NoSuchKey") {
               const e = new Error(INVALID_ENV_TEMPLATE) as Error & { code?: string }

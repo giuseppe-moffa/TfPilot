@@ -10,6 +10,9 @@ export type SessionPayload = {
   avatarUrl: string | null
   email?: string | null
   accessToken?: string | null
+  /** Org identity. Optional for backwards compatibility with old cookies. */
+  orgId?: string
+  orgSlug?: string
 }
 
 const SESSION_COOKIE = "tfplan_session"

@@ -27,7 +27,8 @@ function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(`Assertion failed: ${message}`)
 }
 
-const INDEX_KEY = "environment-templates/index.json"
+const TEST_ORG_ID = "default"
+const INDEX_KEY = `environment-templates/${TEST_ORG_ID}/index.json`
 
 function isDocKey(key: string): boolean {
   return key.startsWith("environment-templates/") && key.endsWith(".json") && key !== INDEX_KEY
@@ -38,7 +39,7 @@ export const tests = [
     name: "envTemplatesStore: getEnvTemplatesIndex returns [] when index missing",
     fn: async () => {
       useStub()
-      const index = await getEnvTemplatesIndex()
+      const index = await getEnvTemplatesIndex(TEST_ORG_ID)
       assert(Array.isArray(index), "getEnvTemplatesIndex must return array")
       assert(index.length === 0, "index missing must return []")
     },
@@ -48,7 +49,7 @@ export const tests = [
     fn: async () => {
       useStub()
       try {
-        await getEnvTemplate("__nonexistent__")
+        await getEnvTemplate(TEST_ORG_ID, "__nonexistent__")
         throw new Error("Expected getEnvTemplate to throw for missing id")
       } catch (err: unknown) {
         const name = (err as { name?: string })?.name
@@ -60,7 +61,7 @@ export const tests = [
     name: "envTemplatesStore: getEnvTemplateIfExists returns null for missing id",
     fn: async () => {
       useStub()
-      const result = await getEnvTemplateIfExists("__nonexistent__")
+      const result = await getEnvTemplateIfExists(TEST_ORG_ID, "__nonexistent__")
       assert(result === null, "getEnvTemplateIfExists must return null for missing id")
     },
   },
@@ -68,7 +69,7 @@ export const tests = [
     name: "envTemplatesStore: envTemplatesIndexExists returns false when missing",
     fn: async () => {
       useStub()
-      const exists = await envTemplatesIndexExists()
+      const exists = await envTemplatesIndexExists(TEST_ORG_ID)
       assert(exists === false, "envTemplatesIndexExists must return false when index missing")
     },
   },
@@ -76,7 +77,7 @@ export const tests = [
     name: "envTemplatesStore: create writes doc first then index (docs-first ordering)",
     fn: async () => {
       useStub()
-      await createEnvTemplate({
+      await createEnvTemplate(TEST_ORG_ID, {
         label: "Test",
         modules: [{ module: "s3-bucket", order: 1 }],
         enabled: true,
@@ -97,7 +98,7 @@ export const tests = [
     name: "envTemplatesStore: seed writes docs first then index (docs-first ordering)",
     fn: async () => {
       useStub()
-      await seedEnvTemplatesFromConfig([
+      await seedEnvTemplatesFromConfig(TEST_ORG_ID, [
         { id: "a1", label: "A1", modules: [] },
         { id: "a2", label: "A2", modules: [{ module: "s3-bucket", order: 1 }] },
       ])
@@ -105,8 +106,8 @@ export const tests = [
       const indexPos = order.findIndex((o) => o.key === INDEX_KEY)
       assert(indexPos >= 0, "index must be written")
       assert(order.length === 3, "expect 2 docs + 1 index")
-      assert(order[0]!.key === "environment-templates/a1.json", "first write must be a1 doc")
-      assert(order[1]!.key === "environment-templates/a2.json", "second write must be a2 doc")
+      assert(order[0]!.key === `environment-templates/${TEST_ORG_ID}/a1.json`, "first write must be a1 doc")
+      assert(order[1]!.key === `environment-templates/${TEST_ORG_ID}/a2.json`, "second write must be a2 doc")
       assert(order[2]!.key === INDEX_KEY, "last write must be index")
     },
   },
@@ -114,9 +115,9 @@ export const tests = [
     name: "envTemplatesStore: seed second run returns 409 (already initialized)",
     fn: async () => {
       useStub()
-      await seedEnvTemplatesFromConfig([{ id: "x", label: "X", modules: [] }])
+      await seedEnvTemplatesFromConfig(TEST_ORG_ID, [{ id: "x", label: "X", modules: [] }])
       try {
-        await seedEnvTemplatesFromConfig([{ id: "y", label: "Y", modules: [] }])
+        await seedEnvTemplatesFromConfig(TEST_ORG_ID, [{ id: "y", label: "Y", modules: [] }])
         throw new Error("Expected seed to throw 409 on second run")
       } catch (err: unknown) {
         const code = (err as { code?: string })?.code
@@ -128,8 +129,8 @@ export const tests = [
     name: "envTemplatesStore: DELETE soft disable sets enabled false",
     fn: async () => {
       useStub()
-      await seedEnvTemplatesFromConfig([{ id: "soft", label: "Soft", modules: [] }])
-      const afterDisable = await disableEnvTemplate("soft")
+      await seedEnvTemplatesFromConfig(TEST_ORG_ID, [{ id: "soft", label: "Soft", modules: [] }])
+      const afterDisable = await disableEnvTemplate(TEST_ORG_ID, "soft")
       assert(afterDisable.enabled === false, "disable must set enabled to false")
     },
   },
@@ -137,19 +138,19 @@ export const tests = [
     name: "envTemplatesStore: list flow skips missing docs (getEnvTemplateIfExists returns null)",
     fn: async () => {
       useStub()
-      await seedEnvTemplatesFromConfig([{ id: "present", label: "Present", modules: [] }])
+      await seedEnvTemplatesFromConfig(TEST_ORG_ID, [{ id: "present", label: "Present", modules: [] }])
       const store = stub.getStore()
-      const indexKey = `${TEST_BUCKET}/environment-templates/index.json`
+      const indexKey = `${TEST_BUCKET}/environment-templates/${TEST_ORG_ID}/index.json`
       const indexJson = store.get(indexKey)
       assert(indexJson != null, "index must exist")
       const index = JSON.parse(indexJson!) as { id: string; label: string; enabled: boolean; updatedAt: string }[]
       index.push({ id: "orphan", label: "Orphan", enabled: true, updatedAt: new Date().toISOString() })
       store.set(indexKey, JSON.stringify(index))
-      const idx = await getEnvTemplatesIndex()
+      const idx = await getEnvTemplatesIndex(TEST_ORG_ID)
       const enabled = idx.filter((e) => e.enabled)
       const templates = []
       for (const entry of enabled) {
-        const doc = await getEnvTemplateIfExists(entry.id)
+        const doc = await getEnvTemplateIfExists(TEST_ORG_ID, entry.id)
         if (doc) templates.push(doc)
       }
       assert(templates.length === 1, "list must skip orphan (missing doc)")
@@ -160,11 +161,11 @@ export const tests = [
     name: "envTemplatesStore: POST delete hard delete removes doc and index entry",
     fn: async () => {
       useStub()
-      await seedEnvTemplatesFromConfig([{ id: "hard", label: "Hard", modules: [] }])
-      await deleteEnvTemplate("hard")
-      const index = await getEnvTemplatesIndex()
+      await seedEnvTemplatesFromConfig(TEST_ORG_ID, [{ id: "hard", label: "Hard", modules: [] }])
+      await deleteEnvTemplate(TEST_ORG_ID, "hard")
+      const index = await getEnvTemplatesIndex(TEST_ORG_ID)
       assert(!index.some((e) => e.id === "hard"), "hard delete must remove from index")
-      const doc = await getEnvTemplateIfExists("hard")
+      const doc = await getEnvTemplateIfExists(TEST_ORG_ID, "hard")
       assert(doc === null, "hard delete must remove doc")
     },
   },

@@ -79,7 +79,13 @@ function getBucket(): string {
 }
 
 const PREFIX = "environment-templates/"
-const INDEX_KEY = `${PREFIX}index.json`
+
+function indexKey(orgId: string): string {
+  return `${PREFIX}${orgId}/index.json`
+}
+function templateKey(orgId: string, id: string): string {
+  return `${PREFIX}${orgId}/${id}.json`
+}
 
 async function streamToString(stream: unknown): Promise<string> {
   return await new Promise((resolve, reject) => {
@@ -156,13 +162,13 @@ function effectiveLabel(label: string | undefined, fallback: string): string {
 }
 
 /**
- * Check if environment-templates/index.json exists. Use for seed guard only.
+ * Check if environment-templates/<org_id>/index.json exists. Use for seed guard only.
  * getEnvTemplatesIndex() returns [] on NoSuchKey — do not use that to infer "not initialized".
  */
-export async function envTemplatesIndexExists(): Promise<boolean> {
+export async function envTemplatesIndexExists(orgId: string): Promise<boolean> {
   try {
     await getS3().send(
-      new HeadObjectCommand({ Bucket: getBucket(), Key: INDEX_KEY })
+      new HeadObjectCommand({ Bucket: getBucket(), Key: indexKey(orgId) })
     )
     return true
   } catch (err: unknown) {
@@ -173,12 +179,12 @@ export async function envTemplatesIndexExists(): Promise<boolean> {
 }
 
 /**
- * Read environment-templates/index.json. Returns [] if the key does not exist.
+ * Read environment-templates/<org_id>/index.json. Returns [] if the key does not exist.
  */
-export async function getEnvTemplatesIndex(): Promise<EnvTemplateIndexEntry[]> {
+export async function getEnvTemplatesIndex(orgId: string): Promise<EnvTemplateIndexEntry[]> {
   try {
     const res = (await getS3().send(
-      new GetObjectCommand({ Bucket: getBucket(), Key: INDEX_KEY })
+      new GetObjectCommand({ Bucket: getBucket(), Key: indexKey(orgId) })
     )) as { Body?: unknown }
     const body = await streamToString(res.Body)
     const parsed = JSON.parse(body)
@@ -197,8 +203,8 @@ export async function getEnvTemplatesIndex(): Promise<EnvTemplateIndexEntry[]> {
  * instead. If it returns null, skip the item, log a warning, and continue.
  * Do not call getEnvTemplate in a loop—it will throw and crash the request.
  */
-export async function getEnvTemplate(id: string): Promise<StoredEnvTemplate> {
-  const key = `${PREFIX}${id}.json`
+export async function getEnvTemplate(orgId: string, id: string): Promise<StoredEnvTemplate> {
+  const key = templateKey(orgId, id)
   const res = (await getS3().send(new GetObjectCommand({ Bucket: getBucket(), Key: key }))) as { Body?: unknown }
   const body = await streamToString(res.Body)
   return JSON.parse(body) as StoredEnvTemplate
@@ -210,10 +216,11 @@ export async function getEnvTemplate(id: string): Promise<StoredEnvTemplate> {
  * log warn (e.g. "[env-templates] missing doc for id"), and continue.
  */
 export async function getEnvTemplateIfExists(
+  orgId: string,
   id: string
 ): Promise<StoredEnvTemplate | null> {
   try {
-    return await getEnvTemplate(id)
+    return await getEnvTemplate(orgId, id)
   } catch (err: unknown) {
     const e = err as { name?: string; $metadata?: { httpStatusCode?: number } }
     if (e?.name === "NoSuchKey" || e?.$metadata?.httpStatusCode === 404) return null
@@ -225,11 +232,12 @@ export async function getEnvTemplateIfExists(
  * Create a new env template: generate id, write doc first, then append to index.
  */
 export async function createEnvTemplate(
+  orgId: string,
   payload: CreateEnvTemplatePayload
 ): Promise<StoredEnvTemplate> {
   validateNoUnknownTopLevel(payload as Record<string, unknown>)
   validateModules(payload.modules ?? [])
-  const index = await getEnvTemplatesIndex()
+  const index = await getEnvTemplatesIndex(orgId)
   const existingIds = new Set(index.map((e) => e.id))
   const id = generateId(payload.label ?? "template", existingIds)
   const now = new Date().toISOString()
@@ -244,11 +252,10 @@ export async function createEnvTemplate(
     updatedAt: now,
     version: 1,
   }
-  const key = `${PREFIX}${id}.json`
   await getS3().send(
     new PutObjectCommand({
       Bucket: getBucket(),
-      Key: key,
+      Key: templateKey(orgId, id),
       Body: JSON.stringify(template, null, 2),
       ContentType: "application/json",
       ServerSideEncryption: "AES256",
@@ -265,7 +272,7 @@ export async function createEnvTemplate(
   await getS3().send(
     new PutObjectCommand({
       Bucket: getBucket(),
-      Key: INDEX_KEY,
+      Key: indexKey(orgId),
       Body: JSON.stringify(newIndex, null, 2),
       ContentType: "application/json",
       ServerSideEncryption: "AES256",
@@ -278,12 +285,13 @@ export async function createEnvTemplate(
  * Create an env template with a specific id (for migration/seed). Throws if id already exists.
  */
 export async function createEnvTemplateWithId(
+  orgId: string,
   id: string,
   payload: CreateEnvTemplatePayload
 ): Promise<StoredEnvTemplate> {
   validateNoUnknownTopLevel(payload as Record<string, unknown>)
   validateModules(payload.modules ?? [])
-  const index = await getEnvTemplatesIndex()
+  const index = await getEnvTemplatesIndex(orgId)
   if (index.some((e) => e.id === id)) {
     throw new Error(`Env template with id "${id}" already exists`)
   }
@@ -299,11 +307,10 @@ export async function createEnvTemplateWithId(
     updatedAt: now,
     version: 1,
   }
-  const key = `${PREFIX}${id}.json`
   await getS3().send(
     new PutObjectCommand({
       Bucket: getBucket(),
-      Key: key,
+      Key: templateKey(orgId, id),
       Body: JSON.stringify(template, null, 2),
       ContentType: "application/json",
       ServerSideEncryption: "AES256",
@@ -320,7 +327,7 @@ export async function createEnvTemplateWithId(
   await getS3().send(
     new PutObjectCommand({
       Bucket: getBucket(),
-      Key: INDEX_KEY,
+      Key: indexKey(orgId),
       Body: JSON.stringify(newIndex, null, 2),
       ContentType: "application/json",
       ServerSideEncryption: "AES256",
@@ -333,11 +340,12 @@ export async function createEnvTemplateWithId(
  * Update an existing env template and refresh index entry. Increments version.
  */
 export async function updateEnvTemplate(
+  orgId: string,
   id: string,
   partial: UpdateEnvTemplatePayload
 ): Promise<StoredEnvTemplate> {
   validateNoUnknownTopLevel(partial as Record<string, unknown>)
-  const current = await getEnvTemplate(id)
+  const current = await getEnvTemplate(orgId, id)
   const now = new Date().toISOString()
   const nextVersion = (current.version ?? 1) + 1
   const merged = {
@@ -356,17 +364,16 @@ export async function updateEnvTemplate(
     label,
     modules,
   }
-  const key = `${PREFIX}${id}.json`
   await getS3().send(
     new PutObjectCommand({
       Bucket: getBucket(),
-      Key: key,
+      Key: templateKey(orgId, id),
       Body: JSON.stringify(template, null, 2),
       ContentType: "application/json",
       ServerSideEncryption: "AES256",
     })
   )
-  const index = await getEnvTemplatesIndex()
+  const index = await getEnvTemplatesIndex(orgId)
   const entry: EnvTemplateIndexEntry = {
     id,
     label,
@@ -378,7 +385,7 @@ export async function updateEnvTemplate(
   await getS3().send(
     new PutObjectCommand({
       Bucket: getBucket(),
-      Key: INDEX_KEY,
+      Key: indexKey(orgId),
       Body: JSON.stringify(newIndex, null, 2),
       ContentType: "application/json",
       ServerSideEncryption: "AES256",
@@ -391,18 +398,20 @@ export async function updateEnvTemplate(
  * Soft disable: set enabled to false. Increments version.
  */
 export async function disableEnvTemplate(
+  orgId: string,
   id: string
 ): Promise<StoredEnvTemplate> {
-  return updateEnvTemplate(id, { enabled: false })
+  return updateEnvTemplate(orgId, id, { enabled: false })
 }
 
 /**
  * Re-enable an env template. Increments version.
  */
 export async function enableEnvTemplate(
+  orgId: string,
   id: string
 ): Promise<StoredEnvTemplate> {
-  return updateEnvTemplate(id, { enabled: true })
+  return updateEnvTemplate(orgId, id, { enabled: true })
 }
 
 /** Seed input shape (from config/environment-templates.ts). */
@@ -418,9 +427,10 @@ export type EnvTemplateSeedInput = {
  * Throws if index already exists (ENV_TEMPLATES_ALREADY_INITIALIZED).
  */
 export async function seedEnvTemplatesFromConfig(
+  orgId: string,
   templates: EnvTemplateSeedInput[]
 ): Promise<{ created: string[] }> {
-  if (await envTemplatesIndexExists()) {
+  if (await envTemplatesIndexExists(orgId)) {
     const err = new Error("ENV_TEMPLATES_ALREADY_INITIALIZED") as Error & { code?: string }
     err.code = "ENV_TEMPLATES_ALREADY_INITIALIZED"
     throw err
@@ -443,11 +453,10 @@ export async function seedEnvTemplatesFromConfig(
       updatedAt: now,
       version: 1,
     }
-    const key = `${PREFIX}${t.id}.json`
     await getS3().send(
       new PutObjectCommand({
         Bucket: getBucket(),
-        Key: key,
+        Key: templateKey(orgId, t.id),
         Body: JSON.stringify(template, null, 2),
         ContentType: "application/json",
         ServerSideEncryption: "AES256",
@@ -466,7 +475,7 @@ export async function seedEnvTemplatesFromConfig(
   await getS3().send(
     new PutObjectCommand({
       Bucket: getBucket(),
-      Key: INDEX_KEY,
+      Key: indexKey(orgId),
       Body: JSON.stringify(index, null, 2),
       ContentType: "application/json",
       ServerSideEncryption: "AES256",
@@ -479,20 +488,19 @@ export async function seedEnvTemplatesFromConfig(
  * Hard delete: remove doc from S3 and remove entry from index. (Soft disable
  * is via disableEnvTemplate; admin DELETE route calls that, not this.)
  */
-export async function deleteEnvTemplate(id: string): Promise<void> {
-  const index = await getEnvTemplatesIndex()
+export async function deleteEnvTemplate(orgId: string, id: string): Promise<void> {
+  const index = await getEnvTemplatesIndex(orgId)
   const newIndex = index.filter((e) => e.id !== id)
   if (newIndex.length === index.length) {
     const err = new Error("Not found") as Error & { name?: string }
     err.name = "NoSuchKey"
     throw err
   }
-  const key = `${PREFIX}${id}.json`
-  await getS3().send(new DeleteObjectCommand({ Bucket: getBucket(), Key: key }))
+  await getS3().send(new DeleteObjectCommand({ Bucket: getBucket(), Key: templateKey(orgId, id) }))
   await getS3().send(
     new PutObjectCommand({
       Bucket: getBucket(),
-      Key: INDEX_KEY,
+      Key: indexKey(orgId),
       Body: JSON.stringify(newIndex, null, 2),
       ContentType: "application/json",
       ServerSideEncryption: "AES256",

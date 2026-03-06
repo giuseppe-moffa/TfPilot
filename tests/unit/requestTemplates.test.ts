@@ -70,8 +70,8 @@ export const tests = [
     fn: () => {
       const { readFileSync } = require("node:fs")
       const { join } = require("node:path")
-      const cataloguePage = readFileSync(
-        join(process.cwd(), "app/catalogue/page.tsx"),
+      const catalogueRequestsPage = readFileSync(
+        join(process.cwd(), "app/catalogue/requests/page.tsx"),
         "utf8"
       )
       const catalogueIdPage = readFileSync(
@@ -79,8 +79,8 @@ export const tests = [
         "utf8"
       )
       assert(
-        cataloguePage.includes("/api/request-templates"),
-        "catalogue page must use /api/request-templates"
+        catalogueRequestsPage.includes("/api/request-templates"),
+        "catalogue requests page must use /api/request-templates"
       )
       assert(
         catalogueIdPage.includes("/api/request-templates"),

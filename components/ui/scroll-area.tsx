@@ -11,7 +11,7 @@ function ScrollArea({
     <div
       data-slot="scroll-area"
       className={cn(
-        "relative overflow-hidden rounded-lg border bg-slate-950 text-slate-100",
+        "relative overflow-hidden border bg-slate-950 text-slate-100",
         className
       )}
       {...props}

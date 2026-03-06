@@ -4,7 +4,9 @@ import * as React from "react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Suspense } from "react"
-import { ArrowLeft, Loader2, Search } from "lucide-react"
+import { Loader2, Search } from "lucide-react"
+
+import { ModuleTag } from "@/components/icons/module-icon"
 
 import { ActionProgressDialog } from "@/components/action-progress-dialog"
 import { Button } from "@/components/ui/button"
@@ -38,33 +40,6 @@ type EnvTemplate = {
   description?: string
   modules?: { module: string; order: number }[]
 }
-
-const FieldCard = ({
-  label,
-  description,
-  required,
-  fullWidth,
-  children,
-}: {
-  label: string
-  description?: string
-  required?: boolean
-  fullWidth?: boolean
-  children: React.ReactNode
-}) => (
-  <div className={`rounded-lg bg-muted/50 dark:bg-muted/40 px-3 py-3 transition focus-within:ring-2 focus-within:ring-primary/20 focus-within:ring-offset-0 ${fullWidth ? "sm:col-span-2" : ""}`}>
-    <div className="flex items-start gap-3">
-      <div className="flex-1">
-        <Label className="text-sm font-semibold text-foreground">
-          {label}
-          {required ? " *" : ""}
-        </Label>
-        {description ? <p className="mt-1 text-xs text-muted-foreground">{description}</p> : null}
-      </div>
-      <div className="flex-1">{children}</div>
-    </div>
-  </div>
-)
 
 function NewEnvironmentPageContent() {
   const router = useRouter()
@@ -268,25 +243,13 @@ function NewEnvironmentPageContent() {
   const selectedTemplate = allTemplates.find((t) => t.id === selectedTemplateId)
 
   return (
-    <div className="flex h-[calc(100vh-4rem)] flex-col bg-background">
-      <header className="flex items-center justify-between gap-3 bg-background/80 px-4 py-3 backdrop-blur">
-        <div className="flex items-center gap-3">
-          <Link href="/environments">
-            <Button variant="ghost" size="sm" className="gap-2">
-              <ArrowLeft className="h-4 w-4" />
-              Back
-            </Button>
-          </Link>
-          <h1 className="text-lg font-semibold">New Environment</h1>
-        </div>
-      </header>
-
-      <div className="flex-1 overflow-auto p-4">
-        <div className="mx-auto max-w-4xl space-y-6">
+    <div className="flex min-h-0 flex-1 flex-col">
+      <Card className="flex min-h-0 flex-1 flex-col pt-0">
+        <div className="flex flex-1 flex-col gap-4 px-6 py-6">
           {step === 1 && (
-            <Card className="rounded-lg border-0 bg-card p-6 shadow-sm space-y-4">
-              <div className="text-base font-semibold">Choose a template</div>
-              <div className="relative">
+            <>
+              <div className="text-base font-semibold">New Environment</div>
+              <div className="relative max-w-md">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   type="search"
@@ -323,11 +286,7 @@ function NewEnvironmentPageContent() {
                         setTemplateNotFound(false)
                         setStep(2)
                       }}
-                      className={`rounded-lg border px-4 py-3 text-left transition hover:shadow-md hover:outline hover:outline-1 hover:outline-primary/30 ${
-                        selectedTemplateId === t.id
-                          ? "border-primary bg-primary/10 ring-1 ring-primary/20 shadow-sm"
-                          : "border-border bg-background hover:bg-muted/30"
-                      }`}
+                      className="border border-border bg-white px-4 py-3 text-left shadow-sm transition hover:bg-slate-50 hover:shadow-md hover:outline hover:outline-1 hover:outline-primary/30"
                     >
                       <div className="font-semibold text-foreground">{t.label ?? t.id}</div>
                       {t.description && (
@@ -335,7 +294,7 @@ function NewEnvironmentPageContent() {
                       )}
                       <div className="mt-2 flex flex-wrap gap-1">
                         {(t.modules?.length ?? 0) === 0 ? (
-                          <span className="inline-block rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                          <span className="inline-block bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
                             No modules
                           </span>
                         ) : (
@@ -344,9 +303,9 @@ function NewEnvironmentPageContent() {
                             .map((m) => (
                               <span
                                 key={m.module}
-                                className="inline-block rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+                                className="inline-flex items-center gap-1 bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
                               >
-                                {m.module}
+                                <ModuleTag module={m.module} />
                               </span>
                             ))
                         )}
@@ -355,22 +314,61 @@ function NewEnvironmentPageContent() {
                   ))}
                 </div>
               )}
-            </Card>
+            </>
           )}
 
           {step === 2 && (
-            <Card className="rounded-lg border-0 bg-card p-6 shadow-sm space-y-4">
+            <>
               <div className="text-base font-semibold">Environment details</div>
-              <div className="flex flex-col gap-2 pb-4">
-                <Button variant="secondary" size="sm" onClick={() => setStep(1)} className="w-fit">
-                  Back
-                </Button>
-              </div>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">Name *</Label>
+                  <Input
+                    value={environmentSlug}
+                    onChange={(e) => setEnvironmentSlug(e.target.value.toLowerCase())}
+                    placeholder="my-app"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Lowercase, letters/numbers/hyphens. e.g. my-app
+                  </p>
+                  {(() => {
+                    const slugResult = validateEnvironmentSlug(environmentSlug)
+                    const slugInvalid = environmentSlug.trim().length > 0 && !slugResult.ok
+                    const slugErr = slugInvalid ? slugResult.error : null
+                    const normalizedSlug = environmentSlug.trim().toLowerCase()
+                    const rawSuggest =
+                      slugErr && (/\s/.test(normalizedSlug) || /_/.test(normalizedSlug))
+                        ? normalizedSlug
+                            .replace(/\s+/g, "-")
+                            .replace(/_+/g, "-")
+                            .replace(/-+/g, "-")
+                            .replace(/^-+|-+$/g, "") || ""
+                        : ""
+                    const slugSuggest =
+                      rawSuggest && validateEnvironmentSlug(rawSuggest).ok ? rawSuggest : ""
+                    return (
+                      <>
+                        {slugErr ? (
+                          <>
+                            <p className="text-xs text-destructive" role="alert">
+                              {slugErr}
+                            </p>
+                            {slugSuggest ? (
+                              <p className="text-xs text-muted-foreground">Try: {slugSuggest}</p>
+                            ) : null}
+                          </>
+                        ) : environmentSlug.trim().length === 0 ? (
+                          <p className="text-xs text-muted-foreground">Enter a name to continue.</p>
+                        ) : null}
+                      </>
+                    )
+                  })()}
+                </div>
                 {useProjectSelect ? (
-                  <FieldCard label="Project" required description="Infra project for this environment.">
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium">Project *</Label>
                     <Select value={projectKey} onValueChange={(v) => { setProjectKey(v); setEnvironmentKey(getEnvKeyOptions(v)[0] ?? ""); }}>
-                      <SelectTrigger className="w-full">
+                      <SelectTrigger className="mt-1 w-full">
                         <SelectValue placeholder="Select project" />
                       </SelectTrigger>
                       <SelectContent>
@@ -379,20 +377,24 @@ function NewEnvironmentPageContent() {
                         ))}
                       </SelectContent>
                     </Select>
-                  </FieldCard>
+                    <p className="text-xs text-muted-foreground">Infra project for this environment.</p>
+                  </div>
                 ) : (
-                  <FieldCard label="Project" required description="e.g. core, payments">
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium">Project *</Label>
                     <Input
                       value={projectKey}
                       onChange={(e) => setProjectKey(e.target.value)}
                       placeholder="core"
                     />
-                  </FieldCard>
+                    <p className="text-xs text-muted-foreground">e.g. core, payments</p>
+                  </div>
                 )}
-                <FieldCard label="Environment key" required description="dev or prod">
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">Environment key *</Label>
                   {useProjectSelect ? (
                     <Select value={environmentKey} onValueChange={setEnvironmentKey}>
-                      <SelectTrigger className="w-full">
+                      <SelectTrigger className="mt-1 w-full">
                         <SelectValue placeholder="Select" />
                       </SelectTrigger>
                       <SelectContent>
@@ -403,7 +405,7 @@ function NewEnvironmentPageContent() {
                     </Select>
                   ) : (
                     <Select value={environmentKey} onValueChange={setEnvironmentKey}>
-                      <SelectTrigger className="w-full">
+                      <SelectTrigger className="mt-1 w-full">
                         <SelectValue placeholder="Select" />
                       </SelectTrigger>
                       <SelectContent>
@@ -412,58 +414,11 @@ function NewEnvironmentPageContent() {
                       </SelectContent>
                     </Select>
                   )}
-                </FieldCard>
-                <FieldCard
-                  label="Name"
-                  required
-                  description="Lowercase, letters/numbers/hyphens. e.g. my-app"
-                  fullWidth
-                >
-                  <div className="space-y-1">
-                    <Input
-                      value={environmentSlug}
-                      onChange={(e) => {
-                        setEnvironmentSlug(e.target.value.toLowerCase())
-                      }}
-                      placeholder="my-app"
-                    />
-                    {(() => {
-                      const slugResult = validateEnvironmentSlug(environmentSlug)
-                      const slugInvalid = environmentSlug.trim().length > 0 && !slugResult.ok
-                      const slugErr = slugInvalid ? slugResult.error : null
-                      const normalizedSlug = environmentSlug.trim().toLowerCase()
-                      const rawSuggest =
-                        slugErr && (/\s/.test(normalizedSlug) || /_/.test(normalizedSlug))
-                          ? normalizedSlug
-                              .replace(/\s+/g, "-")
-                              .replace(/_+/g, "-")
-                              .replace(/-+/g, "-")
-                              .replace(/^-+|-+$/g, "") || ""
-                          : ""
-                      const slugSuggest =
-                        rawSuggest && validateEnvironmentSlug(rawSuggest).ok ? rawSuggest : ""
-                      return (
-                        <>
-                          {slugErr ? (
-                            <>
-                              <p className="text-xs text-destructive" role="alert">
-                                {slugErr}
-                              </p>
-                              {slugSuggest ? (
-                                <p className="text-xs text-muted-foreground">Try: {slugSuggest}</p>
-                              ) : null}
-                            </>
-                          ) : environmentSlug.trim().length === 0 ? (
-                            <p className="text-xs text-muted-foreground">Enter a name to continue.</p>
-                          ) : null}
-                        </>
-                      )
-                    })()}
-                  </div>
-                </FieldCard>
+                  <p className="text-xs text-muted-foreground">dev or prod</p>
+                </div>
               </div>
-              <div className="flex gap-2 pt-2">
-                <Button variant="outline" onClick={() => setStep(1)}>
+              <div className="mt-auto flex justify-end gap-2 pt-2">
+                <Button variant="secondary" onClick={() => setStep(1)}>
                   Back
                 </Button>
                 <Button
@@ -478,11 +433,11 @@ function NewEnvironmentPageContent() {
                   Continue
                 </Button>
               </div>
-            </Card>
+            </>
           )}
 
           {step === 3 && (
-            <Card className="rounded-lg border-0 bg-card p-6 shadow-sm space-y-4">
+            <>
               <div className="text-base font-semibold">Review</div>
               <dl className="grid gap-2 text-sm">
                 <div>
@@ -504,17 +459,14 @@ function NewEnvironmentPageContent() {
               </dl>
               {submitError && <p className="text-sm text-destructive">{submitError}</p>}
               <div className="flex gap-2 pt-2">
-                <Button variant="outline" onClick={() => setStep(2)}>
-                  Back
-                </Button>
                 <Button onClick={handleSubmit} disabled={submitting}>
                   {submitting ? "Creating…" : "Create environment"}
                 </Button>
               </div>
-            </Card>
+            </>
           )}
         </div>
-      </div>
+      </Card>
 
       <ActionProgressDialog
         open={showProgress}

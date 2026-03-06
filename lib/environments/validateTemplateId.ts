@@ -34,18 +34,21 @@ function throwNotInitialized(): never {
  *
  * Non-blank strings are trimmed before validation. Callers should use the same
  * trimmed value for downstream use (e.g. envSkeleton) to keep canonical form.
+ *
+ * @param orgId - Org id from session; required for S3 lookup.
  */
 export async function validateTemplateIdOrThrow(
-  template_id: string | null | undefined
+  template_id: string | null | undefined,
+  orgId: string
 ): Promise<void> {
   if (template_id === null || template_id === undefined) return
   if (typeof template_id !== "string") throwInvalid()
   const s = template_id.trim()
   if (s === "") throwInvalid()
   if (s === "blank") return
-  const exists = await envTemplatesIndexExists()
+  const exists = await envTemplatesIndexExists(orgId)
   if (!exists) throwNotInitialized()
-  const index = await getEnvTemplatesIndex()
+  const index = await getEnvTemplatesIndex(orgId)
   const enabledIds = new Set(
     index.filter((e) => e.enabled).map((e) => e.id)
   )

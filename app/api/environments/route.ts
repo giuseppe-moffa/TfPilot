@@ -29,11 +29,14 @@ export async function GET(req: NextRequest) {
   if (!session) {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
   }
+  if (!session.orgId) {
+    return NextResponse.json({ error: "No org context" }, { status: 403 })
+  }
 
   const project_key = req.nextUrl.searchParams.get("project_key") ?? undefined
   const include_archived = req.nextUrl.searchParams.get("include_archived") === "true"
 
-  const rows = await listEnvironments({ project_key, include_archived })
+  const rows = await listEnvironments({ orgId: session.orgId, project_key, include_archived })
   if (rows === null) {
     return NextResponse.json(
       { error: "Database not configured or unavailable" },
@@ -48,6 +51,9 @@ export async function POST(req: NextRequest) {
   const session = await getSessionFromCookies()
   if (!session) {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
+  }
+  if (!session.orgId) {
+    return NextResponse.json({ error: "No org context" }, { status: 403 })
   }
   const role = getUserRole(session.login)
   if (role === "viewer") {
@@ -72,7 +78,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    await validateTemplateIdOrThrow(body.template_id)
+    await validateTemplateIdOrThrow(body.template_id, session.orgId)
   } catch (err: unknown) {
     const code = (err as { code?: string })?.code
     if (code === INVALID_ENV_TEMPLATE) {

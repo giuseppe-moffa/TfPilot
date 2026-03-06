@@ -58,7 +58,7 @@ function TableRow({ className, ...props }: React.ComponentProps<"tr">) {
     <tr
       data-slot="table-row"
       className={cn(
-        "data-[state=selected]:bg-muted/70 even:bg-muted/20 transition-colors hover:bg-row-hover dark:hover:bg-muted/60 border-b border-border",
+        "data-[state=selected]:bg-muted/70 even:bg-muted/20 transition-colors border-b border-border",
         className
       )}
       {...props}
@@ -71,7 +71,7 @@ function TableHead({ className, ...props }: React.ComponentProps<"th">) {
     <th
       data-slot="table-head"
       className={cn(
-        "text-foreground h-11 px-2 text-left align-middle font-bold tracking-tight whitespace-nowrap [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]",
+        "text-foreground h-11 px-2 text-left align-middle font-medium tracking-tight whitespace-nowrap [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]",
         className
       )}
       {...props}
@@ -107,7 +107,7 @@ function TableHeadSortable({
             : undefined
       }
       className={cn(
-        "text-foreground h-11 px-2 text-left align-middle font-bold tracking-tight whitespace-nowrap cursor-pointer select-none [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]",
+        "text-foreground h-11 px-2 text-left align-middle font-medium tracking-tight whitespace-nowrap cursor-pointer select-none [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]",
         className
       )}
       onClick={onSort}

@@ -4,6 +4,7 @@ import { getSessionFromCookies } from "@/lib/auth/session"
 import { moduleRegistry, type ModuleField, type ModuleRegistryEntry } from "@/config/module-registry"
 import { ensureAssistantState, isAllowedPatchPath } from "@/lib/assistant/state"
 import { getRequest, updateRequest } from "@/lib/storage/requestsStore"
+import { getRequestOrgId } from "@/lib/db/requestsList"
 import { deriveLifecycleStatus } from "@/lib/requests/deriveLifecycleStatus"
 import { buildResourceName } from "@/lib/requests/naming"
 import { env } from "@/lib/config/env"
@@ -245,6 +246,9 @@ export async function POST(req: NextRequest, context: { params: Promise<{ reques
     if (!session) {
       return NextResponse.json({ success: false, error: "Not authenticated" }, { status: 401 })
     }
+    if (!session.orgId) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 })
+    }
 
     let body: { suggestionIds?: string[] }
     try {
@@ -268,7 +272,11 @@ export async function POST(req: NextRequest, context: { params: Promise<{ reques
         }
         const request = await getRequest(requestId).catch(() => null)
         if (!request) {
-          return NextResponse.json({ error: "Request not found" }, { status: 404 })
+          return NextResponse.json({ error: "Not found" }, { status: 404 })
+        }
+        const resourceOrgId = (request as { org_id?: string }).org_id ?? (await getRequestOrgId(requestId))
+        if (!resourceOrgId || resourceOrgId !== session.orgId) {
+          return NextResponse.json({ error: "Not found" }, { status: 404 })
         }
         const now = new Date()
         const idemKey = getIdempotencyKey(req) ?? ""
@@ -447,7 +455,11 @@ export async function POST(req: NextRequest, context: { params: Promise<{ reques
 
     const fetched = await getRequest(requestId).catch(() => null)
     if (!fetched) {
-      return NextResponse.json({ success: false, error: "Request not found" }, { status: 404 })
+      return NextResponse.json({ error: "Not found" }, { status: 404 })
+    }
+    const resourceOrgId = (fetched as { org_id?: string }).org_id ?? (await getRequestOrgId(requestId))
+    if (!resourceOrgId || resourceOrgId !== session.orgId) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 })
     }
     const baseRequest = ensureAssistantState(fetched)
 

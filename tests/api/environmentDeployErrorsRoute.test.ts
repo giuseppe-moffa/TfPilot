@@ -30,11 +30,20 @@ const BASE_ENV_ROW = {
   archived_at: null as string | null,
 }
 
+const TEST_ORG_ID = "default"
+
 const SESSION_MOCKS: Pick<
   DeployRouteDeps,
   "getSessionFromCookies" | "getUserRole" | "getGitHubAccessToken"
 > = {
-  getSessionFromCookies: async () => ({ login: "admin", accessToken: "token", name: null, avatarUrl: null }),
+  getSessionFromCookies: async () => ({
+    login: "admin",
+    accessToken: "token",
+    name: null,
+    avatarUrl: null,
+    orgId: TEST_ORG_ID,
+    orgSlug: "default",
+  }),
   getUserRole: () => "admin" as const,
   getGitHubAccessToken: async () => "token",
 }
@@ -60,7 +69,7 @@ export const tests = [
       const stub = createS3Stub()
       __testOnlySetS3(stub, TEST_BUCKET)
       stub.clear()
-      await seedEnvTemplatesFromConfig([
+      await seedEnvTemplatesFromConfig(TEST_ORG_ID, [
         { id: "baseline-ai-service", label: "Baseline AI", modules: [] },
       ])
       const res = await callDeployRoute("env_bad_template", {

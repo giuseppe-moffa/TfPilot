@@ -2,6 +2,8 @@
 
 import * as React from "react"
 import { ChevronDown, ChevronUp, Copy, Github, Info, Loader2, Link as LinkIcon, Download, RefreshCw } from "lucide-react"
+
+import { ModuleTag } from "@/components/icons/module-icon"
 import useSWR from "swr"
 import { useParams } from "next/navigation"
 
@@ -45,10 +47,7 @@ import {
   type ActionProgressStep,
 } from "@/components/action-progress-dialog"
 import { StatusIndicator } from "@/components/status/StatusIndicator"
-import { AssistantHelper } from "@/components/assistant-helper"
-import { AssistantDrawer } from "@/components/assistant-drawer"
 import { formatEnvDisplay } from "@/lib/format/envDisplay"
-import { SuggestionPanel } from "@/components/suggestion-panel"
 
 type FieldMeta = {
   name: string
@@ -84,31 +83,31 @@ type BaseStepKey = (typeof baseSteps)[number]["key"]
 function RequestDetailSkeleton() {
   return (
     <div className="mx-auto max-w-7xl space-y-8">
-      <section className="rounded-lg bg-card p-6 shadow-sm">
+      <section className=" bg-card p-6 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 flex-wrap">
-              <div className="h-6 w-40 animate-pulse rounded bg-muted" />
-              <div className="h-5 w-12 animate-pulse rounded bg-muted" />
-              <div className="h-5 w-20 animate-pulse rounded bg-muted" />
+              <div className="h-6 w-40 animate-pulse bg-muted" />
+              <div className="h-5 w-12 animate-pulse bg-muted" />
+              <div className="h-5 w-20 animate-pulse bg-muted" />
             </div>
-            <div className="mt-1 h-4 w-56 animate-pulse rounded bg-muted" />
+            <div className="mt-1 h-4 w-56 animate-pulse bg-muted" />
           </div>
-          <div className="h-9 w-36 animate-pulse rounded-md bg-muted" />
+          <div className="h-9 w-36 animate-pulse bg-muted" />
         </div>
         <div className="mt-4 mb-6 border-t border-border/50 dark:border-slate-800/50" />
         <div className="grid grid-cols-1 md:grid-cols-2 md:gap-0 items-stretch">
           <div className="min-w-0 h-full">
             <div className="px-5 pt-4 pb-4">
-              <div className="h-4 w-24 animate-pulse rounded bg-muted" />
-              <div className="mt-2 h-3 w-32 animate-pulse rounded bg-muted" />
+              <div className="h-4 w-24 animate-pulse bg-muted" />
+              <div className="mt-2 h-3 w-32 animate-pulse bg-muted" />
             </div>
             <div className="px-5 pt-1 pb-4">
               <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
                 {[...Array(8)].map((_, i) => (
                   <div key={i}>
-                    <div className="h-3 w-20 animate-pulse rounded bg-muted" />
-                    <div className="mt-1 h-4 w-28 animate-pulse rounded bg-muted" />
+                    <div className="h-3 w-20 animate-pulse bg-muted" />
+                    <div className="mt-1 h-4 w-28 animate-pulse bg-muted" />
                   </div>
                 ))}
               </div>
@@ -116,8 +115,8 @@ function RequestDetailSkeleton() {
           </div>
           <div className="min-w-0 h-full border-t border-border/50 pt-4 md:border-t-0 md:border-l md:border-border/50 md:ml-6 md:pl-6 md:pt-0 dark:border-slate-800/50 flex flex-col">
             <div className="px-5 pt-4 pb-4">
-              <div className="h-4 w-32 animate-pulse rounded bg-muted" />
-              <div className="mt-2 h-3 w-44 animate-pulse rounded bg-muted" />
+              <div className="h-4 w-32 animate-pulse bg-muted" />
+              <div className="mt-2 h-3 w-44 animate-pulse bg-muted" />
             </div>
             <div className="px-5 pt-1 pb-4 flex flex-col flex-1 min-h-0">
               <div className="relative flex flex-col gap-6">
@@ -128,10 +127,10 @@ function RequestDetailSkeleton() {
                 {baseSteps.map((step) => (
                   <div key={step.key} className="flex items-center gap-3">
                     <div className="flex w-4 shrink-0 items-center justify-center">
-                      <div className="h-4 w-4 rounded-full bg-muted animate-pulse" />
+                      <div className="h-4 w-4 bg-muted animate-pulse" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="h-4 w-28 animate-pulse rounded bg-muted" />
+                      <div className="h-4 w-28 animate-pulse bg-muted" />
                     </div>
                   </div>
                 ))}
@@ -142,16 +141,16 @@ function RequestDetailSkeleton() {
       </section>
       <Card className="border-0 py-0 shadow-sm">
         <CardHeader className="px-5 pt-4 pb-4">
-          <div className="h-4 w-48 animate-pulse rounded bg-muted" />
+          <div className="h-4 w-48 animate-pulse bg-muted" />
           <div className="mt-2 flex gap-2">
-            <div className="h-5 w-12 animate-pulse rounded bg-muted" />
-            <div className="h-4 w-24 animate-pulse rounded bg-muted" />
+            <div className="h-5 w-12 animate-pulse bg-muted" />
+            <div className="h-4 w-24 animate-pulse bg-muted" />
           </div>
         </CardHeader>
         <CardContent className="px-5 pt-2 pb-4 space-y-5">
           <div className="flex flex-wrap items-center gap-2">
             {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="h-9 w-20 animate-pulse rounded-md bg-muted" />
+              <div key={i} className="h-9 w-20 animate-pulse bg-muted" />
             ))}
           </div>
         </CardContent>
@@ -202,7 +201,7 @@ function TimelineStep({
       <div className="flex w-4 shrink-0 items-center justify-center">
         <div
           className={cn(
-            "relative z-10 shrink-0 rounded-full border-2 box-border",
+            "relative z-10 shrink-0  border-2 box-border",
             isPending && "border-muted-foreground/25 dark:border-border"
           )}
           style={{
@@ -341,7 +340,7 @@ function renderBlock(content: string) {
     .trim()
     .split("\n")
     .map((line, idx) => (
-      <div key={idx} className={`rounded px-2 py-0.5 ${lineClass(line)}`}>
+      <div key={idx} className={`px-2 py-0.5 ${lineClass(line)}`}>
         {line}
       </div>
     ))
@@ -508,10 +507,6 @@ function RequestDetailPage() {
   const [patchText, setPatchText] = React.useState("{\n}")
   const [patchError, setPatchError] = React.useState<string | null>(null)
   const [patchSubmitting, setPatchSubmitting] = React.useState(false)
-  const [assistantOpen, setAssistantOpen] = React.useState(false)
-  const drawerWidth = 520
-  const [assistantStateOverride, setAssistantStateOverride] = React.useState<any>(null)
-  const [panelAssistantState, setPanelAssistantState] = React.useState<any>(null)
 
   const fetcher = React.useCallback(async (url: string) => {
     const res = await fetch(url)
@@ -570,14 +565,6 @@ function RequestDetailPage() {
     document.addEventListener("visibilitychange", handler)
     return () => document.removeEventListener("visibilitychange", handler)
   }, [])
-
-  React.useEffect(() => {
-    // Set panelAssistantState from request only if we don't have a more recent assistant state
-    // This ensures that fresh assistant responses take priority over persisted request data
-    if (!panelAssistantState && !assistantStateOverride) {
-      setPanelAssistantState(request?.assistant_state ?? null)
-    }
-  }, [request, panelAssistantState, assistantStateOverride])
 
   const runIdPlan = planAttempt?.runId
   const runIdApply = applyAttempt?.runId
@@ -1358,12 +1345,9 @@ function RequestDetailPage() {
   }
 
   return (
-    <div
-      className="mx-auto max-w-7xl space-y-8 transition-[margin-right]"
-      style={{ marginRight: assistantOpen ? drawerWidth : 0 }}
-    >
+    <div className="mx-auto max-w-7xl space-y-8">
       {syncError && (
-        <div className="rounded-lg bg-amber-50 dark:bg-amber-900/20 px-4 py-3 flex items-center justify-between gap-3 text-sm text-amber-900 dark:text-amber-100">
+        <div className=" bg-amber-50 dark:bg-amber-900/20 px-4 py-3 flex items-center justify-between gap-3 text-sm text-amber-900 dark:text-amber-100">
           <span>Status may be outdated. Retry in a moment.</span>
           <Button
             size="sm"
@@ -1430,7 +1414,7 @@ function RequestDetailPage() {
         </Card>
       )}
 
-      <section className="rounded-lg bg-card p-6 shadow-sm">
+      <section className=" bg-card p-6 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 flex-wrap">
@@ -1440,8 +1424,8 @@ function RequestDetailPage() {
               ) : null}
               <StatusIndicator status={canonicalStatus} />
             </div>
-            <p className="text-sm text-muted-foreground mt-1">
-              {request.project_key} · {formatEnvDisplay(request.environment_key, request.environment_slug)} · {request.module ?? "—"}
+            <p className="text-sm text-muted-foreground mt-1 flex flex-wrap items-center gap-1">
+              {request.project_key} · {formatEnvDisplay(request.environment_key, request.environment_slug)} · <span className="inline-flex items-center gap-1"><ModuleTag module={request.module ?? ""} /></span>
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
@@ -1516,7 +1500,9 @@ function RequestDetailPage() {
                 </div>
                 <div>
                   <p className="text-muted-foreground text-xs">Module</p>
-                  <p className="font-normal mt-0.5">{request.module ?? "—"}</p>
+                  <p className="font-normal mt-0.5 flex items-center gap-1">
+                    <ModuleTag module={request.module ?? ""} />
+                  </p>
                 </div>
                 <div>
                   <p className="text-muted-foreground text-xs">Target repo</p>
@@ -1659,7 +1645,7 @@ function RequestDetailPage() {
       </section>
 
       {Array.isArray(request.previousPrs) && request.previousPrs.length > 0 && (
-        <div className="rounded-lg bg-amber-50/80 dark:bg-amber-900/20 px-4 py-2.5 text-sm text-amber-900 dark:text-amber-100">
+        <div className=" bg-amber-50/80 dark:bg-amber-900/20 px-4 py-2.5 text-sm text-amber-900 dark:text-amber-100">
           This request has a newer revision. Older PR was superseded.
         </div>
       )}
@@ -1833,7 +1819,7 @@ function RequestDetailPage() {
             </div>
 
             {(isDestroying || isDestroyed || destroyErrorState || destroyStale || destroyAttempt) && (
-              <div className="rounded-md bg-muted/30 px-3 py-2 text-sm text-foreground">
+              <div className=" bg-muted/30 px-3 py-2 text-sm text-foreground">
                 <div className="flex items-center gap-2">
                   <Badge
                     variant={
@@ -1871,7 +1857,7 @@ function RequestDetailPage() {
             <div className="space-y-2">
               <p className="text-sm text-muted-foreground font-medium">Files Changed</p>
               {prFiles?.files?.length ? (
-                <div className="space-y-2 rounded-lg bg-muted/30 p-3 text-sm text-foreground shadow-sm">
+                <div className="space-y-2 bg-muted/30 p-3 text-sm text-foreground shadow-sm">
                   {prFiles.files.map((f: any, idx: number) => {
                     const parsed = f.patch ? parsePatch(f.patch) : []
                     return (
@@ -1882,7 +1868,7 @@ function RequestDetailPage() {
                           </p>
                         </div>
                         {parsed.length > 0 ? (
-                          <div className="overflow-hidden rounded-lg bg-muted/50 text-xs font-mono text-foreground">
+                          <div className="overflow-hidden bg-muted/50 text-xs font-mono text-foreground">
                             {parsed.map((line, i) => (
                               <div
                                 key={`${f.filename}-${idx}-${i}`}
@@ -1913,7 +1899,7 @@ function RequestDetailPage() {
               )}
             </div>
 
-            <div className="mt-8 rounded-lg bg-muted/30 pl-4 pr-4 pb-4 shadow-sm">
+            <div className="mt-8 bg-muted/30 pl-4 pr-4 pb-4 shadow-sm">
               <div className="py-4 pr-0 flex flex-wrap items-center gap-2">
                 <h3 className="text-lg font-semibold text-foreground">Terraform Plan Output</h3>
                 {planInProgressUI && (
@@ -1932,11 +1918,11 @@ function RequestDetailPage() {
                   <p className="text-sm text-muted-foreground">Loading plan...</p>
                 ) : planInProgressUI ? (
                   <>
-                    <div className="mt-3 min-h-[200px] overflow-hidden rounded-lg bg-muted/50 dark:bg-muted/30 border border-border/50 p-4 space-y-2">
+                    <div className="mt-3 min-h-[200px] overflow-hidden bg-muted/50 dark:bg-muted/30 border border-border/50 p-4 space-y-2">
                       {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
                         <div
                           key={i}
-                          className="h-3 rounded bg-muted-foreground/15 dark:bg-muted-foreground/20 animate-pulse"
+                          className="h-3 bg-muted-foreground/15 dark:bg-muted-foreground/20 animate-pulse"
                           style={{ width: i === 4 ? "60%" : i === 7 ? "40%" : "90%" }}
                         />
                       ))}
@@ -1947,11 +1933,11 @@ function RequestDetailPage() {
                   </>
                 ) : planFetchingOutput ? (
                   <>
-                    <div className="mt-3 min-h-[200px] overflow-hidden rounded-lg bg-muted/50 dark:bg-muted/30 border border-border/50 p-4 space-y-2">
+                    <div className="mt-3 min-h-[200px] overflow-hidden bg-muted/50 dark:bg-muted/30 border border-border/50 p-4 space-y-2">
                       {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
                         <div
                           key={i}
-                          className="h-3 rounded bg-muted-foreground/15 dark:bg-muted-foreground/20 animate-pulse"
+                          className="h-3 bg-muted-foreground/15 dark:bg-muted-foreground/20 animate-pulse"
                           style={{ width: i === 4 ? "60%" : i === 7 ? "40%" : "90%" }}
                         />
                       ))}
@@ -1961,7 +1947,7 @@ function RequestDetailPage() {
                     </p>
                   </>
                 ) : planFailed && !hasPlanText ? (
-                  <div className="mt-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+                  <div className="mt-3 border border-destructive/30 bg-destructive/5 p-4">
                     <p className="text-sm text-destructive font-medium">Plan failed</p>
                     <p className="text-xs text-muted-foreground mt-1">
                       The plan workflow did not complete successfully.
@@ -1979,7 +1965,7 @@ function RequestDetailPage() {
                     )}
                   </div>
                 ) : !runIdPlan && !hasPlanText ? (
-                  <div className="mt-3 rounded-lg border border-border/50 bg-muted/20 dark:bg-muted/10 p-6 text-center">
+                  <div className="mt-3 border border-border/50 bg-muted/20 dark:bg-muted/10 p-6 text-center">
                     <p className="text-sm text-muted-foreground">
                       Plan will appear once the workflow starts.
                     </p>
@@ -1997,22 +1983,22 @@ function RequestDetailPage() {
                     const hasSummary = summary.add > 0 || summary.change > 0 || summary.destroy > 0
                     return (
                       <>
-                        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg px-4 py-3">
+                        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 px-4 py-3">
                           <div className="flex flex-wrap items-center gap-2">
                             {hasSummary && (
                               <>
                                 {summary.add > 0 && (
-                                  <span className="rounded-md bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-300">
+                                  <span className="bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-300">
                                     +{summary.add} to add
                                   </span>
                                 )}
                                 {summary.change > 0 && (
-                                  <span className="rounded-md bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-300">
+                                  <span className="bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-300">
                                     ~{summary.change} to change
                                   </span>
                                 )}
                                 {summary.destroy > 0 && (
-                                  <span className="rounded-md bg-red-500/15 px-2 py-0.5 text-xs font-medium text-red-700 dark:text-red-300">
+                                  <span className="bg-red-500/15 px-2 py-0.5 text-xs font-medium text-red-700 dark:text-red-300">
                                     -{summary.destroy} to destroy
                                   </span>
                                 )}
@@ -2072,7 +2058,7 @@ function RequestDetailPage() {
                         </div>
                         <div
                           className={cn(
-                            "mt-3 overflow-y-auto rounded-lg bg-white p-4 border border-border/50 dark:bg-slate-950/80",
+                            "mt-3 overflow-y-auto  bg-white p-4 border border-border/50 dark:bg-slate-950/80",
                             !planLogExpanded && "max-h-[480px]",
                           )}
                         >
@@ -2111,7 +2097,7 @@ function RequestDetailPage() {
               </div>
             {showApplyOutput ? (
               applyOutput?.applyText || request?.apply?.output ? (
-                <pre className="max-h-64 overflow-auto rounded-lg border border-border bg-muted/50 p-4 text-xs text-foreground whitespace-pre-wrap">
+                <pre className="max-h-64 overflow-auto border border-border bg-muted/50 p-4 text-xs text-foreground whitespace-pre-wrap">
                   {applyOutput?.applyText ?? request?.apply?.output ?? ""}
                 </pre>
               ) : (
@@ -2290,7 +2276,7 @@ function RequestDetailPage() {
                         return (
                           <div
                             key={k}
-                            className="flex min-w-0 items-baseline gap-1.5 rounded bg-muted/40 px-2 py-1.5"
+                            className="flex min-w-0 items-baseline gap-1.5 bg-muted/40 px-2 py-1.5"
                           >
                             <span className="shrink-0 font-medium text-foreground">{entry.label}:</span>
                             {entry.href ? (
@@ -2333,11 +2319,11 @@ function RequestDetailPage() {
             <DialogTitle>Update configuration</DialogTitle>
             <DialogDescription>Submit a patch for this request. We will open a new PR and supersede any open PR.</DialogDescription>
           </DialogHeader>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-[1.2fr_0.8fr]">
-            <details className="space-y-3 rounded-md bg-muted/30 p-3" open={false}>
+          <div className="grid grid-cols-1 gap-4">
+            <details className="space-y-3 bg-muted/30 p-3" open={false}>
               <summary className="cursor-pointer text-sm font-medium text-foreground">Advanced (dangerous)</summary>
               <div className="text-xs text-muted-foreground">
-                Raw JSON patch bypasses typed safety. Prefer using the assistant or form controls.
+                Raw JSON patch bypasses typed safety. Prefer using form controls.
               </div>
               <Textarea
                 className="min-h-[240px] font-mono text-xs"
@@ -2356,63 +2342,6 @@ function RequestDetailPage() {
                 </Button>
               </div>
             </details>
-            <AssistantDrawer
-              isOpen={assistantOpen}
-              onClose={() => setAssistantOpen(false)}
-              subheader={
-                <>
-                  <div>Chat with the assistant about this request.</div>
-                  <div className="text-[11px] text-muted-foreground">
-                    Working on: {request.module} • {request.project_key}/{formatEnvDisplay(request.environment_key, request.environment_slug)}
-                  </div>
-                </>
-              }
-              width={drawerWidth}
-            >
-              <div className="h-full">
-                {(() => {
-                  const finalAssistantState = assistantStateOverride ?? panelAssistantState ?? request.assistant_state
-                  if (typeof console !== "undefined") {
-                    console.info("[page.tsx] SuggestionPanel props:", {
-                      hasAssistantStateOverride: !!assistantStateOverride,
-                      hasPanelAssistantState: !!panelAssistantState,
-                      hasRequestAssistantState: !!request.assistant_state,
-                      finalAssistantStateKeys: finalAssistantState ? Object.keys(finalAssistantState) : [],
-                      patchKeys: finalAssistantState?.patch ? Object.keys(finalAssistantState.patch) : [],
-                      suggestionsCount: finalAssistantState?.suggestions?.length ?? 0,
-                      clarificationsCount: finalAssistantState?.clarifications?.length ?? 0,
-                    })
-                  }
-                  return (
-                    <SuggestionPanel
-                      request={{
-                        ...request,
-                        assistant_state: finalAssistantState,
-                      }}
-                      requestId={request.id}
-                      onRefresh={() => void revalidate()}
-                    />
-                  )
-                })()}
-              <AssistantHelper
-                context={{
-                  project: request.project_key,
-                  environment: request.environment_key ?? "",
-                  module: request.module,
-                  fieldsMeta:
-                    moduleSchemas
-                      ?.find((m: ModuleSchema) => m.type === request.module)
-                      ?.fields?.filter((f: FieldMeta) => !(f.readOnly || f.immutable)) ??
-                    [],
-                  currentValues: request.config ?? {},
-                }}
-                  onAssistantState={(state) => {
-                    setAssistantStateOverride(state)
-                    setPanelAssistantState(state)
-                }}
-              />
-              </div>
-            </AssistantDrawer>
           </div>
         </DialogContent>
       </Dialog>
@@ -2581,7 +2510,7 @@ function RequestDetailPage() {
                     Type <span className="font-mono text-foreground">destroy</span> to confirm.
                   </p>
                   <input
-                    className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
+                    className="w-full border border-border bg-background px-3 py-2 text-sm text-foreground"
                     value={destroyConfirmation}
                     onChange={(e) => setDestroyConfirmation(e.target.value.toLowerCase())}
                     placeholder="destroy"

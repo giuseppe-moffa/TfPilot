@@ -30,6 +30,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { ChevronLeft, ChevronRight, Eye, FileSearch, Search } from "lucide-react"
+
+import { ModuleTag } from "@/components/icons/module-icon"
 import { cn } from "@/lib/utils"
 import { useAwsConnection } from "../providers"
 import { patchRequestCache } from "@/hooks/use-request"
@@ -78,7 +80,7 @@ function SkeletonRow() {
     <TableRow>
       {[...Array(9)].map((_, idx) => (
         <TableCell key={idx}>
-          <div className="h-4 w-full animate-pulse rounded bg-muted" />
+          <div className="h-4 w-full animate-pulse bg-muted" />
         </TableCell>
       ))}
     </TableRow>
@@ -343,30 +345,28 @@ export default function RequestsPage() {
         })()
 
   return (
-    <div className="space-y-4">
-      <Card className="pt-0">
-        <div className="rounded-t-lg py-6 flex flex-wrap items-center justify-between gap-4 px-6">
+    <div className="flex min-h-0 flex-1 flex-col">
+      <Card className="flex min-h-0 flex-1 flex-col pt-0">
+        <div className="flex flex-wrap items-center justify-between gap-4 px-6 py-6">
           <div>
-            <h2 className="text-xl font-semibold leading-none">Requests</h2>
-            <p className="text-sm text-muted-foreground mt-1">
-              Track infrastructure requests and their latest status
-            </p>
+            <h3 className="text-base font-semibold">Resource overview</h3>
+            <p className="text-xs text-muted-foreground">Resource requests and their lifecycle status</p>
           </div>
           <Button asChild size="lg" className="cursor-pointer shrink-0">
             <Link href="/requests/new">New Request</Link>
           </Button>
         </div>
-        <div className="px-6 pt-2 pb-6">
+        <div className="flex min-h-0 flex-1 flex-col px-6 pb-6 pt-2">
           {listErrors.length > 0 && (
-            <div className="mb-4 rounded-lg border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-200">
+            <div className="mb-4 border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-200">
               Some indexed requests are missing in S3. Run index rebuild/prune.
             </div>
           )}
-          <div className="mb-4 flex flex-wrap items-center gap-3 mt-4 min-h-11 rounded-lg py-3">
+          <div className="mb-4 flex flex-wrap items-center gap-3 mt-4 min-h-11 py-3">
             <div className="relative h-11 flex items-center">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                placeholder=""
+                placeholder="Search by name, module, project…"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="h-11 w-72 shrink-0 pl-9 pr-3 py-0 text-sm focus-visible:ring-0 focus-visible:ring-offset-0"
@@ -375,7 +375,7 @@ export default function RequestsPage() {
             <div
               role="tablist"
               aria-label="Dataset mode"
-              className="inline-flex h-11 items-stretch rounded-lg bg-muted/50 dark:bg-muted/40 p-1 gap-0"
+              className="inline-flex h-11 items-stretch bg-muted/50 dark:bg-muted/40 p-1 gap-0"
             >
               {(["active", "drifted", "destroyed", "all"] as const).map((mode) => (
                 <button
@@ -384,7 +384,7 @@ export default function RequestsPage() {
                   role="tab"
                   aria-selected={datasetMode === mode}
                   className={cn(
-                    "relative flex h-full items-center rounded-md px-3 py-0 text-sm font-medium transition-colors cursor-pointer",
+                    "relative flex h-full items-center px-3 py-0 text-sm font-medium transition-colors cursor-pointer",
                     datasetMode === mode
                       ? "bg-card text-foreground"
                       : "text-muted-foreground hover:text-foreground"
@@ -403,7 +403,7 @@ export default function RequestsPage() {
             </div>
             <Select value={envFilter} onValueChange={(val) => setEnvFilter(val as typeof envFilter)}>
               <SelectTrigger
-                className="!h-11 min-w-[130px] rounded-md bg-muted/50 dark:bg-muted/40 px-3 text-sm text-foreground shadow-none hover:bg-muted/60 dark:hover:bg-muted/50 data-[state=open]:bg-muted/60 dark:data-[state=open]:bg-muted/50 focus-visible:ring-0 focus-visible:ring-offset-0"
+                className="!h-11 min-w-[130px] bg-muted/50 dark:bg-muted/40 px-3 text-sm text-foreground shadow-none hover:bg-muted/60 dark:hover:bg-muted/50 data-[state=open]:bg-muted/60 dark:data-[state=open]:bg-muted/50 focus-visible:ring-0 focus-visible:ring-offset-0"
               >
                 <SelectValue placeholder="All envs" />
               </SelectTrigger>
@@ -415,7 +415,7 @@ export default function RequestsPage() {
             </Select>
             <Select value={moduleFilter} onValueChange={(val) => setModuleFilter(val)}>
               <SelectTrigger
-                className="!h-11 min-w-[130px] rounded-md bg-muted/50 dark:bg-muted/40 px-3 text-sm text-foreground shadow-none hover:bg-muted/60 dark:hover:bg-muted/50 data-[state=open]:bg-muted/60 dark:data-[state=open]:bg-muted/50 focus-visible:ring-0 focus-visible:ring-offset-0"
+                className="!h-11 min-w-[130px] bg-muted/50 dark:bg-muted/40 px-3 text-sm text-foreground shadow-none hover:bg-muted/60 dark:hover:bg-muted/50 data-[state=open]:bg-muted/60 dark:data-[state=open]:bg-muted/50 focus-visible:ring-0 focus-visible:ring-offset-0"
               >
                 <SelectValue placeholder="All modules" />
               </SelectTrigger>
@@ -430,7 +430,7 @@ export default function RequestsPage() {
             </Select>
             <Select value={projectFilter} onValueChange={(val) => setProjectFilter(val)}>
               <SelectTrigger
-                className="!h-11 min-w-[130px] rounded-md bg-muted/50 dark:bg-muted/40 px-3 text-sm text-foreground shadow-none hover:bg-muted/60 dark:hover:bg-muted/50 data-[state=open]:bg-muted/60 dark:data-[state=open]:bg-muted/50 focus-visible:ring-0 focus-visible:ring-offset-0"
+                className="!h-11 min-w-[130px] bg-muted/50 dark:bg-muted/40 px-3 text-sm text-foreground shadow-none hover:bg-muted/60 dark:hover:bg-muted/50 data-[state=open]:bg-muted/60 dark:data-[state=open]:bg-muted/50 focus-visible:ring-0 focus-visible:ring-offset-0"
               >
                 <SelectValue placeholder="All projects" />
               </SelectTrigger>
@@ -499,7 +499,11 @@ export default function RequestsPage() {
                         </Link>
                       </TableCell>
                       <TableCell className="capitalize">{item.project}</TableCell>
-                      <TableCell className="capitalize">{item.module ?? "N/A"}</TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1 capitalize">
+                          <ModuleTag module={item.module ?? ""} />
+                        </div>
+                      </TableCell>
                       <TableCell>{item.name ?? "N/A"}</TableCell>
                       <TableCell className="capitalize">{item.environment}</TableCell>
                       <TableCell className="text-sm text-foreground whitespace-normal break-words leading-tight align-middle">

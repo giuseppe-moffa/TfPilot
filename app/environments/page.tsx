@@ -54,7 +54,7 @@ function SkeletonRow() {
     <TableRow>
       {[...Array(7)].map((_, idx) => (
         <TableCell key={idx}>
-          <div className="h-4 w-full animate-pulse rounded bg-muted" />
+          <div className="h-4 w-full animate-pulse bg-muted" />
         </TableCell>
       ))}
     </TableRow>
@@ -138,21 +138,19 @@ export default function EnvironmentsPage() {
           : "No environments match your filters."
 
   return (
-    <div className="space-y-4">
-      <Card className="pt-0">
-        <div className="rounded-t-lg py-6 flex flex-wrap items-center justify-between gap-4 px-6">
+    <div className="flex min-h-0 flex-1 flex-col">
+      <Card className="flex min-h-0 flex-1 flex-col pt-0">
+        <div className="flex flex-wrap items-center justify-between gap-4 px-6 py-6">
           <div>
-            <h2 className="text-xl font-semibold leading-none">Environments</h2>
-            <p className="text-sm text-muted-foreground mt-1">
-              Model 2 environments. Create, list, and manage envs. Bootstrap PR creates envs/&lt;key&gt;/&lt;slug&gt;/ in the terraform repo.
-            </p>
+            <h3 className="text-base font-semibold">Environments overview</h3>
+            <p className="text-xs text-muted-foreground">Environment requests and their lifecycle status</p>
           </div>
           <Button asChild size="lg" className="cursor-pointer shrink-0">
             <Link href="/environments/new">New Environment</Link>
           </Button>
         </div>
-        <div className="px-6 pt-2 pb-6">
-          <div className="mb-4 flex flex-wrap items-center gap-3 mt-4 min-h-11 rounded-lg py-3">
+        <div className="flex min-h-0 flex-1 flex-col px-6 pb-6 pt-2">
+          <div className="mb-4 flex flex-wrap items-center gap-3 mt-4 min-h-11 py-3">
             <div className="relative h-11 flex items-center">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
@@ -165,7 +163,7 @@ export default function EnvironmentsPage() {
             <div
               role="tablist"
               aria-label="Dataset mode"
-              className="inline-flex h-11 items-stretch rounded-lg bg-muted/50 dark:bg-muted/40 p-1 gap-0"
+              className="inline-flex h-11 items-stretch bg-muted/50 dark:bg-muted/40 p-1 gap-0"
             >
               {(["active", "archived", "all"] as const).map((mode) => (
                 <button
@@ -174,7 +172,7 @@ export default function EnvironmentsPage() {
                   role="tab"
                   aria-selected={datasetMode === mode}
                   className={cn(
-                    "relative flex h-full items-center rounded-md px-3 py-0 text-sm font-medium transition-colors cursor-pointer",
+                    "relative flex h-full items-center px-3 py-0 text-sm font-medium transition-colors cursor-pointer",
                     datasetMode === mode
                       ? "bg-card text-foreground"
                       : "text-muted-foreground hover:text-foreground"
@@ -191,7 +189,7 @@ export default function EnvironmentsPage() {
             </div>
             <Select value={envFilter} onValueChange={(val) => setEnvFilter(val as typeof envFilter)}>
               <SelectTrigger
-                className="!h-11 min-w-[130px] rounded-md bg-muted/50 dark:bg-muted/40 px-3 text-sm text-foreground shadow-none hover:bg-muted/60 dark:hover:bg-muted/50 data-[state=open]:bg-muted/60 dark:data-[state=open]:bg-muted/50 focus-visible:ring-0 focus-visible:ring-offset-0"
+                className="!h-11 min-w-[130px] bg-muted/50 dark:bg-muted/40 px-3 text-sm text-foreground shadow-none hover:bg-muted/60 dark:hover:bg-muted/50 data-[state=open]:bg-muted/60 dark:data-[state=open]:bg-muted/50 focus-visible:ring-0 focus-visible:ring-offset-0"
               >
                 <SelectValue placeholder="All envs" />
               </SelectTrigger>
@@ -206,7 +204,7 @@ export default function EnvironmentsPage() {
               onValueChange={(val) => setProjectFilter(val)}
             >
               <SelectTrigger
-                className="!h-11 min-w-[130px] rounded-md bg-muted/50 dark:bg-muted/40 px-3 text-sm text-foreground shadow-none hover:bg-muted/60 dark:hover:bg-muted/50 data-[state=open]:bg-muted/60 dark:data-[state=open]:bg-muted/50 focus-visible:ring-0 focus-visible:ring-offset-0"
+                className="!h-11 min-w-[130px] bg-muted/50 dark:bg-muted/40 px-3 text-sm text-foreground shadow-none hover:bg-muted/60 dark:hover:bg-muted/50 data-[state=open]:bg-muted/60 dark:data-[state=open]:bg-muted/50 focus-visible:ring-0 focus-visible:ring-offset-0"
               >
                 <SelectValue placeholder="All projects" />
               </SelectTrigger>

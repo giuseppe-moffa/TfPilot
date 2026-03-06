@@ -44,7 +44,7 @@ export function ActionProgressDialog({
       aria-live="polite"
       aria-busy={isRunning}
     >
-      <div className="min-w-[280px] max-w-sm rounded-lg border border-border bg-card px-5 py-4 shadow-lg">
+      <div className="min-w-[280px] max-w-sm border border-border bg-card px-5 py-4 shadow-lg">
         <div className="space-y-3">
           {isSuccess ? (
             <>
@@ -94,7 +94,7 @@ export function ActionProgressDialog({
                     )}
                     {step.status === "pending" && (
                       <span
-                        className="size-3.5 shrink-0 rounded-full border border-muted-foreground/40"
+                        className="size-3.5 shrink-0 border border-muted-foreground/40"
                         aria-hidden
                       />
                     )}

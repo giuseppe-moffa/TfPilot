@@ -51,7 +51,7 @@ function OAuthErrorContent({ error, errorDescription }: { error: string; errorDe
   }
   const m = messages[error] || messages.oauth_failed
   return (
-    <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-3 text-sm text-destructive space-y-2">
+    <div className="border border-destructive/40 bg-destructive/10 px-3 py-3 text-sm text-destructive space-y-2">
       <p className="font-medium">{m.title}</p>
       <p>{m.body}</p>
       {m.fix && <p className="text-muted-foreground pt-1 border-t border-destructive/20 mt-2">{m.fix}</p>}

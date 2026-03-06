@@ -54,9 +54,9 @@
 }
 
 :root {
-  --radius: 0.625rem;
+  --radius: 0.375rem;
   /* Page & surfaces */
-  --background: #F8FAFC;
+  --background: #e4e8ed;
   --foreground: #0F172A;
   --card: #FFFFFF;
   --card-foreground: #0F172A;
@@ -66,8 +66,8 @@
   --border: #E2E8F0;
   --input: #E2E8F0;
   /* Primary CTA button (slate, premium infra tooling) */
-  --primary: #1E293B;
-  --primary-hover: #0F172A;
+  --primary: #00cc36;
+  --primary-hover: #01ae2f;
   --primary-foreground: #FFFFFF;
   /* Secondary text */
   --secondary: #E2E8F0;
@@ -160,12 +160,10 @@
 
   ::-webkit-scrollbar-track {
     background: var(--muted);
-    border-radius: 9999px;
   }
 
   ::-webkit-scrollbar-thumb {
     background: var(--border);
-    border-radius: 9999px;
     border: 2px solid var(--muted);
   }
 

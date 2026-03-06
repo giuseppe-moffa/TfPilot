@@ -45,6 +45,9 @@ export async function POST(
   if (!session) {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
   }
+  if (!session.orgId) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 })
+  }
   const role = getUserRole(session.login)
   if (role !== "admin") {
     return NextResponse.json({ error: "Destroy not permitted for your role" }, { status: 403 })
@@ -57,7 +60,10 @@ export async function POST(
 
   const envRow = await getEnvironmentById(environmentId)
   if (!envRow) {
-    return NextResponse.json({ error: "Environment not found" }, { status: 404 })
+    return NextResponse.json({ error: "Not found" }, { status: 404 })
+  }
+  if (envRow.org_id !== session.orgId) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 })
   }
 
   if (envRow.archived_at) {

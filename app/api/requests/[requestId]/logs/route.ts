@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { GetObjectCommand, ListObjectsV2Command, S3Client } from "@aws-sdk/client-s3"
 
 import { getSessionFromCookies } from "@/lib/auth/session"
+import { getRequest } from "@/lib/storage/requestsStore"
+import { getRequestOrgId } from "@/lib/db/requestsList"
 import { env } from "@/lib/config/env"
 
 const s3 = new S3Client({ region: env.TFPILOT_DEFAULT_REGION })
@@ -25,6 +27,18 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ req
   const session = await getSessionFromCookies()
   if (!session) {
     return NextResponse.json({ success: false, error: "Not authenticated" }, { status: 401 })
+  }
+  if (!session.orgId) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 })
+  }
+
+  const request = await getRequest(requestId).catch(() => null)
+  if (!request) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 })
+  }
+  const resourceOrgId = (request as { org_id?: string }).org_id ?? (await getRequestOrgId(requestId))
+  if (!resourceOrgId || resourceOrgId !== session.orgId) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 })
   }
 
   const prefix = `logs/${requestId}/`

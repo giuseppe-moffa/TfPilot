@@ -15,9 +15,13 @@ type RouteContext = { params: Promise<{ id: string }> }
 export async function GET(_req: Request, context: RouteContext) {
   const forbidden = await requireAdminByEmail()
   if (forbidden) return forbidden
+  const session = await getSessionFromCookies()
+  if (!session?.orgId) {
+    return NextResponse.json({ error: "No org context" }, { status: 403 })
+  }
   const { id } = await context.params
   try {
-    const template = await getTemplate(id)
+    const template = await getTemplate(session.orgId, id)
     return NextResponse.json(template)
   } catch (err: unknown) {
     const code = (err as { name?: string })?.name
@@ -35,12 +39,15 @@ export async function GET(_req: Request, context: RouteContext) {
 export async function PUT(req: Request, context: RouteContext) {
   const forbidden = await requireAdminByEmail()
   if (forbidden) return forbidden
+  const session = await getSessionFromCookies()
+  if (!session?.orgId) {
+    return NextResponse.json({ error: "No org context" }, { status: 403 })
+  }
   const { id } = await context.params
   try {
-    const session = await getSessionFromCookies()
-    const updatedBy = session?.email ?? undefined
+    const updatedBy = session.email ?? undefined
     const body = (await req.json()) as UpdateTemplatePayload & { enabled?: boolean }
-    const template = await updateTemplate(id, { ...body, updatedBy })
+    const template = await updateTemplate(session.orgId, id, { ...body, updatedBy })
     return NextResponse.json(template)
   } catch (err: unknown) {
     const code = (err as { name?: string })?.name
@@ -58,11 +65,14 @@ export async function PUT(req: Request, context: RouteContext) {
 export async function DELETE(_req: Request, context: RouteContext) {
   const forbidden = await requireAdminByEmail()
   if (forbidden) return forbidden
+  const session = await getSessionFromCookies()
+  if (!session?.orgId) {
+    return NextResponse.json({ error: "No org context" }, { status: 403 })
+  }
   const { id } = await context.params
   try {
-    const session = await getSessionFromCookies()
     const updatedBy = session?.email ?? undefined
-    const template = await disableTemplate(id, updatedBy)
+    const template = await disableTemplate(session.orgId, id, updatedBy)
     return NextResponse.json(template)
   } catch (err: unknown) {
     const code = (err as { name?: string })?.name
@@ -80,15 +90,18 @@ export async function DELETE(_req: Request, context: RouteContext) {
 export async function PATCH(req: Request, context: RouteContext) {
   const forbidden = await requireAdminByEmail()
   if (forbidden) return forbidden
+  const session = await getSessionFromCookies()
+  if (!session?.orgId) {
+    return NextResponse.json({ error: "No org context" }, { status: 403 })
+  }
   const { id } = await context.params
   try {
-    const session = await getSessionFromCookies()
     const updatedBy = session?.email ?? undefined
     const body = (await req.json()) as { enabled?: boolean }
     const template =
       body.enabled === true
-        ? await enableTemplate(id, updatedBy)
-        : await updateTemplate(id, { ...body, updatedBy })
+        ? await enableTemplate(session.orgId, id, updatedBy)
+        : await updateTemplate(session.orgId, id, { ...body, updatedBy })
     return NextResponse.json(template)
   } catch (err: unknown) {
     const code = (err as { name?: string })?.name

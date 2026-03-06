@@ -58,7 +58,7 @@ function TabsList({
     <div
       data-slot="tabs-list"
       className={cn(
-        "inline-flex items-center gap-1 rounded-lg border bg-white p-1 shadow-xs",
+        "inline-flex items-center gap-1  border bg-white p-1 shadow-xs",
         className
       )}
     >
@@ -83,7 +83,7 @@ function TabsTrigger({
       data-state={isActive ? "active" : "inactive"}
       onClick={() => ctx.onChange(value)}
       className={cn(
-        "whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+        "whitespace-nowrap px-3 py-1.5 text-sm font-medium transition-colors",
         isActive
           ? "bg-slate-900 text-white shadow-sm"
           : "text-slate-600 hover:bg-slate-100",
@@ -107,7 +107,7 @@ function TabsContent({
   return (
     <div
       data-slot="tabs-content"
-      className={cn("rounded-lg border bg-white p-4 shadow-xs", className)}
+      className={cn(" border bg-white p-4 shadow-xs", className)}
     >
       {children}
     </div>

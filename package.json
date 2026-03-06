@@ -18,10 +18,10 @@
     "validate:legacy-env": "tsx scripts/validate-legacy-env.ts",
     "test:invariants": "tsx tests/runInvariants.ts",
     "db:migrate": "tsx scripts/db-migrate.ts",
+    "db:seed": "tsx scripts/seed-default-org.ts",
     "db:rebuild-index": "tsx scripts/rebuild-requests-index.ts"
   },
   "dependencies": {
-    "pg": "^8.13.0",
     "@aws-sdk/client-s3": "^3.485.0",
     "@aws-sdk/client-ses": "^3.990.0",
     "@aws-sdk/client-sts": "^3.985.0",
@@ -31,8 +31,10 @@
     "framer-motion": "^12.33.0",
     "lucide-react": "^0.563.0",
     "next": "16.1.6",
+    "pg": "^8.13.0",
     "radix-ui": "^1.4.3",
     "react": "19.2.3",
+    "react-aws-icons": "^1.2.1",
     "react-dom": "19.2.3",
     "react-markdown": "^10.1.0",
     "swr": "^2.2.5",
@@ -40,13 +42,13 @@
     "zod": "^3.24.4"
   },
   "devDependencies": {
-    "@types/pg": "^8.11.0",
-    "dotenv": "^16.4.5",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
+    "@types/pg": "^8.11.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "autoprefixer": "^10.4.24",
+    "dotenv": "^16.4.5",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "postcss": "^8.5.6",

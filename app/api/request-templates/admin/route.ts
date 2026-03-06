@@ -11,8 +11,12 @@ import {
 export async function GET() {
   const forbidden = await requireAdminByEmail()
   if (forbidden) return forbidden
+  const session = await getSessionFromCookies()
+  if (!session?.orgId) {
+    return NextResponse.json({ error: "No org context" }, { status: 403 })
+  }
   try {
-    const index = await getTemplatesIndex()
+    const index = await getTemplatesIndex(session.orgId)
     return NextResponse.json(index)
   } catch (err) {
     console.error("[templates/admin] GET error:", err)
@@ -26,8 +30,11 @@ export async function GET() {
 export async function POST(req: Request) {
   const forbidden = await requireAdminByEmail()
   if (forbidden) return forbidden
+  const session = await getSessionFromCookies()
+  if (!session?.orgId) {
+    return NextResponse.json({ error: "No org context" }, { status: 403 })
+  }
   try {
-    const session = await getSessionFromCookies()
     const createdBy = session?.email ?? null
     const body = (await req.json()) as CreateTemplatePayload & { id?: string; createdAt?: string; updatedAt?: string }
     const payload: CreateTemplatePayload = {
@@ -42,7 +49,7 @@ export async function POST(req: Request) {
       lockEnvironment: body.lockEnvironment,
       allowCustomProjectEnv: body.allowCustomProjectEnv,
     }
-    const template = await createTemplate(payload, createdBy)
+    const template = await createTemplate(session.orgId, payload, createdBy)
     return NextResponse.json(template, { status: 201 })
   } catch (err) {
     console.error("[templates/admin] POST error:", err)

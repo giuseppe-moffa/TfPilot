@@ -23,16 +23,17 @@ const SORT_EXPR = "COALESCE(last_activity_at, updated_at)"
 const SELECT_PAGE_SQL = `
   SELECT request_id, updated_at, last_activity_at, doc_hash
   FROM requests_index
+  WHERE org_id = $1
   ORDER BY ${SORT_EXPR} DESC, request_id DESC
-  LIMIT $1
+  LIMIT $2
 `
 
 const SELECT_PAGE_WITH_CURSOR_SQL = `
   SELECT request_id, updated_at, last_activity_at, doc_hash
   FROM requests_index
-  WHERE (${SORT_EXPR}, request_id) < ($2::timestamptz, $3::text)
+  WHERE org_id = $1 AND (${SORT_EXPR}, request_id) < ($3::timestamptz, $4::text)
   ORDER BY ${SORT_EXPR} DESC, request_id DESC
-  LIMIT $1
+  LIMIT $2
 `
 
 /**
@@ -79,27 +80,29 @@ export function decodeCursor(cursor: string): CursorPayload | null {
   return null
 }
 
-export type ListPageOptions = { limit: number; cursor: string | null }
+export type ListPageOptions = { orgId: string; limit: number; cursor: string | null }
 
 /**
- * Returns a page of index rows in stable order
+ * Returns a page of index rows in stable order, scoped to org.
  * (last_activity_at DESC, fallback updated_at, request_id DESC). cursor is base64url-encoded { sort_key, request_id }.
  * Returns null if DB not configured.
  */
 export async function listRequestIndexRowsPage(options: {
+  orgId: string
   limit: number
   cursor: string | null
 }): Promise<RequestIndexRow[] | null> {
   if (!isDatabaseConfigured()) return null
-  const { limit, cursor } = options
+  const { orgId, limit, cursor } = options
   if (cursor == null || cursor === "") {
-    const result = await query<RequestIndexRow>(SELECT_PAGE_SQL, [limit])
+    const result = await query<RequestIndexRow>(SELECT_PAGE_SQL, [orgId, limit])
     if (result == null) return null
     return result.rows
   }
   const decoded = decodeCursor(cursor)
   if (decoded == null) return null
   const result = await query<RequestIndexRow>(SELECT_PAGE_WITH_CURSOR_SQL, [
+    orgId,
     limit,
     decoded.sort_key,
     decoded.request_id,
@@ -126,6 +129,20 @@ const SELECT_BY_ENV_SQL = `
   ORDER BY ${SORT_FOR_ACTIVITY} DESC, request_id DESC
   LIMIT $4
 `
+
+/**
+ * Get org_id for a request from the index. Used for ownership guards.
+ * Returns null when DB not configured or request not in index.
+ */
+export async function getRequestOrgId(requestId: string): Promise<string | null> {
+  if (!isDatabaseConfigured()) return null
+  const result = await query<{ org_id: string }>(
+    "SELECT org_id FROM requests_index WHERE request_id = $1",
+    [requestId]
+  )
+  if (!result || result.rows.length === 0) return null
+  return result.rows[0]!.org_id
+}
 
 /**
  * List request index rows for an environment, filtered by (repo, environment_key, environment_slug).

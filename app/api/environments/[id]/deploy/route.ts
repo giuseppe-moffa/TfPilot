@@ -4,7 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server"
-import { getSessionFromCookies } from "@/lib/auth/session"
+import { getSessionFromCookies, type SessionPayload } from "@/lib/auth/session"
 import { getGitHubAccessToken } from "@/lib/github/auth"
 import { getUserRole } from "@/lib/auth/roles"
 import type { UserRole } from "@/lib/auth/roles"
@@ -31,7 +31,7 @@ import {
 } from "@/lib/github/createDeployPR"
 
 export type DeployRouteDeps = {
-  getSessionFromCookies: () => Promise<{ login: string; accessToken?: string | null } | null>
+  getSessionFromCookies: () => Promise<SessionPayload | null>
   getUserRole: (login?: string | null) => UserRole
   getGitHubAccessToken: (req?: NextRequest) => Promise<string | null>
   getEnvironmentById: (id: string) => Promise<Environment | null>
@@ -66,6 +66,9 @@ export function makePOST(deps: DeployRouteDeps) {
     if (!session) {
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
     }
+    if (!session.orgId) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 })
+    }
     const role = deps.getUserRole(session.login)
     if (role !== "admin") {
       return NextResponse.json({ error: "Deploy not permitted for your role" }, { status: 403 })
@@ -78,7 +81,10 @@ export function makePOST(deps: DeployRouteDeps) {
 
     const envRow = await deps.getEnvironmentById(environmentId)
     if (!envRow) {
-      return NextResponse.json({ error: "Environment not found" }, { status: 404 })
+      return NextResponse.json({ error: "Not found" }, { status: 404 })
+    }
+    if (envRow.org_id !== session.orgId) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 })
     }
 
     if (envRow.archived_at) {
@@ -95,7 +101,7 @@ export function makePOST(deps: DeployRouteDeps) {
 
     const template_id = (envRow.template_id ?? "blank").trim()
     try {
-      await validateTemplateIdOrThrow(template_id)
+      await validateTemplateIdOrThrow(template_id, session.orgId)
     } catch (err: unknown) {
       const code = (err as { code?: string })?.code
       if (code === INVALID_ENV_TEMPLATE) {
@@ -146,6 +152,7 @@ export function makePOST(deps: DeployRouteDeps) {
       environment_key: envRow.environment_key,
       environment_slug: envRow.environment_slug,
       template_id,
+      orgId: session.orgId,
       project_key: envRow.project_key,
     })
 

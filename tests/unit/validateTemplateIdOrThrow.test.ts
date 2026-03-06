@@ -26,26 +26,28 @@ function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(`Assertion failed: ${message}`)
 }
 
+const TEST_ORG_ID = "default"
+
 export const tests = [
   {
     name: "validateTemplateIdOrThrow: null resolves (no throw)",
     fn: async () => {
       useStub()
-      await validateTemplateIdOrThrow(null)
+      await validateTemplateIdOrThrow(null, TEST_ORG_ID)
     },
   },
   {
     name: "validateTemplateIdOrThrow: undefined resolves (no throw)",
     fn: async () => {
       useStub()
-      await validateTemplateIdOrThrow(undefined)
+      await validateTemplateIdOrThrow(undefined, TEST_ORG_ID)
     },
   },
   {
     name: "validateTemplateIdOrThrow: blank resolves even when index missing",
     fn: async () => {
       useStub()
-      await validateTemplateIdOrThrow("blank")
+      await validateTemplateIdOrThrow("blank", TEST_ORG_ID)
     },
   },
   {
@@ -53,7 +55,7 @@ export const tests = [
     fn: async () => {
       useStub()
       try {
-        await validateTemplateIdOrThrow("")
+        await validateTemplateIdOrThrow("", TEST_ORG_ID)
         throw new Error("Expected throw")
       } catch (err: unknown) {
         const code = (err as { code?: string })?.code
@@ -66,7 +68,7 @@ export const tests = [
     fn: async () => {
       useStub()
       try {
-        await validateTemplateIdOrThrow("   ")
+        await validateTemplateIdOrThrow("   ", TEST_ORG_ID)
         throw new Error("Expected throw")
       } catch (err: unknown) {
         const code = (err as { code?: string })?.code
@@ -78,11 +80,11 @@ export const tests = [
     name: "validateTemplateIdOrThrow: unknown id when index present throws INVALID_ENV_TEMPLATE",
     fn: async () => {
       useStub()
-      await seedEnvTemplatesFromConfig([
+      await seedEnvTemplatesFromConfig(TEST_ORG_ID, [
         { id: "baseline-ai-service", label: "Baseline AI", modules: [] },
       ])
       try {
-        await validateTemplateIdOrThrow("unknown")
+        await validateTemplateIdOrThrow("unknown", TEST_ORG_ID)
         throw new Error("Expected throw")
       } catch (err: unknown) {
         const code = (err as { code?: string })?.code
@@ -95,7 +97,7 @@ export const tests = [
     fn: async () => {
       useStub()
       try {
-        await validateTemplateIdOrThrow("baseline-ai-service")
+        await validateTemplateIdOrThrow("baseline-ai-service", TEST_ORG_ID)
         throw new Error("Expected throw")
       } catch (err: unknown) {
         const code = (err as { code?: string })?.code
@@ -110,22 +112,22 @@ export const tests = [
     name: "validateTemplateIdOrThrow: baseline-ai-service when index present + enabled resolves",
     fn: async () => {
       useStub()
-      await seedEnvTemplatesFromConfig([
+      await seedEnvTemplatesFromConfig(TEST_ORG_ID, [
         { id: "baseline-ai-service", label: "Baseline AI", modules: [] },
       ])
-      await validateTemplateIdOrThrow("baseline-ai-service")
+      await validateTemplateIdOrThrow("baseline-ai-service", TEST_ORG_ID)
     },
   },
   {
     name: "validateTemplateIdOrThrow: baseline-ai-service when disabled throws INVALID_ENV_TEMPLATE",
     fn: async () => {
       useStub()
-      await seedEnvTemplatesFromConfig([
+      await seedEnvTemplatesFromConfig(TEST_ORG_ID, [
         { id: "baseline-ai-service", label: "Baseline AI", modules: [] },
       ])
-      await disableEnvTemplate("baseline-ai-service")
+      await disableEnvTemplate(TEST_ORG_ID, "baseline-ai-service")
       try {
-        await validateTemplateIdOrThrow("baseline-ai-service")
+        await validateTemplateIdOrThrow("baseline-ai-service", TEST_ORG_ID)
         throw new Error("Expected throw")
       } catch (err: unknown) {
         const code = (err as { code?: string })?.code

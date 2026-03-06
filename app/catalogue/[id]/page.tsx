@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
-import { ArrowLeft, Loader2 } from "lucide-react"
+import { Loader2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -334,7 +334,7 @@ export default function TemplateEditorPage() {
     return (
       <div className="flex min-h-[50vh] flex-col items-center justify-center gap-4 p-8">
         <h1 className="text-xl font-semibold">Not found</h1>
-        <Link href="/catalogue">
+        <Link href="/catalogue/requests">
           <Button variant="outline">Back to catalogue</Button>
         </Link>
       </div>
@@ -350,50 +350,35 @@ export default function TemplateEditorPage() {
   }
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6 p-4">
-      <header className="flex items-center justify-between gap-3">
-        <Link href="/catalogue">
-          <Button variant="ghost" size="sm" className="gap-2">
-            <ArrowLeft className="h-4 w-4" />
-            Back
-          </Button>
-        </Link>
-        <h1 className="text-lg font-semibold">
-          {isNew ? "New template" : readOnly ? "View template" : "Edit template"}
-        </h1>
-        {readOnly ? (
-          <Link href={`/requests/new?templateId=${id}`}>
-            <Button size="sm">Create request</Button>
-          </Link>
-        ) : (
-          <Button onClick={handleSave} disabled={!!validationError || saving}>
-            Save
-          </Button>
-        )}
-      </header>
+    <div className="flex min-h-0 flex-1 flex-col gap-4">
+      <Card className="flex min-h-0 flex-1 flex-col pt-0 shadow-none">
+        <div className="flex flex-1 flex-col gap-4 px-6 py-6">
+          <h1 className="text-lg font-semibold">
+            {isNew ? "New template" : readOnly ? "View template" : "Edit template"}
+          </h1>
 
-      {!readOnly && (
-      <Dialog open={saving} onOpenChange={() => {}}>
-        <DialogContent className="sm:max-w-xs" onPointerDownOutside={(e) => e.preventDefault()} onEscapeKeyDown={(e) => e.preventDefault()}>
-          <DialogHeader>
-            <DialogTitle>Saving template</DialogTitle>
-          </DialogHeader>
-          <div className="flex items-center gap-3 py-2">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-            <span className="text-sm text-muted-foreground">Please wait…</span>
-          </div>
-        </DialogContent>
-      </Dialog>
-      )}
+          {!readOnly && (
+          <Dialog open={saving} onOpenChange={() => {}}>
+            <DialogContent className="sm:max-w-xs" onPointerDownOutside={(e) => e.preventDefault()} onEscapeKeyDown={(e) => e.preventDefault()}>
+              <DialogHeader>
+                <DialogTitle>Saving template</DialogTitle>
+              </DialogHeader>
+              <div className="flex items-center gap-3 py-2">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                <span className="text-sm text-muted-foreground">Please wait…</span>
+              </div>
+            </DialogContent>
+          </Dialog>
+          )}
 
-      {error && (
-        <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          {error}
-        </div>
-      )}
+          {error && (
+            <div className="bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {error}
+            </div>
+          )}
 
-      <Card className="space-y-4 p-4">
-        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-6">
+            <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
             <Label>Label *</Label>
             <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. Dev Compute" readOnly={readOnly} disabled={readOnly} className={readOnly ? "bg-muted" : ""} />
@@ -450,99 +435,113 @@ export default function TemplateEditorPage() {
               </SelectContent>
             </Select>
           </div>
-          <div className="flex items-center gap-2 sm:col-span-2">
-            <Label>Enabled</Label>
-            <Switch checked={enabled} onCheckedChange={setEnabled} disabled={readOnly} />
-          </div>
-        </div>
-      </Card>
+            <div className="flex items-center gap-2 sm:col-span-2">
+              <Label>Enabled</Label>
+              <Switch checked={enabled} onCheckedChange={setEnabled} disabled={readOnly} />
+            </div>
+            </div>
 
-      <Card className="space-y-4 p-4">
-        <div className="flex items-center justify-between">
-          <h2 className="font-medium">Default config</h2>
-          {!readOnly && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                if (rawJson) {
-                  try {
-                    const parsed = JSON.parse(rawJsonText) as Record<string, unknown>
-                    setConfigFormValues(parsed)
-                  } catch {
-                    /* keep current form values */
+            <div className="space-y-4 border-t border-border pt-6">
+          <div className="flex items-center justify-between">
+            <h2 className="font-medium">Default config</h2>
+            {!readOnly && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  if (rawJson) {
+                    try {
+                      const parsed = JSON.parse(rawJsonText) as Record<string, unknown>
+                      setConfigFormValues(parsed)
+                    } catch {
+                      /* keep current form values */
+                    }
+                  } else {
+                    setRawJsonText(JSON.stringify(currentConfig, null, 2))
                   }
-                } else {
-                  setRawJsonText(JSON.stringify(currentConfig, null, 2))
-                }
-                setRawJson(!rawJson)
-              }}
-            >
-              {rawJson ? "Form view" : "Raw JSON"}
-            </Button>
-          )}
-        </div>
-        {rawJson ? (
-          <Textarea
-            className={`min-h-[200px] font-mono text-sm ${readOnly ? "bg-muted" : ""}`}
-            value={rawJsonText}
-            onChange={(e) => setRawJsonText(e.target.value)}
-            readOnly={readOnly}
-            disabled={readOnly}
-          />
-        ) : selectedModule ? (
-          <div className="grid gap-3 sm:grid-cols-2">
-            {configFields.map((field) => (
-              <div key={field.name} className="space-y-1">
-                <Label className="text-sm">
-                  {formatLabel(field.name)}
-                  {field.required ? " *" : ""}
-                </Label>
-                {field.type === "boolean" ? (
-                  <Switch
-                    checked={Boolean(configFormValues[field.name] ?? field.default)}
-                    onCheckedChange={(v) => setConfigFormValues((prev) => ({ ...prev, [field.name]: v }))}
-                    disabled={readOnly}
-                  />
-                ) : field.type === "enum" ? (
-                  <Select
-                    value={String(configFormValues[field.name] ?? field.default ?? "")}
-                    onValueChange={(v) => setConfigFormValues((prev) => ({ ...prev, [field.name]: v }))}
-                    disabled={readOnly}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(field.enum ?? []).map((opt) => (
-                        <SelectItem key={opt} value={opt}>{opt}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                ) : field.type === "number" ? (
-                  <Input
-                    type="number"
-                    value={String(configFormValues[field.name] ?? field.default ?? "")}
-                    onChange={(e) => setConfigFormValues((prev) => ({ ...prev, [field.name]: e.target.value }))}
-                    readOnly={readOnly}
-                    disabled={readOnly}
-                    className={readOnly ? "bg-muted" : ""}
-                  />
-                ) : (
-                  <Input
-                    value={String(configFormValues[field.name] ?? field.default ?? "")}
-                    onChange={(e) => setConfigFormValues((prev) => ({ ...prev, [field.name]: e.target.value }))}
-                    readOnly={readOnly}
-                    disabled={readOnly}
-                    className={readOnly ? "bg-muted" : ""}
-                  />
-                )}
-              </div>
-            ))}
+                  setRawJson(!rawJson)
+                }}
+              >
+                {rawJson ? "Form view" : "Raw JSON"}
+              </Button>
+            )}
           </div>
-        ) : (
-          <p className="text-sm text-muted-foreground">Select a module to edit default config.</p>
-        )}
+          {rawJson ? (
+            <Textarea
+              className={`min-h-[200px] font-mono text-sm ${readOnly ? "bg-muted" : ""}`}
+              value={rawJsonText}
+              onChange={(e) => setRawJsonText(e.target.value)}
+              readOnly={readOnly}
+              disabled={readOnly}
+            />
+          ) : selectedModule ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {configFields.map((field) => (
+                <div key={field.name} className="space-y-1">
+                  <Label className="text-sm">
+                    {formatLabel(field.name)}
+                    {field.required ? " *" : ""}
+                  </Label>
+                  {field.type === "boolean" ? (
+                    <Switch
+                      checked={Boolean(configFormValues[field.name] ?? field.default)}
+                      onCheckedChange={(v) => setConfigFormValues((prev) => ({ ...prev, [field.name]: v }))}
+                      disabled={readOnly}
+                    />
+                  ) : field.type === "enum" ? (
+                    <Select
+                      value={String(configFormValues[field.name] ?? field.default ?? "")}
+                      onValueChange={(v) => setConfigFormValues((prev) => ({ ...prev, [field.name]: v }))}
+                      disabled={readOnly}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(field.enum ?? []).map((opt) => (
+                          <SelectItem key={opt} value={opt}>{opt}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : field.type === "number" ? (
+                    <Input
+                      type="number"
+                      value={String(configFormValues[field.name] ?? field.default ?? "")}
+                      onChange={(e) => setConfigFormValues((prev) => ({ ...prev, [field.name]: e.target.value }))}
+                      readOnly={readOnly}
+                      disabled={readOnly}
+                      className={readOnly ? "bg-muted" : ""}
+                    />
+                  ) : (
+                    <Input
+                      value={String(configFormValues[field.name] ?? field.default ?? "")}
+                      onChange={(e) => setConfigFormValues((prev) => ({ ...prev, [field.name]: e.target.value }))}
+                      readOnly={readOnly}
+                      disabled={readOnly}
+                      className={readOnly ? "bg-muted" : ""}
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">Select a module to edit default config.</p>
+            )}
+            </div>
+
+          <div className="mt-auto flex justify-end pt-4">
+            {readOnly ? (
+              <Link href={`/requests/new?templateId=${id}`}>
+                <Button size="sm">Create request</Button>
+              </Link>
+            ) : (
+              <Button onClick={handleSave} disabled={!!validationError || saving}>
+                Save
+              </Button>
+            )}
+          </div>
+          </div>
+        </div>
       </Card>
     </div>
   )

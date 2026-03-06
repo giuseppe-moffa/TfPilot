@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 
 import { environmentTemplates } from "@/config/environment-templates"
 import { requireAdminByEmail } from "@/lib/auth/admin"
+import { getSessionFromCookies } from "@/lib/auth/session"
 import {
   envTemplatesIndexExists,
   seedEnvTemplatesFromConfig,
@@ -15,8 +16,12 @@ import {
 export async function POST() {
   const forbidden = await requireAdminByEmail()
   if (forbidden) return forbidden
+  const session = await getSessionFromCookies()
+  if (!session?.orgId) {
+    return NextResponse.json({ error: "No org context" }, { status: 403 })
+  }
 
-  if (await envTemplatesIndexExists()) {
+  if (await envTemplatesIndexExists(session.orgId)) {
     return NextResponse.json(
       { error: "ENV_TEMPLATES_ALREADY_INITIALIZED" },
       { status: 409 }
@@ -24,7 +29,7 @@ export async function POST() {
   }
 
   try {
-    const { created } = await seedEnvTemplatesFromConfig(environmentTemplates)
+    const { created } = await seedEnvTemplatesFromConfig(session.orgId, environmentTemplates)
     return NextResponse.json({ created })
   } catch (err: unknown) {
     const code = (err as { code?: string })?.code

@@ -14,6 +14,8 @@ import {
 const valStub = createS3Stub()
 __testOnlySetS3(valStub, TEST_BUCKET)
 
+const TEST_ORG_ID = "default"
+
 function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(`Assertion failed: ${message}`)
 }
@@ -23,7 +25,7 @@ export const tests = [
     name: "envTemplatesValidation: invalid module rejects",
     fn: async () => {
       try {
-        await createEnvTemplate({
+        await createEnvTemplate(TEST_ORG_ID, {
           label: "Test",
           modules: [{ module: "invalid-module-xyz", order: 1 }],
           enabled: true,
@@ -42,7 +44,7 @@ export const tests = [
     name: "envTemplatesValidation: invalid defaultConfig key rejects",
     fn: async () => {
       try {
-        await createEnvTemplate({
+        await createEnvTemplate(TEST_ORG_ID, {
           label: "Test",
           modules: [
             {
@@ -67,12 +69,12 @@ export const tests = [
     name: "envTemplatesValidation: unknown top-level field rejects",
     fn: async () => {
       try {
-        await createEnvTemplate({
+        await createEnvTemplate(TEST_ORG_ID, {
           label: "Test",
           modules: [],
           enabled: true,
           foo: "bar", // unknown field
-        } as Parameters<typeof createEnvTemplate>[0])
+        } as Parameters<typeof createEnvTemplate>[1])
         throw new Error("Expected createEnvTemplate to throw for unknown top-level field")
       } catch (err: unknown) {
         const code = (err as { code?: string })?.code
@@ -89,7 +91,7 @@ export const tests = [
       __testOnlySetS3(valStub, TEST_BUCKET)
       valStub.clear()
       try {
-        await seedEnvTemplatesFromConfig([
+        await seedEnvTemplatesFromConfig(TEST_ORG_ID, [
           { id: "bad", label: "Bad", modules: [{ module: "invalid-module", order: 1 }] },
         ])
         throw new Error("Expected seedEnvTemplatesFromConfig to throw for invalid module")

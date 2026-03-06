@@ -16,6 +16,9 @@ export async function GET(
   if (!session) {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
   }
+  if (!session.orgId) {
+    return NextResponse.json({ error: "Environment not found" }, { status: 404 })
+  }
 
   const { id } = await params
   if (!id) {
@@ -24,6 +27,12 @@ export async function GET(
 
   const env = await getEnvironmentById(id)
   if (!env) {
+    return NextResponse.json(
+      { error: "Environment not found" },
+      { status: 404 }
+    )
+  }
+  if (env.org_id !== session.orgId) {
     return NextResponse.json(
       { error: "Environment not found" },
       { status: 404 }

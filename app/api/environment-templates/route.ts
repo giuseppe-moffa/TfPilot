@@ -17,12 +17,15 @@ export async function GET() {
   if (!session) {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
   }
+  if (!session.orgId) {
+    return NextResponse.json({ error: "No org context" }, { status: 403 })
+  }
   try {
-    const index = await getEnvTemplatesIndex()
+    const index = await getEnvTemplatesIndex(session.orgId)
     const enabled = index.filter((e) => e.enabled)
     const templates = []
     for (const entry of enabled) {
-      const doc = await getEnvTemplateIfExists(entry.id)
+      const doc = await getEnvTemplateIfExists(session.orgId, entry.id)
       if (doc) {
         templates.push(doc)
       } else {

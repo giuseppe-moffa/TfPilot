@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 
 import { requireAdminByEmail } from "@/lib/auth/admin"
+import { getSessionFromCookies } from "@/lib/auth/session"
 import {
   getEnvTemplate,
   updateEnvTemplate,
@@ -28,9 +29,13 @@ function pickUpdatePayload(
 export async function GET(_req: Request, context: RouteContext) {
   const forbidden = await requireAdminByEmail()
   if (forbidden) return forbidden
+  const session = await getSessionFromCookies()
+  if (!session?.orgId) {
+    return NextResponse.json({ error: "No org context" }, { status: 403 })
+  }
   const { id } = await context.params
   try {
-    const template = await getEnvTemplate(id)
+    const template = await getEnvTemplate(session.orgId, id)
     return NextResponse.json(template)
   } catch (err: unknown) {
     const code = (err as { name?: string })?.name
@@ -48,11 +53,15 @@ export async function GET(_req: Request, context: RouteContext) {
 export async function PUT(req: Request, context: RouteContext) {
   const forbidden = await requireAdminByEmail()
   if (forbidden) return forbidden
+  const session = await getSessionFromCookies()
+  if (!session?.orgId) {
+    return NextResponse.json({ error: "No org context" }, { status: 403 })
+  }
   const { id } = await context.params
   try {
     const body = (await req.json()) as Record<string, unknown>
     const payload = pickUpdatePayload(body)
-    const template = await updateEnvTemplate(id, payload)
+    const template = await updateEnvTemplate(session.orgId, id, payload)
     return NextResponse.json(template)
   } catch (err: unknown) {
     const code = (err as { code?: string; name?: string })?.code
@@ -77,9 +86,13 @@ export async function PUT(req: Request, context: RouteContext) {
 export async function DELETE(_req: Request, context: RouteContext) {
   const forbidden = await requireAdminByEmail()
   if (forbidden) return forbidden
+  const session = await getSessionFromCookies()
+  if (!session?.orgId) {
+    return NextResponse.json({ error: "No org context" }, { status: 403 })
+  }
   const { id } = await context.params
   try {
-    const template = await disableEnvTemplate(id)
+    const template = await disableEnvTemplate(session.orgId, id)
     return NextResponse.json(template)
   } catch (err: unknown) {
     const code = (err as { name?: string })?.name
@@ -97,13 +110,17 @@ export async function DELETE(_req: Request, context: RouteContext) {
 export async function PATCH(req: Request, context: RouteContext) {
   const forbidden = await requireAdminByEmail()
   if (forbidden) return forbidden
+  const session = await getSessionFromCookies()
+  if (!session?.orgId) {
+    return NextResponse.json({ error: "No org context" }, { status: 403 })
+  }
   const { id } = await context.params
   try {
     const body = (await req.json()) as Record<string, unknown>
     const template =
       body.enabled === true
-        ? await enableEnvTemplate(id)
-        : await updateEnvTemplate(id, pickUpdatePayload(body))
+        ? await enableEnvTemplate(session.orgId, id)
+        : await updateEnvTemplate(session.orgId, id, pickUpdatePayload(body))
     return NextResponse.json(template)
   } catch (err: unknown) {
     const code = (err as { code?: string })?.code

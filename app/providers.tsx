@@ -6,6 +6,8 @@ type AuthUser = {
   login: string
   name: string | null
   avatarUrl: string | null
+  orgId?: string
+  orgSlug?: string
 }
 
 type AuthContextValue = {

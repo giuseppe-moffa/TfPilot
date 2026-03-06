@@ -29,7 +29,7 @@ function renderBlock(content: string) {
     .trim()
     .split("\n")
     .map((line, idx) => (
-      <div key={idx} className={`rounded px-2 py-0.5 ${lineClass(line)}`}>
+      <div key={idx} className={`px-2 py-0.5 ${lineClass(line)}`}>
         {line}
       </div>
     ))
@@ -118,7 +118,7 @@ export default function PlanDiffPage() {
           {isLoading ? (
             <p className="text-sm text-muted-foreground">Loading plan...</p>
           ) : planDiff ? (
-            <div className="rounded-lg border bg-slate-950 text-slate-100">
+            <div className="border bg-slate-950 text-slate-100">
               <Code className="bg-transparent p-4 text-sm leading-6">
                 {renderBlock(planDiff)}
               </Code>

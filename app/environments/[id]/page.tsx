@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
-import { ArrowLeft, ExternalLink, Loader2, Plus, RefreshCw, Rocket, Trash2 } from "lucide-react"
+import { ExternalLink, Loader2, Plus, RefreshCw, Rocket, Trash2 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { getNewRequestGate } from "@/lib/new-request-gate"
@@ -56,36 +56,36 @@ function EnvironmentDetailSkeleton() {
   return (
     <div className="mx-auto max-w-7xl space-y-8">
       <div className="mb-4">
-        <div className="h-9 w-20 animate-pulse rounded-md bg-muted" />
+        <div className="h-9 w-20 animate-pulse bg-muted" />
       </div>
-      <section className="rounded-lg bg-card p-6 shadow-sm">
+      <section className="bg-card p-6 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 flex-wrap">
-              <div className="h-6 w-48 animate-pulse rounded bg-muted" />
-              <div className="h-5 w-16 animate-pulse rounded bg-muted" />
+              <div className="h-6 w-48 animate-pulse bg-muted" />
+              <div className="h-5 w-16 animate-pulse bg-muted" />
             </div>
-            <div className="mt-1 h-4 w-64 animate-pulse rounded bg-muted" />
+            <div className="mt-1 h-4 w-64 animate-pulse bg-muted" />
           </div>
         </div>
         <div className="mt-4 border-t border-border/50 dark:border-slate-800/50 pt-4">
           <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
             {[...Array(5)].map((_, i) => (
               <div key={i}>
-                <div className="h-3 w-20 animate-pulse rounded bg-muted" />
-                <div className="mt-1 h-4 w-28 animate-pulse rounded bg-muted" />
+                <div className="h-3 w-20 animate-pulse bg-muted" />
+                <div className="mt-1 h-4 w-28 animate-pulse bg-muted" />
               </div>
             ))}
           </div>
         </div>
         <div className="pt-4 border-t border-border/50 dark:border-slate-800/50 mt-4">
-          <div className="h-4 w-32 animate-pulse rounded bg-muted mb-2" />
-          <div className="h-3 w-24 animate-pulse rounded bg-muted" />
+          <div className="h-4 w-32 animate-pulse bg-muted mb-2" />
+          <div className="h-3 w-24 animate-pulse bg-muted" />
         </div>
         <div className="pt-4 border-t border-border/50 dark:border-slate-800/50 mt-4">
           <div className="flex flex-wrap items-center gap-2">
             {[1, 2, 3].map((i) => (
-              <div key={i} className="h-9 w-24 animate-pulse rounded-md bg-muted" />
+              <div key={i} className="h-9 w-24 animate-pulse bg-muted" />
             ))}
           </div>
         </div>
@@ -266,27 +266,14 @@ export default function EnvironmentDetailPage() {
     return (
       <div className="mx-auto max-w-7xl space-y-8">
         <p className="text-destructive">{error ?? "Environment not found"}</p>
-        <Button variant="ghost" size="sm" asChild>
-          <Link href="/environments" className="gap-2">
-            <ArrowLeft className="h-4 w-4" />
-            Back to environments
-          </Link>
-        </Button>
       </div>
     )
   }
 
   return (
     <div className="mx-auto max-w-7xl space-y-8">
-      <Button variant="ghost" size="sm" asChild>
-        <Link href="/environments" className="gap-2">
-          <ArrowLeft className="h-4 w-4" />
-          Back
-        </Link>
-      </Button>
-
       {!env.archived_at && deployStatus && (
-        <section className="rounded-lg border bg-muted/30 dark:bg-muted/20 px-4 py-3">
+        <section className="border bg-muted/30 dark:bg-muted/20 px-4 py-3">
           <div className="flex flex-wrap items-center gap-3">
             {deployStatus.error === "ENV_DEPLOY_CHECK_FAILED" ? (
               <>
@@ -340,7 +327,7 @@ export default function EnvironmentDetailPage() {
         </section>
       )}
 
-      <section className="rounded-lg bg-card p-6 shadow-sm">
+      <section className="bg-card p-6 shadow-sm">
         <div className="flex items-center gap-2 flex-wrap">
           <h1 className="text-xl font-semibold leading-none">
             {env.project_key} · {env.environment_key} / {env.environment_slug}

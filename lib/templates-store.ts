@@ -10,7 +10,13 @@ import { env } from "@/lib/config/env"
 const s3 = new S3Client({ region: env.TFPILOT_DEFAULT_REGION })
 const BUCKET = env.TFPILOT_TEMPLATES_BUCKET
 const PREFIX = "request-templates/"
-const INDEX_KEY = `${PREFIX}index.json`
+
+function indexKey(orgId: string): string {
+  return `${PREFIX}${orgId}/index.json`
+}
+function templateKey(orgId: string, id: string): string {
+  return `${PREFIX}${orgId}/${id}.json`
+}
 
 async function streamToString(stream: unknown): Promise<string> {
   return await new Promise((resolve, reject) => {
@@ -111,12 +117,12 @@ function generateId(label: string, existingIds: Set<string>): string {
 }
 
 /**
- * Read request-templates/index.json. Returns [] if the key does not exist.
+ * Read request-templates/<org_id>/index.json. Returns [] if the key does not exist.
  */
-export async function getTemplatesIndex(): Promise<TemplateIndexEntry[]> {
+export async function getTemplatesIndex(orgId: string): Promise<TemplateIndexEntry[]> {
   try {
     const res = await s3.send(
-      new GetObjectCommand({ Bucket: BUCKET, Key: INDEX_KEY })
+      new GetObjectCommand({ Bucket: BUCKET, Key: indexKey(orgId) })
     )
     const body = await streamToString(res.Body)
     const parsed = JSON.parse(body)
@@ -131,8 +137,8 @@ export async function getTemplatesIndex(): Promise<TemplateIndexEntry[]> {
 /**
  * Read a single template by id. Throws if not found.
  */
-export async function getTemplate(id: string): Promise<StoredTemplate> {
-  const key = `${PREFIX}${id}.json`
+export async function getTemplate(orgId: string, id: string): Promise<StoredTemplate> {
+  const key = templateKey(orgId, id)
   const res = await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }))
   const body = await streamToString(res.Body)
   return JSON.parse(body) as StoredTemplate
@@ -143,10 +149,11 @@ export async function getTemplate(id: string): Promise<StoredTemplate> {
  * @param createdBy - Email of the creating user (audit).
  */
 export async function createTemplate(
+  orgId: string,
   payload: CreateTemplatePayload,
   createdBy?: string | null
 ): Promise<StoredTemplate> {
-  const index = await getTemplatesIndex()
+  const index = await getTemplatesIndex(orgId)
   const existingIds = new Set(index.map((e) => e.id))
   const id = generateId(payload.label, existingIds)
   const now = new Date().toISOString()
@@ -160,11 +167,10 @@ export async function createTemplate(
     updatedBy: createdBy ?? null,
     defaultConfig: sanitizeTemplateDefaultConfig(payload.defaultConfig ?? {}),
   }
-  const key = `${PREFIX}${id}.json`
   await s3.send(
     new PutObjectCommand({
       Bucket: BUCKET,
-      Key: key,
+      Key: templateKey(orgId, id),
       Body: JSON.stringify(template, null, 2),
       ContentType: "application/json",
       ServerSideEncryption: "AES256",
@@ -184,7 +190,7 @@ export async function createTemplate(
   await s3.send(
     new PutObjectCommand({
       Bucket: BUCKET,
-      Key: INDEX_KEY,
+      Key: indexKey(orgId),
       Body: JSON.stringify(newIndex, null, 2),
       ContentType: "application/json",
       ServerSideEncryption: "AES256",
@@ -197,10 +203,11 @@ export async function createTemplate(
  * Create a template with a specific id (for migration/seed). Throws if id already exists.
  */
 export async function createTemplateWithId(
+  orgId: string,
   id: string,
   payload: CreateTemplatePayload
 ): Promise<StoredTemplate> {
-  const index = await getTemplatesIndex()
+  const index = await getTemplatesIndex(orgId)
   if (index.some((e) => e.id === id)) {
     throw new Error(`Template with id "${id}" already exists`)
   }
@@ -215,11 +222,10 @@ export async function createTemplateWithId(
     updatedBy: null,
     defaultConfig: sanitizeTemplateDefaultConfig(payload.defaultConfig ?? {}),
   }
-  const key = `${PREFIX}${id}.json`
   await s3.send(
     new PutObjectCommand({
       Bucket: BUCKET,
-      Key: key,
+      Key: templateKey(orgId, id),
       Body: JSON.stringify(template, null, 2),
       ContentType: "application/json",
       ServerSideEncryption: "AES256",
@@ -239,7 +245,7 @@ export async function createTemplateWithId(
   await s3.send(
     new PutObjectCommand({
       Bucket: BUCKET,
-      Key: INDEX_KEY,
+      Key: indexKey(orgId),
       Body: JSON.stringify(newIndex, null, 2),
       ContentType: "application/json",
       ServerSideEncryption: "AES256",
@@ -253,10 +259,11 @@ export async function createTemplateWithId(
  * @param partial - updatedBy should be set by caller (API) from session email.
  */
 export async function updateTemplate(
+  orgId: string,
   id: string,
   partial: UpdateTemplatePayload
 ): Promise<StoredTemplate> {
-  const current = await getTemplate(id)
+  const current = await getTemplate(orgId, id)
   const now = new Date().toISOString()
   const nextVersion = (current.version ?? 1) + 1
   const merged = {
@@ -273,17 +280,16 @@ export async function updateTemplate(
     ...merged,
     defaultConfig: sanitizeTemplateDefaultConfig(merged.defaultConfig ?? {}),
   }
-  const key = `${PREFIX}${id}.json`
   await s3.send(
     new PutObjectCommand({
       Bucket: BUCKET,
-      Key: key,
+      Key: templateKey(orgId, id),
       Body: JSON.stringify(template, null, 2),
       ContentType: "application/json",
       ServerSideEncryption: "AES256",
     })
   )
-  const index = await getTemplatesIndex()
+  const index = await getTemplatesIndex(orgId)
   const entry: TemplateIndexEntry = {
     id,
     label: template.label,
@@ -298,7 +304,7 @@ export async function updateTemplate(
   await s3.send(
     new PutObjectCommand({
       Bucket: BUCKET,
-      Key: INDEX_KEY,
+      Key: indexKey(orgId),
       Body: JSON.stringify(newIndex, null, 2),
       ContentType: "application/json",
       ServerSideEncryption: "AES256",
@@ -311,39 +317,40 @@ export async function updateTemplate(
  * Soft disable: set enabled to false. Increments version and sets updatedBy.
  */
 export async function disableTemplate(
+  orgId: string,
   id: string,
   updatedBy?: string | null
 ): Promise<StoredTemplate> {
-  return updateTemplate(id, { enabled: false, updatedBy: updatedBy ?? undefined })
+  return updateTemplate(orgId, id, { enabled: false, updatedBy: updatedBy ?? undefined })
 }
 
 /**
  * Re-enable a template. Increments version and sets updatedBy.
  */
 export async function enableTemplate(
+  orgId: string,
   id: string,
   updatedBy?: string | null
 ): Promise<StoredTemplate> {
-  return updateTemplate(id, { enabled: true, updatedBy: updatedBy ?? undefined })
+  return updateTemplate(orgId, id, { enabled: true, updatedBy: updatedBy ?? undefined })
 }
 
 /**
  * Permanently delete a template: remove from index and delete object from S3.
  */
-export async function deleteTemplate(id: string): Promise<void> {
-  const index = await getTemplatesIndex()
+export async function deleteTemplate(orgId: string, id: string): Promise<void> {
+  const index = await getTemplatesIndex(orgId)
   const newIndex = index.filter((e) => e.id !== id)
   if (newIndex.length === index.length) {
     const err = new Error("Not found") as Error & { name?: string }
     err.name = "NoSuchKey"
     throw err
   }
-  const key = `${PREFIX}${id}.json`
-  await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }))
+  await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: templateKey(orgId, id) }))
   await s3.send(
     new PutObjectCommand({
       Bucket: BUCKET,
-      Key: INDEX_KEY,
+      Key: indexKey(orgId),
       Body: JSON.stringify(newIndex, null, 2),
       ContentType: "application/json",
       ServerSideEncryption: "AES256",

@@ -12,12 +12,15 @@ export async function GET() {
   if (!session) {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
   }
+  if (!session.orgId) {
+    return NextResponse.json({ error: "No org context" }, { status: 403 })
+  }
   try {
-    const index = await getTemplatesIndex()
+    const index = await getTemplatesIndex(session.orgId)
     const enabled = index.filter((e) => e.enabled)
     const templates = await Promise.all(
       enabled.map((e) =>
-        getTemplate(e.id).catch(() => null)
+        getTemplate(session.orgId!, e.id).catch(() => null)
       )
     )
     const valid = templates.filter((t): t is Awaited<ReturnType<typeof getTemplate>> => t !== null)

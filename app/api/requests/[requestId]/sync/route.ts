@@ -21,6 +21,7 @@ import { isLockExpired, type RequestLock } from "@/lib/requests/lock"
 import { needsRepair } from "@/lib/requests/syncPolicy"
 import { getRequestIdByRunId, putRunIndex } from "@/lib/requests/runIndex"
 import { getRequest, updateRequest } from "@/lib/storage/requestsStore"
+import { getRequestOrgId } from "@/lib/db/requestsList"
 import { getRequestCost } from "@/lib/services/cost-service"
 import { env } from "@/lib/config/env"
 import { ensureAssistantState } from "@/lib/assistant/state"
@@ -113,12 +114,20 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
   try {
     const sessionOr401 = await requireSession()
     if (sessionOr401 instanceof NextResponse) return sessionOr401
+    const session = sessionOr401
+    if (!session.orgId) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 })
+    }
     const { requestId } = await params
     const repair = req.nextUrl.searchParams.get("repair") === "1"
     const hydrate = req.nextUrl.searchParams.get("hydrate") === "1"
 
     let request = ensureAssistantState(await getRequest(requestId).catch(() => null))
     if (!request) return NextResponse.json({ error: "Request not found" }, { status: 404 })
+    const resourceOrgId = (request as { org_id?: string }).org_id ?? (await getRequestOrgId(requestId))
+    if (!resourceOrgId || resourceOrgId !== session.orgId) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 })
+    }
 
     ensureRuns(request as Record<string, unknown>)
 

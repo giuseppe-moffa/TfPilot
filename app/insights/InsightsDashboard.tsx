@@ -50,7 +50,7 @@ function StatCard({
   className?: string
 }) {
   return (
-    <Card className={cn("p-4", className)}>
+    <Card className={cn("p-4 shadow-none", className)}>
       <p className="text-sm font-medium text-muted-foreground">{title}</p>
       <p className="mt-1 text-2xl font-semibold">{value}</p>
       {sub != null && <p className="mt-0.5 text-xs text-muted-foreground">{sub}</p>}
@@ -72,7 +72,7 @@ function GitHubApiUsageCard() {
 
   if (isLoading && !data) {
     return (
-      <Card className="p-4">
+      <Card className="p-4 shadow-none">
         <p className="text-sm text-muted-foreground">Loading…</p>
       </Card>
     )
@@ -80,10 +80,10 @@ function GitHubApiUsageCard() {
 
   if (error) {
     return (
-      <Card className="p-4">
+      <Card className="p-4 shadow-none">
         <div
           className={cn(
-            "rounded-md px-2 py-1.5 text-sm",
+            "px-2 py-1.5 text-sm",
             is401 ? "bg-muted text-muted-foreground" : "bg-destructive/10 text-destructive"
           )}
         >
@@ -95,7 +95,7 @@ function GitHubApiUsageCard() {
 
   if (!data) {
     return (
-      <Card className="p-4">
+      <Card className="p-4 shadow-none">
         <p className="text-sm text-muted-foreground">Loading…</p>
       </Card>
     )
@@ -121,7 +121,7 @@ function GitHubApiUsageCard() {
           : ""
 
   return (
-    <Card className="p-4">
+    <Card className="p-4 shadow-none">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
         <span>In-memory. Resets on deploy/restart.</span>
         {isValidating && <span>Updating…</span>}
@@ -135,7 +135,7 @@ function GitHubApiUsageCard() {
               Usage
             </p>
             {snap.rateLimitBurst5m && (
-              <span className="rounded bg-destructive/15 px-2 py-0.5 text-xs font-medium text-destructive">
+              <span className="bg-destructive/15 px-2 py-0.5 text-xs font-medium text-destructive">
                 Rate-limit pressure
               </span>
             )}
@@ -172,12 +172,12 @@ function GitHubApiUsageCard() {
           </p>
           {last.remaining != null && last.limit != null && last.limit > 0 && (
             <div
-              className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted"
+              className="mt-1.5 h-1.5 w-full overflow-hidden bg-muted"
               title={`${last.remaining} / ${last.limit} remaining`}
             >
               <div
                 className={cn(
-                  "h-full rounded-full transition-colors",
+                  "h-full transition-colors",
                   remainingPct != null && remainingPct < 10
                     ? "bg-destructive"
                     : remainingPct != null && remainingPct < 25
@@ -298,7 +298,7 @@ function GitHubApiUsageCard() {
                   <span className="font-mono">{formatTimeHMS(ev.at)}</span>
                   <span>status {ev.status}</span>
                   {ev.kindGuess && (
-                    <span className="rounded bg-muted px-1.5 py-0.5 font-medium">
+                    <span className="bg-muted px-1.5 py-0.5 font-medium">
                       {ev.kindGuess}
                     </span>
                   )}
@@ -324,20 +324,26 @@ export function InsightsDashboard() {
 
   if (error) {
     return (
-      <div className="container mx-auto max-w-5xl space-y-6 p-6">
-        <h1 className="text-2xl font-semibold">Insights</h1>
-        <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          {error.message}
-        </div>
+      <div className="flex min-h-0 flex-1 flex-col">
+        <Card className="flex min-h-0 flex-1 flex-col pt-0 shadow-none">
+          <div className="flex flex-1 flex-col px-6 py-6">
+            <div className="border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+              {error.message}
+            </div>
+          </div>
+        </Card>
       </div>
     )
   }
 
   if (isLoading && !metrics) {
     return (
-      <div className="container mx-auto max-w-5xl space-y-6 p-6">
-        <h1 className="text-2xl font-semibold">Insights</h1>
-        <p className="text-muted-foreground">Loading metrics…</p>
+      <div className="flex min-h-0 flex-1 flex-col">
+        <Card className="flex min-h-0 flex-1 flex-col pt-0 shadow-none">
+          <div className="flex flex-1 flex-col px-6 py-6">
+            <p className="text-muted-foreground">Loading metrics…</p>
+          </div>
+        </Card>
       </div>
     )
   }
@@ -346,21 +352,23 @@ export function InsightsDashboard() {
   const total = m?.total ?? 0
 
   return (
-    <div className="container mx-auto max-w-5xl space-y-8 p-6">
-      <header>
-        <h1 className="text-2xl font-semibold">Insights</h1>
-        <p className="text-sm text-muted-foreground">Platform metrics (cached ~60s)</p>
-      </header>
+    <div className="flex min-h-0 flex-1 flex-col">
+      <Card className="flex min-h-0 flex-1 flex-col pt-0 shadow-none">
+        <div className="flex flex-1 flex-col px-6 py-6 space-y-8">
+          <div>
+            <h2 className="text-md font-semibold">Platform metrics</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">Request lifecycle, success rates, and GitHub API health</p>
+          </div>
 
-      {/* GitHub API Usage */}
-      <section className="space-y-3">
-        <h2 className="text-lg font-medium">GitHub API Usage</h2>
+          {/* GitHub API Usage */}
+          <section className="space-y-3 border border-border p-4">
+        <h2 className="text-md font-semibold">GitHub API Usage</h2>
         <GitHubApiUsageCard />
       </section>
 
       {/* At a glance */}
-      <section className="space-y-3">
-        <h2 className="text-lg font-medium">At a glance</h2>
+      <section className="space-y-3 border border-border p-4">
+        <h2 className="text-md font-semibold">At a glance</h2>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <StatCard title="Total requests" value={total} />
           <StatCard
@@ -392,9 +400,9 @@ export function InsightsDashboard() {
       </section>
 
       {/* Status distribution */}
-      <section className="space-y-3">
-        <h2 className="text-lg font-medium">Status distribution</h2>
-        <Card className="overflow-hidden py-0">
+      <section className="space-y-3 border border-border p-4">
+        <h2 className="text-md font-semibold">Status distribution</h2>
+        <Card className="overflow-hidden py-0 shadow-none">
           <Table>
             <TableHeader>
               <TableRow>
@@ -404,27 +412,34 @@ export function InsightsDashboard() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {m?.statusCounts &&
-                Object.entries(m.statusCounts)
-                  .sort(([, a], [, b]) => b - a)
-                  .map(([status, count]) => (
-                    <TableRow key={status}>
-                      <TableCell className="font-medium">{getStatusLabel(status)}</TableCell>
-                      <TableCell className="text-right">{count}</TableCell>
-                      <TableCell className="text-right">
-                        {total > 0 ? ((count / total) * 100).toFixed(1) : "0"}%
-                      </TableCell>
+              {m?.statusCounts && Object.keys(m.statusCounts).length > 0
+                ? Object.entries(m.statusCounts)
+                    .sort(([, a], [, b]) => b - a)
+                    .map(([status, count]) => (
+                      <TableRow key={status}>
+                        <TableCell className="font-medium">{getStatusLabel(status) || "—"}</TableCell>
+                        <TableCell className="text-right">{count ?? "—"}</TableCell>
+                        <TableCell className="text-right">
+                          {total > 0 && count != null ? `${((count / total) * 100).toFixed(1)}%` : "—"}
+                        </TableCell>
+                      </TableRow>
+                    ))
+                : (
+                    <TableRow>
+                      <TableCell className="font-medium">—</TableCell>
+                      <TableCell className="text-right">—</TableCell>
+                      <TableCell className="text-right">—</TableCell>
                     </TableRow>
-                  ))}
+                  )}
             </TableBody>
           </Table>
         </Card>
       </section>
 
       {/* Activity windows */}
-      <section className="space-y-3">
-        <h2 className="text-lg font-medium">Activity windows</h2>
-        <Card className="overflow-hidden py-0">
+      <section className="space-y-3 border border-border p-4">
+        <h2 className="text-md font-semibold">Activity windows</h2>
+        <Card className="overflow-hidden py-0 shadow-none">
           <Table>
             <TableHeader>
               <TableRow>
@@ -455,9 +470,9 @@ export function InsightsDashboard() {
       </section>
 
       {/* Durations */}
-      <section className="space-y-3">
-        <h2 className="text-lg font-medium">Durations</h2>
-        <Card className="overflow-hidden py-0">
+      <section className="space-y-3 border border-border p-4">
+        <h2 className="text-md font-semibold">Durations</h2>
+        <Card className="overflow-hidden py-0 shadow-none">
           <Table>
             <TableHeader>
               <TableRow>
@@ -490,6 +505,8 @@ export function InsightsDashboard() {
           </Table>
         </Card>
       </section>
+        </div>
+      </Card>
     </div>
   )
 }

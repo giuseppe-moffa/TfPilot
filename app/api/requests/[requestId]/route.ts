@@ -13,6 +13,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ requestI
   const sessionOr401 = await requireSession(undefined, correlation)
   if (sessionOr401 instanceof NextResponse) return sessionOr401
   const session = sessionOr401
+  if (!session.orgId) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 })
+  }
 
   const { requestId } = await params
   if (!requestId) {
@@ -27,6 +30,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ requestI
         try {
           const request = ensureAssistantState(await getRequest(requestId))
           if (!request) {
+            return NextResponse.json({ error: "Not found" }, { status: 404 })
+          }
+          const requestOrgId = (request as { org_id?: string }).org_id
+          if (typeof requestOrgId !== "string" || requestOrgId !== session.orgId) {
             return NextResponse.json({ error: "Not found" }, { status: 404 })
           }
           const cost = await getRequestCost(requestId)

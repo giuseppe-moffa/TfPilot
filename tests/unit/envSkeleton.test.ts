@@ -19,6 +19,8 @@ function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(`Assertion failed: ${message}`)
 }
 
+const TEST_ORG_ID = "default"
+
 const expectedBasePaths = [
   "backend.tf",
   "providers.tf",
@@ -37,6 +39,7 @@ export const tests = [
         environment_key: "staging",
         environment_slug: "empty",
         template_id: "blank",
+        orgId: TEST_ORG_ID,
       })
       assert(result.envRoot === "envs/staging/empty", `envRoot must be envs/staging/empty, got ${result.envRoot}`)
       const reqFiles = result.files.filter(
@@ -53,7 +56,7 @@ export const tests = [
     name: "envSkeleton: correct ENV_ROOT",
     fn: async () => {
       useStub()
-      await seedEnvTemplatesFromConfig([
+      await seedEnvTemplatesFromConfig(TEST_ORG_ID, [
         {
           id: "baseline-ai-service",
           label: "Baseline AI",
@@ -69,6 +72,7 @@ export const tests = [
         environment_key: "dev",
         environment_slug: "ai-agent",
         template_id: "baseline-ai-service",
+        orgId: TEST_ORG_ID,
       })
       assert(result.envRoot === "envs/dev/ai-agent", `envRoot must be envs/dev/ai-agent, got ${result.envRoot}`)
     },
@@ -77,7 +81,7 @@ export const tests = [
     name: "envSkeleton: correct file tree for baseline-ai-service",
     fn: async () => {
       useStub()
-      await seedEnvTemplatesFromConfig([
+      await seedEnvTemplatesFromConfig(TEST_ORG_ID, [
         {
           id: "baseline-ai-service",
           label: "Baseline AI",
@@ -93,6 +97,7 @@ export const tests = [
         environment_key: "dev",
         environment_slug: "ai-agent",
         template_id: "baseline-ai-service",
+        orgId: TEST_ORG_ID,
       })
       const prefix = result.envRoot + "/"
       for (const rel of expectedBasePaths) {
@@ -106,7 +111,7 @@ export const tests = [
     name: "envSkeleton: request filenames have no double req_ prefix",
     fn: async () => {
       useStub()
-      await seedEnvTemplatesFromConfig([
+      await seedEnvTemplatesFromConfig("default", [
         {
           id: "baseline-ai-service",
           label: "Baseline AI",
@@ -122,6 +127,7 @@ export const tests = [
         environment_key: "dev",
         environment_slug: "ai-agent",
         template_id: "baseline-ai-service",
+        orgId: "default",
       })
       const reqFiles = result.files.filter(
         (f) => f.path.includes("tfpilot/requests/") && f.path.endsWith(".tf")
@@ -136,7 +142,7 @@ export const tests = [
     name: "envSkeleton: module request files generated in template order",
     fn: async () => {
       useStub()
-      await seedEnvTemplatesFromConfig([
+      await seedEnvTemplatesFromConfig(TEST_ORG_ID, [
         {
           id: "baseline-ai-service",
           label: "Baseline AI",
@@ -152,6 +158,7 @@ export const tests = [
         environment_key: "dev",
         environment_slug: "ai-agent",
         template_id: "baseline-ai-service",
+        orgId: TEST_ORG_ID,
       })
       const reqFiles = result.files.filter(
         (f) =>
@@ -181,6 +188,7 @@ export const tests = [
           environment_key: "dev",
           environment_slug: "x",
           template_id: "nonexistent",
+          orgId: TEST_ORG_ID,
         })
       } catch (err: unknown) {
         threw = true

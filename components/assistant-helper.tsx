@@ -250,7 +250,7 @@ export function AssistantHelper({ context, onAssistantState }: AssistantHelperPr
           className={`flex ${isSystem ? "justify-center" : isUser ? "justify-end" : "justify-start"}`}
         >
           <div
-            className={`max-w-[80%] rounded-2xl px-4 py-2 text-sm ${
+            className={`max-w-[80%] px-4 py-2 text-sm ${
               isSystem
                 ? "bg-muted text-muted-foreground"
                 : isUser
@@ -274,7 +274,7 @@ export function AssistantHelper({ context, onAssistantState }: AssistantHelperPr
     if (msg.kind === "notice") {
       return (
         <div key={msg.id} className="flex justify-center">
-          <div className="rounded-md bg-amber-100 px-3 py-1 text-[11px] font-medium text-amber-900 dark:bg-amber-900/30 dark:text-amber-100">
+          <div className="bg-amber-100 px-3 py-1 text-[11px] font-medium text-amber-900 dark:bg-amber-900/30 dark:text-amber-100">
             {msg.content}
           </div>
         </div>
@@ -283,7 +283,7 @@ export function AssistantHelper({ context, onAssistantState }: AssistantHelperPr
     if (msg.kind === "question") {
       return (
         <div key={msg.id} className="flex justify-start">
-          <div className="max-w-[80%] space-y-2 rounded-2xl bg-muted/60 px-4 py-3 text-sm">
+          <div className="max-w-[80%] space-y-2 bg-muted/60 px-4 py-3 text-sm">
             <div className="font-medium text-foreground">{msg.text}</div>
             <div className="flex flex-wrap gap-2">
               {msg.options.map((opt) => (
@@ -360,7 +360,7 @@ export function AssistantHelper({ context, onAssistantState }: AssistantHelperPr
           }}
         >
           {messages.length === 0 ? (
-            <div className="flex flex-1 items-center justify-center rounded-md bg-muted/30 p-6 text-center">
+            <div className="flex flex-1 items-center justify-center bg-muted/30 p-6 text-center">
               <div className="space-y-1">
                 <div className="text-sm font-semibold text-foreground">What would you like to provision?</div>
                 <div className="text-xs text-muted-foreground">Ask me about infrastructure requirements</div>
@@ -371,12 +371,12 @@ export function AssistantHelper({ context, onAssistantState }: AssistantHelperPr
               {renderMessages}
               {loading && (
                 <div className="flex justify-start">
-                  <div className="max-w-[80%] rounded-2xl bg-muted/60 px-4 py-2 text-sm">
+                  <div className="max-w-[80%] bg-muted/60 px-4 py-2 text-sm">
                     <div className="flex items-center gap-1">
                       <div className="flex gap-1">
-                        <div className="h-2 w-2 animate-bounce rounded-full bg-muted-foreground/60" style={{ animationDelay: '0ms' }}></div>
-                        <div className="h-2 w-2 animate-bounce rounded-full bg-muted-foreground/60" style={{ animationDelay: '150ms' }}></div>
-                        <div className="h-2 w-2 animate-bounce rounded-full bg-muted-foreground/60" style={{ animationDelay: '300ms' }}></div>
+                        <div className="h-2 w-2 animate-bounce bg-muted-foreground/60" style={{ animationDelay: '0ms' }}></div>
+                        <div className="h-2 w-2 animate-bounce bg-muted-foreground/60" style={{ animationDelay: '150ms' }}></div>
+                        <div className="h-2 w-2 animate-bounce bg-muted-foreground/60" style={{ animationDelay: '300ms' }}></div>
                       </div>
                       <span className="text-xs text-muted-foreground ml-2">Assistant is thinking...</span>
                     </div>
@@ -404,7 +404,7 @@ export function AssistantHelper({ context, onAssistantState }: AssistantHelperPr
             value={prompt}
             onChange={handleTextareaChange}
             placeholder="Describe what infrastructure you need..."
-            className="min-h-[44px] pr-12 rounded-lg bg-muted/50 dark:bg-muted/40 focus-visible:ring-2 focus-visible:ring-primary/20 focus-visible:ring-offset-0 resize-none"
+            className="min-h-[44px] pr-12 bg-muted/50 dark:bg-muted/40 focus-visible:ring-2 focus-visible:ring-primary/20 focus-visible:ring-offset-0 resize-none"
             style={{ maxHeight: '200px', overflowY: prompt.split('\n').length > 6 ? 'auto' : 'hidden' }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {

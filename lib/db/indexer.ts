@@ -13,6 +13,7 @@ const CREATED_BY_TAG = "tfpilot:created_by"
 /** Request document shape for projection. Only fields needed for index. */
 export type RequestDocForIndex = {
   id: string
+  org_id?: string
   receivedAt?: string
   createdAt?: string
   updatedAt?: string
@@ -56,9 +57,13 @@ export function computeDocHash(request: RequestDocForIndex): string {
   return createHash("sha256").update(str, "utf8").digest("hex")
 }
 
-/** Project request doc to the 11 values for requests_index upsert. Exported for rebuild script. */
+/** Project request doc to the 12 values for requests_index upsert. Exported for rebuild script. */
 export function projectRequestToIndexValues(request: RequestDocForIndex): unknown[] {
   const requestId = request.id
+  const orgId = request.org_id
+  if (typeof orgId !== "string" || !orgId.trim()) {
+    throw new Error(`Request ${requestId} missing org_id; cannot index. S3 doc must have org_id.`)
+  }
   const createdAt = request.receivedAt ?? request.createdAt ?? request.updatedAt ?? new Date().toISOString()
   const updatedAt = request.updatedAt ?? request.receivedAt ?? new Date().toISOString()
   const repoFullName =
@@ -79,6 +84,7 @@ export function projectRequestToIndexValues(request: RequestDocForIndex): unknow
   const hash = computeDocHash(request)
   return [
     requestId,
+    orgId.trim(),
     createdAt,
     updatedAt,
     repoFullName,
@@ -95,10 +101,11 @@ export function projectRequestToIndexValues(request: RequestDocForIndex): unknow
 
 export const INDEX_UPSERT_SQL = `
 INSERT INTO requests_index (
-  request_id, created_at, updated_at, repo_full_name, environment_key, environment_slug, module_key,
+  request_id, org_id, created_at, updated_at, repo_full_name, environment_key, environment_slug, module_key,
   actor, pr_number, merged_sha, last_activity_at, doc_hash
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 ON CONFLICT (request_id) DO UPDATE SET
+  org_id = EXCLUDED.org_id,
   updated_at = EXCLUDED.updated_at,
   repo_full_name = EXCLUDED.repo_full_name,
   environment_key = EXCLUDED.environment_key,

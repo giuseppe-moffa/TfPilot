@@ -13,6 +13,7 @@ import { validateEnvironmentSlug } from "@/lib/environments/helpers"
 
 export type Environment = {
   environment_id: string
+  org_id: string
   project_key: string
   repo_full_name: string
   environment_key: string
@@ -33,6 +34,7 @@ function generateEnvironmentId(): string {
  * Returns the created Environment or null if DB not configured.
  */
 export async function createEnvironment(params: {
+  orgId: string
   project_key: string
   repo_full_name: string
   environment_key: string
@@ -51,12 +53,13 @@ export async function createEnvironment(params: {
   const now = new Date().toISOString()
   const result = await query<Environment>(
     `INSERT INTO environments (
-      environment_id, project_key, repo_full_name, environment_key, environment_slug,
+      environment_id, org_id, project_key, repo_full_name, environment_key, environment_slug,
       template_id, template_version, created_at, updated_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
     RETURNING *`,
     [
       id,
+      params.orgId,
       params.project_key,
       params.repo_full_name,
       params.environment_key,
@@ -115,15 +118,17 @@ export async function archiveEnvironment(environment_id: string): Promise<boolea
 }
 
 /**
- * List environments. Filters by project_key if provided.
+ * List environments. Filters by orgId and/or project_key if provided.
  * Excludes archived by default. Returns null if DB not configured.
  */
 export async function listEnvironments(options?: {
+  orgId?: string
   project_key?: string
   include_archived?: boolean
 }): Promise<Environment[] | null> {
   if (!isDatabaseConfigured()) return null
 
+  const orgId = options?.orgId
   const project_key = options?.project_key
   const include_archived = options?.include_archived ?? false
 
@@ -131,6 +136,10 @@ export async function listEnvironments(options?: {
   const values: unknown[] = []
   let i = 1
 
+  if (orgId) {
+    sql += ` AND org_id = $${i++}`
+    values.push(orgId)
+  }
   if (project_key) {
     sql += ` AND project_key = $${i++}`
     values.push(project_key)

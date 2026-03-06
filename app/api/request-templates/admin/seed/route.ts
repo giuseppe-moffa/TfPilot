@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 
 import { requireAdminByEmail } from "@/lib/auth/admin"
+import { getSessionFromCookies } from "@/lib/auth/session"
 import { getTemplate, createTemplateWithId } from "@/lib/templates-store"
 import { DEFAULT_SEED_TEMPLATES } from "@/lib/templates-store-seed-defaults"
 
@@ -12,6 +13,10 @@ import { DEFAULT_SEED_TEMPLATES } from "@/lib/templates-store-seed-defaults"
 export async function POST() {
   const forbidden = await requireAdminByEmail()
   if (forbidden) return forbidden
+  const session = await getSessionFromCookies()
+  if (!session?.orgId) {
+    return NextResponse.json({ error: "No org context" }, { status: 403 })
+  }
 
   const created: string[] = []
   const skipped: string[] = []
@@ -19,11 +24,11 @@ export async function POST() {
   for (const seed of DEFAULT_SEED_TEMPLATES) {
     const { id, ...payload } = seed
     try {
-      await getTemplate(id)
+      await getTemplate(session.orgId, id)
       skipped.push(id)
     } catch {
       try {
-        await createTemplateWithId(id, payload)
+        await createTemplateWithId(session.orgId, id, payload)
         created.push(id)
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)

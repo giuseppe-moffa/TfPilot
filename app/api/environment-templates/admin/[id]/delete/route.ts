@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 
 import { requireAdminByEmail } from "@/lib/auth/admin"
+import { getSessionFromCookies } from "@/lib/auth/session"
 import { deleteEnvTemplate } from "@/lib/env-templates-store"
 
 type RouteContext = { params: Promise<{ id: string }> }
@@ -8,9 +9,13 @@ type RouteContext = { params: Promise<{ id: string }> }
 export async function POST(_req: Request, context: RouteContext) {
   const forbidden = await requireAdminByEmail()
   if (forbidden) return forbidden
+  const session = await getSessionFromCookies()
+  if (!session?.orgId) {
+    return NextResponse.json({ error: "No org context" }, { status: 403 })
+  }
   const { id } = await context.params
   try {
-    await deleteEnvTemplate(id)
+    await deleteEnvTemplate(session.orgId, id)
     return NextResponse.json({ ok: true })
   } catch (err: unknown) {
     const code = (err as { name?: string })?.name

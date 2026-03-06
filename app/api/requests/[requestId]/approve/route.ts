@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 
 import { getRequest, updateRequest } from "@/lib/storage/requestsStore"
+import { getRequestOrgId } from "@/lib/db/requestsList"
 import { getSessionFromCookies } from "@/lib/auth/session"
 import { env } from "@/lib/config/env"
 import { getGitHubAccessToken } from "@/lib/github/auth"
@@ -25,6 +26,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
     if (!session) {
       return NextResponse.json({ success: false, error: "Not authenticated" }, { status: 401 })
     }
+    if (!session.orgId) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 })
+    }
     const role = getUserRole(session.login)
     if (role !== "approver" && role !== "admin") {
       return NextResponse.json({ success: false, error: "Approval not permitted for your role" }, { status: 403 })
@@ -32,7 +36,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
 
     const existing = await getRequest(requestId).catch(() => null)
     if (!existing) {
-      return NextResponse.json({ success: false, error: "Request not found" }, { status: 404 })
+      return NextResponse.json({ error: "Not found" }, { status: 404 })
+    }
+    const resourceOrgId = (existing as { org_id?: string }).org_id ?? (await getRequestOrgId(requestId))
+    if (!resourceOrgId || resourceOrgId !== session.orgId) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 })
     }
 
     const token = await getGitHubAccessToken(req)

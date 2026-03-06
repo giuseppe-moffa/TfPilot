@@ -9,5 +9,9 @@ export async function GET() {
     return NextResponse.json({ authenticated: false })
   }
   const role: UserRole = getUserRole(session.login)
-  return NextResponse.json({ authenticated: true, user: session, role })
+  const org =
+    session.orgId && session.orgSlug
+      ? { orgId: session.orgId, orgSlug: session.orgSlug }
+      : undefined
+  return NextResponse.json({ authenticated: true, user: session, role, org })
 }

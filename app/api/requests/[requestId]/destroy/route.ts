@@ -16,6 +16,7 @@ import type { RunsState } from "@/lib/requests/runsModel"
 import { putRunIndex } from "@/lib/requests/runIndex"
 import { resolveDestroyRunId } from "@/lib/requests/resolveDestroyRunId"
 import { getMissingEnvFields } from "@/lib/requests/requireEnvFields"
+import { getRequestOrgId } from "@/lib/db/requestsList"
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ requestId: string }> }) {
   const start = Date.now()
@@ -33,6 +34,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
     if (!session) {
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
     }
+    if (!session.orgId) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 })
+    }
     const role = getUserRole(session.login)
     if (role !== "admin") {
       return NextResponse.json({ error: "Destroy not permitted for your role" }, { status: 403 })
@@ -46,6 +50,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
     const request = await getRequest(requestId).catch(() => null)
     if (!request) {
       return NextResponse.json({ error: "Request not found" }, { status: 404 })
+    }
+    const resourceOrgId = (request as { org_id?: string }).org_id ?? (await getRequestOrgId(requestId))
+    if (!resourceOrgId || resourceOrgId !== session.orgId) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 })
     }
 
     const missing = getMissingEnvFields(request as Record<string, unknown>)

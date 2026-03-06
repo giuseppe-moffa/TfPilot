@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server"
 
+import { resolveActiveOrgForLogin } from "@/lib/auth/orgMemberships"
 import { clearSession, clearStateCookie, readStateCookie, setSession } from "@/lib/auth/session"
 import { env } from "@/lib/config/env"
 import { githubRequest } from "@/lib/github/rateAware"
@@ -174,6 +175,12 @@ export async function GET(req: NextRequest) {
       return NextResponse.redirect(loginErrorUrl(getPublicBaseUrl(), "not_allowed"))
     }
 
+    const org = await resolveActiveOrgForLogin(user.login)
+    if (!org) {
+      console.warn('[auth/github/callback] Login rejected: no org membership for:', user.login)
+      return NextResponse.redirect(loginErrorUrl(getPublicBaseUrl(), "no_org_membership"))
+    }
+
     console.log('[auth/github/callback] Creating session and redirecting to /requests')
 
     // Redirect back to same origin (localhost for dev, tfpilot.com for prod)
@@ -192,6 +199,8 @@ export async function GET(req: NextRequest) {
       avatarUrl: user.avatar_url,
       email: email ?? undefined,
       accessToken: token,
+      orgId: org.orgId,
+      orgSlug: org.orgSlug,
     })
     console.log('[auth/github/callback] ===== OAuth Success =====')
     return res

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 
 import { getSessionFromCookies } from "@/lib/auth/session"
 import { getRequest } from "@/lib/storage/requestsStore"
+import { getRequestOrgId } from "@/lib/db/requestsList"
 import { env } from "@/lib/config/env"
 import { getUserRole } from "@/lib/auth/roles"
 
@@ -16,6 +17,9 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ req
     if (!session) {
       return NextResponse.json({ canDestroy: false, error: "Not authenticated" }, { status: 401 })
     }
+    if (!session.orgId) {
+      return NextResponse.json({ canDestroy: false, error: "Not found" }, { status: 404 })
+    }
 
     // Admin role check applies to all destroys (pre-existing requirement)
     const role = getUserRole(session.login)
@@ -25,7 +29,11 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ req
 
     const request = await getRequest(requestId).catch(() => null)
     if (!request) {
-      return NextResponse.json({ canDestroy: false, error: "Request not found" }, { status: 404 })
+      return NextResponse.json({ canDestroy: false, error: "Not found" }, { status: 404 })
+    }
+    const resourceOrgId = (request as { org_id?: string }).org_id ?? (await getRequestOrgId(requestId))
+    if (!resourceOrgId || resourceOrgId !== session.orgId) {
+      return NextResponse.json({ canDestroy: false, error: "Not found" }, { status: 404 })
     }
 
     const isProd = request.environment_key?.toLowerCase() === "prod"
