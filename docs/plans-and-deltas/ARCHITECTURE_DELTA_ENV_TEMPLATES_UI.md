@@ -5,8 +5,8 @@
 - Date:
 - Target release:
 - Related:
-  - docs/ARCHITECTURE_DELTA_ENV_TEMPLATES_PARITY.md
-  - docs/ARCHITECTURE_DELTA_ENV_TEMPLATES_S3_RESOLUTION.md
+  - docs/plans-and-deltas/ARCHITECTURE_DELTA_ENV_TEMPLATES_PARITY.md
+  - docs/plans-and-deltas/ARCHITECTURE_DELTA_ENV_TEMPLATES_S3_RESOLUTION.md
   - docs/API.md
   - docs/INVARIANTS.md
 

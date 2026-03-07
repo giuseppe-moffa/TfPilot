@@ -1,7 +1,7 @@
 /**
- * Minimal invariant test runner. Executes all tests from invariant test files;
+ * Minimal test runner. Executes all tests (invariants, unit, API routes);
  * exits non-zero if any test throws.
- * Run: npm run test:invariants
+ * Run: npm run test
  */
 
 import { tests as reconcileTests } from "./invariants/reconcile.test"
@@ -36,10 +36,16 @@ import { tests as envTemplatesStoreTests } from "./unit/envTemplatesStore.test"
 import { tests as envTemplatesValidationTests } from "./unit/envTemplatesValidation.test"
 import { tests as envTemplatesAdminRouteTests } from "./api/envTemplatesAdminRoute.test"
 import { tests as validateTemplateIdOrThrowTests } from "./unit/validateTemplateIdOrThrow.test"
+import { tests as projectAccessTests } from "./unit/projectAccess.test"
 import { tests as projectAccessEnforcementTests } from "./unit/projectAccessEnforcement.test"
 import { tests as projectAccessEnforcementRouteTests } from "./api/projectAccessEnforcementRoute.test"
 import { tests as orgLifecycleTests } from "./unit/orgLifecycle.test"
 import { tests as orgLifecycleRouteTests } from "./api/orgLifecycleRoute.test"
+import { tests as webhookRouteTests } from "./api/webhookRoute.test"
+import { tests as idempotencyTests } from "./unit/idempotency.test"
+import { tests as indexerTests } from "./unit/indexer.test"
+import { tests as requestsListRouteTests } from "./api/requestsListRoute.test"
+import { tests as requestsSyncRouteTests } from "./api/requestsSyncRoute.test"
 
 const allSuites = [
   reconcileTests,
@@ -74,10 +80,16 @@ const allSuites = [
   envTemplatesValidationTests,
   envTemplatesAdminRouteTests,
   validateTemplateIdOrThrowTests,
+  projectAccessTests,
   projectAccessEnforcementTests,
   projectAccessEnforcementRouteTests,
   orgLifecycleTests,
   orgLifecycleRouteTests,
+  webhookRouteTests,
+  idempotencyTests,
+  indexerTests,
+  requestsListRouteTests,
+  requestsSyncRouteTests,
 ]
 
 let passed = 0

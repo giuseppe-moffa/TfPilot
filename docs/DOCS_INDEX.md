@@ -20,7 +20,17 @@ Canonical docs only.
 
 ---
 
-For archived/retired docs see `docs/archive/`.
+For archived/retired docs see `docs/archive/`. For design proposals and implementation plans see `docs/plans-and-deltas/`.
+
+---
+
+## Doc reorganization (plans and deltas) — 2026-03-07
+
+**What changed**
+- **Moved** all plan and delta docs into `docs/plans-and-deltas/`: ARCHITECTURE_DELTA_*, *_IMPLEMENTATION_PLAN.md, ENVIRONMENT_TEMPLATES_DELTA.md, ENVIRONMENTS_IMPLEMENTATION_PLAN.md.
+- **Root docs/** now contains only main canonical docs; design proposals and implementation plans live in `docs/plans-and-deltas/`.
+- **DOCS_INDEX:** Added plans-and-deltas section; updated table paths; added pointer for design/plan docs.
+- **Cross-references:** Updated lib/environments/helpers.ts, tests/invariants/deployErrors.test.ts, and internal doc links.
 
 ---
 
@@ -201,11 +211,17 @@ For archived/retired docs see `docs/archive/`.
 | `docs/prompts/design/*.md` | UI/Internal design prompts | **KEEP** | — | Current |
 | **Reference / optional** | | | | |
 | `docs/USEFUL_COMMANDS.md` | Quick reference: dev, Postgres, webhook tunnel, tests, health | **KEEP** | — | Current |
-| `docs/ARCHITECTURE_DELTA_DB.md` | Design doc for Postgres index migration; canonical schema/behavior in POSTGRES_INDEX | **KEEP** | `docs/POSTGRES_INDEX.md` for current state | Reference |
-| `docs/ARCHITECTURE_DELTA_ENVIRONMENTS.md` | Design/proposal: first-class Environment entity, env-centric UX; legacy Model 1 | **KEEP** | Current: SYSTEM_OVERVIEW, ENVIRONMENT_TEMPLATES_DELTA | Reference (design) |
-| `docs/ENVIRONMENT_TEMPLATES_DELTA.md` | Architecture delta: Environment Templates, Deploy Environment | **KEEP** | — | Current (Phases 0–6 implemented) |
-| `docs/ENVIRONMENT_TEMPLATES_IMPLEMENTATION_PLAN.md` | Phase-by-phase implementation plan | **KEEP** | — | Current (Phases 0–6 complete) |
-| `docs/FORENSIC_STORAGE_INVARIANTS_REPORT.md` | Read-only storage model mapping (S3 prefixes, read/write sites) | **KEEP** | — | Reference |
+| `docs/forensics/FORENSIC_STORAGE_INVARIANTS_REPORT.md` | Read-only storage model mapping (S3 prefixes, read/write sites) | **KEEP** | — | Reference |
+| **Plans and deltas** (`docs/plans-and-deltas/`) | | | | |
+| `docs/plans-and-deltas/ARCHITECTURE_DELTA_DB.md` | Design doc for Postgres index migration; canonical schema/behavior in POSTGRES_INDEX | **KEEP** | `docs/POSTGRES_INDEX.md` for current state | Reference |
+| `docs/plans-and-deltas/ARCHITECTURE_DELTA_ENVIRONMENTS.md` | Design/proposal: first-class Environment entity, env-centric UX; legacy Model 1 | **KEEP** | Current: SYSTEM_OVERVIEW, ENVIRONMENT_TEMPLATES_DELTA | Reference (design) |
+| `docs/plans-and-deltas/ENVIRONMENT_TEMPLATES_DELTA.md` | Architecture delta: Environment Templates, Deploy Environment | **KEEP** | — | Current (Phases 0–6 implemented) |
+| `docs/plans-and-deltas/ENVIRONMENT_TEMPLATES_IMPLEMENTATION_PLAN.md` | Phase-by-phase implementation plan | **KEEP** | — | Current (Phases 0–6 complete) |
+| `docs/plans-and-deltas/ARCHITECTURE_DELTA_ORG_SUPPORT.md` | Design doc for org (tenant) support | **KEEP** | — | Reference |
+| `docs/plans-and-deltas/ORG_SUPPORT_IMPLEMENTATION_PLAN.md` | Incremental implementation plan for org support | **KEEP** | — | Reference |
+| `docs/plans-and-deltas/ARCHITECTURE_DELTA_ENV_TEMPLATES_*.md` | Env templates UI, S3 resolution, parity design docs | **KEEP** | — | Reference |
+| `docs/plans-and-deltas/ENV_TEMPLATES_*_IMPLEMENTATION_PLAN.md` | Env templates UI, S3 resolution, parity implementation plans | **KEEP** | — | Reference |
+| `docs/plans-and-deltas/ENVIRONMENTS_IMPLEMENTATION_PLAN.md` | Environments feature implementation plan | **KEEP** | — | Reference |
 | `docs/PLATFORM_BENCHMARKS.md` | Benchmarks | **KEEP** | — | Optional reference |
 | `docs/STATUS_WORKFLOW_SPIKE.md` | Spike: status derivation, list vs detail, apply/sync; no code changes | **KEEP** | — | Investigation only |
 | **Archived** (moved to `docs/archive/`) | | | | |

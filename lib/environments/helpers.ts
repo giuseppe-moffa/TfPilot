@@ -3,7 +3,7 @@
  * Phase 0 scaffolding. No side effects. Not wired into routes.
  */
 
-/** environment_slug rules per ARCHITECTURE_DELTA_ENVIRONMENTS §3.1: lowercase, alphanumeric+hyphen, starts with letter, max 63, no spaces, no underscores */
+/** environment_slug rules per docs/plans-and-deltas/ARCHITECTURE_DELTA_ENVIRONMENTS.md §3.1: lowercase, alphanumeric+hyphen, starts with letter, max 63, no spaces, no underscores */
 const SLUG_REGEX = /^[a-z][a-z0-9-]*$/
 
 export function validateEnvironmentSlug(slug: string): { ok: true } | { ok: false; error: string } {
@@ -35,7 +35,7 @@ export function validateEnvironmentSlug(slug: string): { ok: true } | { ok: fals
   return { ok: true }
 }
 
-/** Returns envs/<environment_key>/<environment_slug> per ARCHITECTURE_DELTA_ENVIRONMENTS. */
+/** Returns envs/<environment_key>/<environment_slug> per docs/plans-and-deltas/ARCHITECTURE_DELTA_ENVIRONMENTS.md. */
 export function computeEnvRoot(environment_key: string, environment_slug: string): string {
   return `envs/${environment_key}/${environment_slug}`
 }

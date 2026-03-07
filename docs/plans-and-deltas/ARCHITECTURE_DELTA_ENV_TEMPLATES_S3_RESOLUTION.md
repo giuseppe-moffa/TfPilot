@@ -5,8 +5,8 @@
 - Date:
 - Target release:
 - Related:
-  - docs/ARCHITECTURE_DELTA_ENV_TEMPLATES_PARITY.md
-  - docs/ENV_TEMPLATES_PARITY_IMPLEMENTATION_PLAN.md
+  - docs/plans-and-deltas/ARCHITECTURE_DELTA_ENV_TEMPLATES_PARITY.md
+  - docs/plans-and-deltas/ENV_TEMPLATES_PARITY_IMPLEMENTATION_PLAN.md
   - docs/INVARIANTS.md
   - docs/SYSTEM_OVERVIEW.md
 

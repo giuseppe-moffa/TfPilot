@@ -1,6 +1,6 @@
 # Environment Templates Parity — Implementation Plan
 
-**Authoritative:** `docs/ARCHITECTURE_DELTA_ENV_TEMPLATES_PARITY.md`
+**Authoritative:** `docs/plans-and-deltas/ARCHITECTURE_DELTA_ENV_TEMPLATES_PARITY.md`
 
 > **Until Step 7, create-environment continues using static env templates; S3 env templates are not used by env creation yet.**
 
@@ -309,7 +309,7 @@ Add strict validation to env templates. Single enforcement point: store layer.
 | `tests/unit/envTemplatesStore.test.ts` | **New.** NoSuchKey → []; get missing throws; create writes doc then index (mock S3 or integration). |
 | `tests/api/envTemplatesAdminRoute.test.ts` | **New.** Admin CRUD flows; seed 409. |
 | `tests/unit/envTemplatesValidation.test.ts` | **New.** Invalid module, invalid defaultConfig keys. |
-| `tests/runInvariants.ts` | Register new test modules. |
+| `tests/runTests.ts` | Register new test modules. |
 
 ### Implementation notes
 
@@ -335,7 +335,7 @@ Add tests for env templates parity:
 2. tests/api/envTemplatesAdminRoute.test.ts: mirror requestTemplatesRoute; admin CRUD; seed returns 409 on second run
 3. tests/unit/envTemplatesValidation.test.ts: invalid module → validation fails; invalid defaultConfig key → fails
 
-Register in tests/runInvariants.ts. Follow patterns in tests/unit/requestTemplates.test.ts and tests/api/requestTemplatesRoute.test.ts.
+Register in tests/runTests.ts. Follow patterns in tests/unit/requestTemplates.test.ts and tests/api/requestTemplatesRoute.test.ts.
 ```
 
 ---

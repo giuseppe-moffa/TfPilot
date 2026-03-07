@@ -1,6 +1,6 @@
 /**
  * Invariant tests: Deploy error codes (Chunk 7.1).
- * Per docs/ENVIRONMENT_TEMPLATES_DELTA.md.
+ * Per docs/plans-and-deltas/ENVIRONMENT_TEMPLATES_DELTA.md.
  * Route contract: POST /api/environments/:id/deploy maps these to HTTP status + JSON body.
  */
 

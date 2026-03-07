@@ -1,7 +1,7 @@
 # ORG_SUPPORT_IMPLEMENTATION_PLAN
 
 ## Purpose
-Safe, incremental implementation plan for adding **Org (tenant) support** to TfPilot according to `ARCHITECTURE_DELTA_ORG_SUPPORT.md`.
+Safe, incremental implementation plan for adding **Org (tenant) support** to TfPilot according to `docs/plans-and-deltas/ARCHITECTURE_DELTA_ORG_SUPPORT.md`.
 
 Goals:
 - Introduce org tenancy without breaking existing invariants

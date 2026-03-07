@@ -1,7 +1,7 @@
 # Implementation Plan: Environment Templates + Deploy Environment (Model 2)
 
 Status: **Phases 0–6 complete** (2026-03)  
-Source: `docs/ENVIRONMENT_TEMPLATES_DELTA.md` (authoritative spec). Phases 0–6 implemented; Phase 7+ as documented.
+Source: `docs/plans-and-deltas/ENVIRONMENT_TEMPLATES_DELTA.md` (authoritative spec). Phases 0–6 implemented; Phase 7+ as documented.
 
 ---
 
@@ -413,7 +413,7 @@ Do NOT change TfPilot app code.
 CURSOR AGENT — Migrate Request Path Utilities to <module>_req_<request_id>.tf
 
 Goal
-Update lib/renderer/model2 to use the canonical request file naming from docs/ENVIRONMENT_TEMPLATES_DELTA.md §6.1.
+Update lib/renderer/model2 to use the canonical request file naming from docs/plans-and-deltas/ENVIRONMENT_TEMPLATES_DELTA.md §6.1.
 
 Format: tfpilot/requests/<module>_req_<request_id>.tf
 Example: envs/dev/ai-agent/tfpilot/requests/ecr-repo_req_a12bc3.tf
@@ -476,7 +476,7 @@ Do NOT change unrelated code.
 CURSOR AGENT — Add config/environment-templates.ts
 
 Goal
-Create v1 environment templates config per docs/ENVIRONMENT_TEMPLATES_DELTA.md §5 and §11.1.
+Create v1 environment templates config per docs/plans-and-deltas/ENVIRONMENT_TEMPLATES_DELTA.md §5 and §11.1.
 
 Scope
 - config/environment-templates.ts (new)
@@ -546,7 +546,7 @@ Do NOT change unrelated code.
 CURSOR AGENT — Add GET /api/environment-templates
 
 Goal
-Expose environment templates via API per docs/ENVIRONMENT_TEMPLATES_DELTA.md §11.2.
+Expose environment templates via API per docs/plans-and-deltas/ENVIRONMENT_TEMPLATES_DELTA.md §11.2.
 
 Scope
 - app/api/environment-templates/route.ts (new)
@@ -586,7 +586,7 @@ Do NOT change unrelated code.
 CURSOR AGENT — Add INVALID_ENV_TEMPLATE + template_version persistence to POST /api/environments
 
 Goal
-Implement template_id validation in POST /api/environments per docs/ENVIRONMENT_TEMPLATES_DELTA.md §8.
+Implement template_id validation in POST /api/environments per docs/plans-and-deltas/ENVIRONMENT_TEMPLATES_DELTA.md §8.
 Persist template_version and ensure archived_at defaults to null.
 
 Validation rules
@@ -638,7 +638,7 @@ Do NOT change unrelated code.
 CURSOR AGENT — Add cloudwatch-log-group and iam-role to Module Registry
 
 Goal
-Add baseline modules to the module registry per docs/ENVIRONMENT_TEMPLATES_DELTA.md §5.
+Add baseline modules to the module registry per docs/plans-and-deltas/ENVIRONMENT_TEMPLATES_DELTA.md §5.
 
 Scope
 - config/module-registry.ts
@@ -685,7 +685,7 @@ Do NOT change unrelated code.
 CURSOR AGENT — Add lib/terraform/envSkeleton.ts
 
 Goal
-Create skeleton generator per docs/ENVIRONMENT_TEMPLATES_DELTA.md §4 and §15. Must NOT live in API route.
+Create skeleton generator per docs/plans-and-deltas/ENVIRONMENT_TEMPLATES_DELTA.md §4 and §15. Must NOT live in API route.
 
 Scope
 - lib/terraform/envSkeleton.ts (new)
@@ -788,7 +788,7 @@ Deliverables
   - undeployed environment
   - open deploy PR
   - GitHub lookup failure → ENV_DEPLOY_CHECK_FAILED
-- tests added to runInvariants
+- tests added to runTests
 
 Manual verification
 Simulate:
@@ -1131,7 +1131,7 @@ deploy merged → enabled
 CURSOR AGENT — Phase 7 / Chunk 7.1: Deploy Error Code Invariant Tests
 
 Goal
-Add invariant tests covering ALL deploy error codes for POST /api/environments/:id/deploy per docs/ENVIRONMENT_TEMPLATES_DELTA.md and current Model 2 behavior.
+Add invariant tests covering ALL deploy error codes for POST /api/environments/:id/deploy per docs/plans-and-deltas/ENVIRONMENT_TEMPLATES_DELTA.md and current Model 2 behavior.
 
 Error codes + expected HTTP status (route-level):
 - INVALID_ENV_TEMPLATE → 400
@@ -1164,7 +1164,7 @@ Constraints
 - ENV_DEPLOY_IN_PROGRESS must be tested for BOTH cases:
   (a) deployPrOpen=true
   (b) DeployBranchExistsError (branch exists without PR)
-- Keep changes strictly within test files (and minimal test wiring in tests/runInvariants.ts if required).
+- Keep changes strictly within test files (and minimal test wiring in tests/runTests.ts if required).
 
 Deliverables
 - New/updated test file(s)

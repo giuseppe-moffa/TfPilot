@@ -2,7 +2,7 @@
 
 ## Overview
 
-**Scope:** Add Environment Templates catalogue section and Create Environment flow per `docs/ARCHITECTURE_DELTA_ENV_TEMPLATES_UI.md`.
+**Scope:** Add Environment Templates catalogue section and Create Environment flow per `docs/plans-and-deltas/ARCHITECTURE_DELTA_ENV_TEMPLATES_UI.md`.
 
 **Invariants (do not break):**
 - Terraform only runs in GitHub Actions
@@ -52,7 +52,7 @@
 
 **Cursor prompt:**
 ```
-Add the Environment Templates section to app/catalogue/page.tsx. Follow docs/ARCHITECTURE_DELTA_ENV_TEMPLATES_UI.md and docs/ENV_TEMPLATES_UI_IMPLEMENTATION_PLAN.md Step 1.
+Add the Environment Templates section to app/catalogue/page.tsx. Follow docs/plans-and-deltas/ARCHITECTURE_DELTA_ENV_TEMPLATES_UI.md and docs/plans-and-deltas/ENV_TEMPLATES_UI_IMPLEMENTATION_PLAN.md Step 1.
 
 - Fetch GET /api/environment-templates (response is raw array, no wrapper)
 - Each section has its own search input; env templates section below Request Templates
@@ -89,7 +89,7 @@ Add the Environment Templates section to app/catalogue/page.tsx. Follow docs/ARC
 
 **Cursor prompt:**
 ```
-Create app/catalogue/environments/[id]/page.tsx per docs/ARCHITECTURE_DELTA_ENV_TEMPLATES_UI.md and docs/ENV_TEMPLATES_UI_IMPLEMENTATION_PLAN.md Step 2.
+Create app/catalogue/environments/[id]/page.tsx per docs/plans-and-deltas/ARCHITECTURE_DELTA_ENV_TEMPLATES_UI.md and docs/plans-and-deltas/ENV_TEMPLATES_UI_IMPLEMENTATION_PLAN.md Step 2.
 
 - Fetch GET /api/environment-templates/[id]
 - Render description, modules table (order, module, defaultConfig preview)

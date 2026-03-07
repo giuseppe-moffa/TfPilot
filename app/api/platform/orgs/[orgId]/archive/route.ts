@@ -8,6 +8,7 @@ import { NextResponse } from "next/server"
 
 import { getSessionFromCookies } from "@/lib/auth/session"
 import { getUserRole } from "@/lib/auth/roles"
+import { writeAuditEvent, auditWriteDeps } from "@/lib/audit/write"
 import { getOrgById, archiveOrg } from "@/lib/db/orgs"
 
 async function requirePlatformAdmin() {
@@ -39,6 +40,17 @@ export async function POST(
   if (!archiveResult.ok) {
     return NextResponse.json({ error: "Failed to archive org" }, { status: 500 })
   }
+
+  const { session } = result
+  await writeAuditEvent(auditWriteDeps, {
+    org_id: orgId,
+    actor_login: session.login,
+    source: "user",
+    event_type: "org_archived",
+    entity_type: "org",
+    entity_id: orgId,
+    metadata: { slug: org.slug, name: org.name },
+  })
 
   return NextResponse.json({ ok: true, archivedAt: archiveResult.archivedAt })
 }

@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { requireSession } from "@/lib/auth/session"
 import { requireActiveOrg } from "@/lib/auth/requireActiveOrg"
 import { getGitHubAccessToken } from "@/lib/github/auth"
-import { githubRequest } from "@/lib/github/rateAware"
+import { githubRequest, type GithubRequestOpts } from "@/lib/github/rateAware"
 import { getRateLimitBackoff, setRateLimitBackoff } from "@/lib/github/rateLimitState"
 import { dispatchCleanup } from "@/lib/github/dispatchCleanup"
 import { maybeEmitCompletionEvent } from "@/lib/logs/lifecycle"
@@ -27,7 +27,28 @@ import { getRequestCost } from "@/lib/services/cost-service"
 import { env } from "@/lib/config/env"
 import { ensureAssistantState } from "@/lib/assistant/state"
 import { sendAdminNotification, formatRequestNotification } from "@/lib/notifications/email"
-import { logWarn } from "@/lib/observability/logger"
+import type { RequestLike } from "@/lib/requests/deriveLifecycleStatus"
+
+/** Request shape used in sync route (mutated in place). Cast to RequestLike for needsRepair/deriveLifecycleStatus. */
+type SyncRequest = Record<string, unknown> & {
+  lock?: RequestLock
+  targetOwner?: string
+  targetRepo?: string
+  id?: string
+  prNumber?: number
+  prUrl?: string
+  pr?: { number?: number; url?: string; status?: string; merged?: boolean; headSha?: string; open?: boolean }
+  pullRequest?: { number?: number; url?: string; title?: string; status?: string; merged?: boolean; headSha?: string; open?: boolean }
+  approval?: { approved?: boolean; approvers?: string[] }
+  github?: { pr?: unknown; cleanupDispatchStatus?: string }
+  cleanupPr?: { number?: number; status?: string; url?: string; merged?: boolean; headBranch?: string }
+  commitSha?: string
+  branchName?: string
+  targetBase?: string
+  updatedAt?: string
+  timeline?: unknown[]
+  plan?: unknown
+}
 
 /** Cooldown after a reconcile fetch produced no patch (avoid hammering GitHub when status/conclusion missing). */
 const RECONCILE_NOOP_COOLDOWN_MS = 60_000
@@ -111,33 +132,61 @@ function tfpilotOnlyResponse(
   })
 }
 
-export async function GET(req: NextRequest, { params }: { params: Promise<{ requestId: string }> }) {
+import type { SessionPayload } from "@/lib/auth/session"
+
+/** Dependencies for GET /api/requests/[requestId]/sync. Injected for testability. */
+export type SyncRouteDeps = {
+  requireSession: () => Promise<SessionPayload | NextResponse>
+  requireActiveOrg: (session: SessionPayload) => Promise<NextResponse | null>
+  getRequest: (requestId: string) => Promise<Record<string, unknown> | null>
+  getRequestOrgId: (requestId: string) => Promise<string | null>
+  /** Optional: when provided, used instead of real getGitHubAccessToken (tests). */
+  getGitHubAccessToken?: (req: NextRequest) => Promise<string | null>
+  /** Optional: when provided, used instead of real githubRequest (tests). */
+  githubRequest?: <T>(opts: GithubRequestOpts<T>) => Promise<T>
+  /** Optional: when provided, used instead of real updateRequest (tests). */
+  updateRequest?: (requestId: string, mutate: (request: any) => any) => Promise<[any, boolean]>
+}
+
+const syncRealDeps: SyncRouteDeps = {
+  requireSession,
+  requireActiveOrg,
+  getRequest: (id) => getRequest(id).catch(() => null),
+  getRequestOrgId,
+}
+
+/** Factory for testability; syncRealDeps used in runtime export. */
+export function makeSyncGET(deps: SyncRouteDeps) {
+  return async function GET(req: NextRequest, { params }: { params: Promise<{ requestId: string }> }) {
   try {
-    const sessionOr401 = await requireSession()
+    const sessionOr401 = await deps.requireSession()
     if (sessionOr401 instanceof NextResponse) return sessionOr401
     const session = sessionOr401
     if (!session.orgId) {
       return NextResponse.json({ error: "Not found" }, { status: 404 })
     }
-    const archivedRes = await requireActiveOrg(session)
+    const archivedRes = await deps.requireActiveOrg(session)
     if (archivedRes) return archivedRes
     const { requestId } = await params
     const repair = req.nextUrl.searchParams.get("repair") === "1"
     const hydrate = req.nextUrl.searchParams.get("hydrate") === "1"
 
-    let request = ensureAssistantState(await getRequest(requestId).catch(() => null))
-    if (!request) return NextResponse.json({ error: "Request not found" }, { status: 404 })
-    const resourceOrgId = (request as { org_id?: string }).org_id ?? (await getRequestOrgId(requestId))
+    const rawRequest = await deps.getRequest(requestId)
+    if (!rawRequest) return NextResponse.json({ error: "Request not found" }, { status: 404 })
+    let request = ensureAssistantState(rawRequest) as SyncRequest
+    const resourceOrgId = (request as { org_id?: string }).org_id ?? (await deps.getRequestOrgId(requestId))
     if (!resourceOrgId || resourceOrgId !== session.orgId) {
       return NextResponse.json({ error: "Not found" }, { status: 404 })
     }
 
     ensureRuns(request as Record<string, unknown>)
 
+    const doUpdateRequest = deps.updateRequest ?? updateRequest
+
     // Clear expired lock so actions are not blocked; persist only if changed
     const lock = request.lock as RequestLock | undefined
     if (lock && isLockExpired(lock, new Date())) {
-      const [updated, saved] = await updateRequest(requestId, (c) => ({
+      const [updated, saved] = await doUpdateRequest(requestId, (c) => ({
         ...c,
         lock: undefined,
         updatedAt: new Date().toISOString(),
@@ -159,12 +208,13 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
       (applyAttemptGate != null && (isAttemptActive(applyAttemptGate) || needsReconcile(applyAttemptGate))) ||
       (destroyAttemptGate != null && (isAttemptActive(destroyAttemptGate) || needsReconcile(destroyAttemptGate)))
 
-    const doGitHub = repair || hydrate || needsRepair(request) || hasActiveAttemptNeedingFetch
+    const doGitHub = repair || hydrate || needsRepair(request as Parameters<typeof needsRepair>[0]) || hasActiveAttemptNeedingFetch
     if (!doGitHub) {
       return tfpilotOnlyResponse(request)
     }
 
-    const token = await getGitHubAccessToken(req)
+    const getToken = deps.getGitHubAccessToken ?? getGitHubAccessToken
+    const token = await getToken(req)
     if (!token) return NextResponse.json({ error: "GitHub not connected" }, { status: 401 })
 
     const owner = request.targetOwner as string | undefined
@@ -204,9 +254,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
       request.pr = { number: request.prNumber, url: request.prUrl }
     }
 
+    const ghRequest = deps.githubRequest ?? githubRequest
+
     try {
     if (request.pr?.number) {
-      const prJson = await githubRequest<{
+      const prJson = await ghRequest<{
         merged?: boolean
         merged_at?: string | null
         merged_by?: { login?: string } | null
@@ -252,7 +304,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
       }
 
       try {
-        const reviews = await githubRequest<Array<{ user?: { login?: string }; state?: string }>>({
+        const reviews = await ghRequest<Array<{ user?: { login?: string }; state?: string }>>({
           token,
           key: `gh:pr-reviews:${request.targetOwner}:${request.targetRepo}:${request.pr.number}`,
           ttlMs: 15_000,
@@ -286,7 +338,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
     if (request.targetOwner && request.targetRepo) {
       try {
         const cleanupHead = `${request.targetOwner}:cleanup/${request.id}`
-        const cleanupJson = await githubRequest<Array<{
+        const cleanupJson = await ghRequest<Array<{
           number?: number
           html_url?: string
           state?: string
@@ -329,7 +381,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
         if (process.env.DEBUG_WEBHOOKS === "1") {
           console.log("event=sync.plan_discovery_attempt", { requestId, attempt: planAttempt.attempt })
         }
-        const runsJson = await githubRequest<{ workflow_runs?: Array<{ id: number; html_url?: string }> }>({
+        const runsJson = await ghRequest<{ workflow_runs?: Array<{ id: number; html_url?: string }> }>({
           token,
           key: `gh:wf-runs:${request.targetOwner}:${request.targetRepo}:${PLAN_WORKFLOW}:${request.branchName}`,
           ttlMs: 15_000,
@@ -350,7 +402,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
           if (patched) {
             request.runs = patched
             putRunIndex("plan", firstRun.id, requestId).catch(() => {})
-            const runJson = await githubRequest<{
+            const runJson = await ghRequest<{
               status?: string
               conclusion?: string
               head_sha?: string
@@ -426,7 +478,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
         }
         const applyRef = (request.branchName ?? request.targetBase ?? "main") as string
         const APPLY_WORKFLOW = env.GITHUB_APPLY_WORKFLOW_FILE
-        const runsJson = await githubRequest<{
+        const runsJson = await ghRequest<{
           workflow_runs?: Array<{ id: number; created_at?: string; head_branch?: string; html_url?: string }>
         }>({
           token,
@@ -539,7 +591,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
           })
           console.log("event=sync.fetch_run_fresh", { kind: "apply", runId: currentApply.runId })
         }
-        const runJson = await githubRequest<{
+        const runJson = await ghRequest<{
           status?: string
           conclusion?: string
           head_sha?: string
@@ -665,7 +717,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
           })
           console.log("event=sync.fetch_run_fresh", { kind: "plan", runId: planAttempt.runId })
         }
-        const runJson = await githubRequest<{
+        const runJson = await ghRequest<{
           status?: string
           conclusion?: string
           head_sha?: string
@@ -763,7 +815,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
         }
         const destroyRef = (request.targetBase ?? env.GITHUB_DEFAULT_BASE_BRANCH ?? "main") as string
         const DESTROY_WORKFLOW = env.GITHUB_DESTROY_WORKFLOW_FILE
-        const runsJson = await githubRequest<{
+        const runsJson = await ghRequest<{
           workflow_runs?: Array<{ id: number; created_at?: string; head_branch?: string; html_url?: string }>
         }>({
           token,
@@ -876,7 +928,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
           })
           console.log("event=sync.fetch_run_fresh", { kind: "destroy", runId: currentDestroy.runId })
         }
-        const runJson = await githubRequest<{
+        const runJson = await ghRequest<{
           status?: string
           conclusion?: string
           head_sha?: string
@@ -971,7 +1023,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
       }
     }
 
-    const status = deriveLifecycleStatus(request)
+    const status = deriveLifecycleStatus(request as RequestLike)
     const nowIso = new Date().toISOString()
     request.updatedAt = nowIso
     // Status is derived in response only; do not persist request.status
@@ -1023,7 +1075,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
         latestDestroy?.status === "completed" && latestDestroy?.conclusion === "success"
       if (destroySuccess && request.github?.cleanupDispatchStatus === "error") {
         const nowIso = new Date().toISOString()
-        await updateRequest(requestId, (current) => ({
+        await doUpdateRequest(requestId, (current) => ({
           ...current,
           github: {
             ...current.github,
@@ -1035,14 +1087,14 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
         }))
         try {
           await dispatchCleanup({ token, requestId })
-          await updateRequest(requestId, (current) => ({
+          await doUpdateRequest(requestId, (current) => ({
             ...current,
             github: { ...current.github, cleanupDispatchStatus: "dispatched" },
             updatedAt: new Date().toISOString(),
           }))
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err)
-          await updateRequest(requestId, (current) => ({
+          await doUpdateRequest(requestId, (current) => ({
             ...current,
             github: {
               ...current.github,
@@ -1078,7 +1130,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
     }
     request.timeline = timeline
 
-    const [updated] = await updateRequest(requestId, (current) => ({
+    const [updated] = await doUpdateRequest(requestId, (current) => ({
       ...current,
       pr: request.pr,
       prNumber: request.prNumber ?? current.prNumber,
@@ -1134,4 +1186,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
     }
     return NextResponse.json({ error: "Failed to sync request" }, { status: 500 })
   }
+  }
 }
+
+export const GET = makeSyncGET(syncRealDeps)

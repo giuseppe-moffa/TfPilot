@@ -37,6 +37,7 @@ const primaryNavItems = [
 const settingsNavItems = [
   { label: "Members", href: "/settings/org" },
   { label: "Teams", href: "/settings/teams" },
+  { label: "Audit", href: "/settings/audit" },
   { label: "Platform Orgs", href: "/settings/platform/orgs" },
 ] as const
 
@@ -47,6 +48,7 @@ function getPageTitle(pathname: string): string {
   if (pathname.startsWith("/insights")) return "Insights"
   if (pathname.startsWith("/settings/org")) return "Members"
   if (pathname.startsWith("/settings/teams")) return "Teams"
+  if (pathname.startsWith("/settings/audit")) return "Audit"
   if (pathname.startsWith("/settings/platform/orgs")) return "Platform Orgs"
   return ""
 }

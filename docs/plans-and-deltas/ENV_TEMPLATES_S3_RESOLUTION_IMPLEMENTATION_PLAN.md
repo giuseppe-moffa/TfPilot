@@ -1,6 +1,6 @@
 # Env Templates S3 Resolution — Implementation Plan (Step 7)
 
-**Authoritative:** `docs/ARCHITECTURE_DELTA_ENV_TEMPLATES_S3_RESOLUTION.md`
+**Authoritative:** `docs/plans-and-deltas/ARCHITECTURE_DELTA_ENV_TEMPLATES_S3_RESOLUTION.md`
 
 > Create-environment and deploy resolve env templates from S3 (authoritative). "blank" is a built-in virtual template; non-blank requires S3 index.
 

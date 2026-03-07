@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from "next/server"
 
 import { getSessionFromCookies } from "@/lib/auth/session"
 import { getUserRole } from "@/lib/auth/roles"
+import { writeAuditEvent, auditWriteDeps } from "@/lib/audit/write"
 import { listAllOrgsWithCounts, createOrgWithInitialAdmin } from "@/lib/db/orgs"
 
 async function requirePlatformAdmin() {
@@ -72,6 +73,17 @@ export async function POST(req: NextRequest) {
     }
     return NextResponse.json({ error: "Failed to create org" }, { status: 500 })
   }
+
+  const { session } = result
+  await writeAuditEvent(auditWriteDeps, {
+    org_id: createResult.org.id,
+    actor_login: session.login,
+    source: "user",
+    event_type: "org_created",
+    entity_type: "org",
+    entity_id: createResult.org.id,
+    metadata: { slug: createResult.org.slug, name: createResult.org.name },
+  })
 
   return NextResponse.json({ org: createResult.org })
 }
