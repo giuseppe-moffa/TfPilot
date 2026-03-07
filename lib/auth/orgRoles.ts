@@ -1,6 +1,5 @@
 /**
  * Org-scoped role resolver. Queries org_memberships table.
- * Does NOT read from session. Does NOT replace getUserRole yet.
  */
 
 import { query } from "@/lib/db/pg"

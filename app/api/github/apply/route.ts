@@ -8,7 +8,8 @@ import { getRequest, updateRequest } from "@/lib/storage/requestsStore"
 import { deriveLifecycleStatus } from "@/lib/requests/deriveLifecycleStatus"
 import { getSessionFromCookies } from "@/lib/auth/session"
 import { logLifecycleEvent } from "@/lib/logs/lifecycle"
-import { getUserRole } from "@/lib/auth/roles"
+import { requireRequestProjectPermission } from "@/lib/auth/requestProjectPermission"
+import { getRequestOrgId } from "@/lib/db/requestsList"
 import { getIdempotencyKey, assertIdempotentOrRecord, ConflictError } from "@/lib/requests/idempotency"
 import { acquireLock, releaseLock, LockConflictError, type RequestDocWithLock } from "@/lib/requests/lock"
 import { getCurrentAttemptStrict, patchAttemptRunId, persistDispatchAttempt } from "@/lib/requests/runsModel"
@@ -32,10 +33,6 @@ export async function POST(req: NextRequest) {
     if (!session) {
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
     }
-    const role = getUserRole(session.login)
-    if (role !== "approver" && role !== "admin") {
-      return NextResponse.json({ error: "Apply not permitted for your role" }, { status: 403 })
-    }
 
     const token = await getGitHubAccessToken(req)
     if (!token) {
@@ -46,6 +43,15 @@ export async function POST(req: NextRequest) {
     if (!request) {
       return NextResponse.json({ error: "Request not found" }, { status: 404 })
     }
+
+    const permRes = await requireRequestProjectPermission(
+      { login: session.login, orgId: session.orgId ?? null },
+      request as { project_key?: string; org_id?: string },
+      body.requestId,
+      "apply",
+      { getRequestOrgId }
+    )
+    if (permRes) return permRes
 
     const idemKey = getIdempotencyKey(req) ?? ""
     const now = new Date()
@@ -99,13 +105,6 @@ export async function POST(req: NextRequest) {
       !!(request as { mergedSha?: string }).mergedSha
     if (!isMerged) {
       return NextResponse.json({ error: "Request must be merged before apply" }, { status: 400 })
-    }
-
-    const isProd = request.environment_key?.toLowerCase() === "prod"
-    if (isProd && env.TFPILOT_PROD_ALLOWED_USERS.length > 0) {
-      if (!env.TFPILOT_PROD_ALLOWED_USERS.includes(session.login)) {
-        return NextResponse.json({ error: "Prod apply not allowed for this user" }, { status: 403 })
-      }
     }
 
     const owner = request.targetOwner

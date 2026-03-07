@@ -1,12 +1,13 @@
 #!/usr/bin/env tsx
 /**
- * Seed default org and org memberships from TFPILOT_ADMINS / TFPILOT_APPROVERS.
+ * Seed default org and org memberships. Uses platform_admins for org admins.
  * Idempotent. Usage: npm run db:seed
+ * Run db:seed-platform-admins first if you need initial platform admins.
  */
 import "./load-env"
 
-import { env } from "@/lib/config/env"
 import { seedDefaultOrg } from "@/lib/db/seedDefaultOrg"
+import { listPlatformAdmins } from "@/lib/db/platformAdmins"
 import { isDatabaseConfigured } from "@/lib/db/config"
 
 async function main() {
@@ -15,7 +16,8 @@ async function main() {
     process.exit(1)
   }
 
-  const result = await seedDefaultOrg(env.TFPILOT_ADMINS, env.TFPILOT_APPROVERS)
+  const admins = await listPlatformAdmins()
+  const result = await seedDefaultOrg(admins, [])
   if (!result.ok) {
     console.error("Seed failed:", result.error)
     process.exit(1)

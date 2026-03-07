@@ -15,14 +15,73 @@ import { gh } from "@/lib/github/client"
 import { withCorrelation } from "@/lib/observability/correlation"
 import { logError, logWarn } from "@/lib/observability/logger"
 import { logLifecycleEvent } from "@/lib/logs/lifecycle"
-import { getUserRole } from "@/lib/auth/roles"
-import { userHasProjectKeyAccess } from "@/lib/auth/projectAccess"
+import { writeAuditEvent, auditWriteDeps } from "@/lib/audit/write"
+import {
+  buildPermissionContext,
+  requireProjectPermission,
+  PermissionDeniedError,
+  type PermissionContext,
+  type ProjectPermission,
+} from "@/lib/auth/permissions"
+import { getProjectByKey } from "@/lib/db/projects"
 import { getIdempotencyKey, assertIdempotentOrRecord, ConflictError } from "@/lib/requests/idempotency"
+import type { SessionPayload } from "@/lib/auth/session"
+
+export type ApplyRouteDeps = {
+  getSessionFromCookies: () => Promise<SessionPayload | null>
+  requireActiveOrg: (session: SessionPayload) => Promise<NextResponse | null>
+  getGitHubAccessToken: (req: NextRequest) => Promise<string | null>
+  getRequest: (id: string) => Promise<unknown>
+  getRequestOrgId: (id: string) => Promise<string | null>
+  getProjectByKey: (orgId: string, projectKey: string) => Promise<{ id: string; orgId: string } | null>
+  buildPermissionContext: (login: string, orgId: string) => Promise<PermissionContext>
+  requireProjectPermission: (
+    ctx: PermissionContext,
+    projectId: string,
+    permission: ProjectPermission
+  ) => Promise<unknown>
+  getIdempotencyKey: (req: NextRequest) => string | null
+  assertIdempotentOrRecord: (opts: {
+    requestDoc: { idempotency?: Record<string, { key: string; at: string }> }
+    operation: string
+    key: string
+    now: Date
+  }) => { ok: boolean; mode: string; patch?: { idempotency: Record<string, { key: string; at: string }> } }
+  updateRequest: (id: string, fn: (current: unknown) => unknown) => Promise<unknown[]>
+}
+
+const realApplyDeps: ApplyRouteDeps = {
+  getSessionFromCookies,
+  requireActiveOrg,
+  getGitHubAccessToken,
+  getRequest,
+  getRequestOrgId,
+  getProjectByKey,
+  buildPermissionContext,
+  requireProjectPermission,
+  getIdempotencyKey,
+  assertIdempotentOrRecord,
+  updateRequest,
+}
 import { acquireLock, releaseLock, LockConflictError, type RequestDocWithLock } from "@/lib/requests/lock"
 import { getCurrentAttemptStrict, persistDispatchAttempt } from "@/lib/requests/runsModel"
 import type { RunsState } from "@/lib/requests/runsModel"
 import { putRunIndex } from "@/lib/requests/runIndex"
 import { resolveApplyRunId } from "@/lib/requests/resolveApplyRunId"
+
+type RequestDocForApply = {
+  id: string
+  org_id?: string
+  project_key?: string
+  targetOwner?: string
+  targetRepo?: string
+  targetBase?: string
+  branchName?: string
+  environment_key?: string
+  environment_slug?: string
+  environment_id?: string
+  runs?: RunsState
+}
 
 type PatchOp = { op: "set" | "unset"; path: string; value?: unknown }
 
@@ -237,21 +296,22 @@ function applyPatchToConfig(target: Record<string, unknown>, op: PatchOp) {
   cursor[parts[parts.length - 1]] = op.value
 }
 
-export async function POST(req: NextRequest, context: { params: Promise<{ requestId: string }> }) {
+export function makeApplyPOST(deps: ApplyRouteDeps) {
+  return async function POST(req: NextRequest, context: { params: Promise<{ requestId: string }> }) {
   try {
     const { requestId } = await context.params
     if (!requestId) {
       return NextResponse.json({ success: false, error: "Missing requestId" }, { status: 400 })
     }
 
-    const session = await getSessionFromCookies()
+    const session = await deps.getSessionFromCookies()
     if (!session) {
       return NextResponse.json({ success: false, error: "Not authenticated" }, { status: 401 })
     }
     if (!session.orgId) {
       return NextResponse.json({ error: "Not found" }, { status: 404 })
     }
-    const archivedRes = await requireActiveOrg(session)
+    const archivedRes = await deps.requireActiveOrg(session)
     if (archivedRes) return archivedRes
 
     let body: { suggestionIds?: string[] }
@@ -266,44 +326,55 @@ export async function POST(req: NextRequest, context: { params: Promise<{ reques
       const correlation = withCorrelation(req, {})
       const holder = correlation.correlationId
       try {
-        const token = await getGitHubAccessToken(req)
+        const token = await deps.getGitHubAccessToken(req)
         if (!token) {
           return NextResponse.json({ error: "GitHub not connected" }, { status: 401 })
         }
-        const role = getUserRole(session.login)
-        if (role !== "approver" && role !== "admin") {
-          return NextResponse.json({ error: "Apply not permitted for your role" }, { status: 403 })
-        }
-        const request = await getRequest(requestId).catch(() => null)
-        if (!request) {
+        const raw = await deps.getRequest(requestId).catch(() => null)
+        if (!raw) {
           return NextResponse.json({ error: "Not found" }, { status: 404 })
         }
-        const resourceOrgId = (request as { org_id?: string }).org_id ?? (await getRequestOrgId(requestId))
+        const request = raw as RequestDocForApply
+        const resourceOrgId = request.org_id ?? (await deps.getRequestOrgId(requestId))
         if (!resourceOrgId || resourceOrgId !== session.orgId) {
           return NextResponse.json({ error: "Not found" }, { status: 404 })
         }
         const projectKey = (request as { project_key?: string }).project_key
-        if (projectKey) {
-          const hasAccess = await userHasProjectKeyAccess(session.login, session.orgId!, projectKey)
-          if (!hasAccess) {
-            return NextResponse.json({ error: "Not found" }, { status: 404 })
+        if (!projectKey) {
+          return NextResponse.json({ error: "Not found" }, { status: 404 })
+        }
+        const project = await deps.getProjectByKey(session.orgId!, projectKey)
+        if (!project || project.orgId !== session.orgId) {
+          return NextResponse.json({ error: "Not found" }, { status: 404 })
+        }
+        const ctx = await deps.buildPermissionContext(session.login, session.orgId!)
+        try {
+          await deps.requireProjectPermission(ctx, project.id, "apply")
+        } catch (e) {
+          if (e instanceof PermissionDeniedError) {
+            return NextResponse.json({ error: "Apply not permitted for your role" }, { status: 403 })
           }
+          throw e
         }
         const now = new Date()
-        const idemKey = getIdempotencyKey(req) ?? ""
+        const idemKey = deps.getIdempotencyKey(req) ?? ""
         try {
-          const idem = assertIdempotentOrRecord({
+          const idem = deps.assertIdempotentOrRecord({
             requestDoc: request as { idempotency?: Record<string, { key: string; at: string }> },
             operation: "apply",
             key: idemKey,
             now,
           })
           if (idem.ok === false && idem.mode === "replay") {
-            const current = await getRequest(request.id).catch(() => null)
+            const current = await deps.getRequest(request.id).catch(() => null)
             return NextResponse.json({ ok: true, request: current ?? request })
           }
           if (idem.ok === true && idem.mode === "recorded" && idem.patch) {
-            await updateRequest(request.id, (c) => ({ ...c, ...idem.patch, updatedAt: now.toISOString() }))
+            await deps.updateRequest(request.id, (c) => ({
+              ...(c as Record<string, unknown>),
+              ...idem.patch,
+              updatedAt: now.toISOString(),
+            }))
           }
         } catch (err) {
           if (err instanceof ConflictError) {
@@ -344,12 +415,6 @@ export async function POST(req: NextRequest, context: { params: Promise<{ reques
           (status === "failed" && applyErrorState && !applyStillRunning)
         if (!canDeploy) {
           return NextResponse.json({ error: "Request must be merged before apply" }, { status: 400 })
-        }
-        const isProd = request.environment_key?.toLowerCase() === "prod"
-        if (isProd && env.TFPILOT_PROD_ALLOWED_USERS.length > 0) {
-          if (!env.TFPILOT_PROD_ALLOWED_USERS.includes(session.login)) {
-            return NextResponse.json({ error: "Prod apply not allowed for this user" }, { status: 403 })
-          }
         }
         const owner = request.targetOwner
         const repo = request.targetRepo
@@ -448,6 +513,17 @@ export async function POST(req: NextRequest, context: { params: Promise<{ reques
             targetRepo: `${owner}/${repo}`,
           },
         })
+        writeAuditEvent(auditWriteDeps, {
+          org_id: (request as { org_id?: string }).org_id!,
+          actor_login: session.login,
+          source: "user",
+          event_type: "request_apply_dispatched",
+          entity_type: "request",
+          entity_id: request.id,
+          request_id: request.id,
+          project_key: request.project_key,
+          environment_id: request.environment_id,
+        }).catch(() => {})
         return NextResponse.json({ ok: true, request: afterApply })
       } catch (deployErr) {
         logError("apply.dispatch_failed", deployErr as Error, { requestId })
@@ -471,6 +547,23 @@ export async function POST(req: NextRequest, context: { params: Promise<{ reques
     const resourceOrgId = (fetched as { org_id?: string }).org_id ?? (await getRequestOrgId(requestId))
     if (!resourceOrgId || resourceOrgId !== session.orgId) {
       return NextResponse.json({ error: "Not found" }, { status: 404 })
+    }
+    const projectKey = (fetched as { project_key?: string }).project_key
+    if (!projectKey) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 })
+    }
+    const project = await getProjectByKey(session.orgId!, projectKey)
+    if (!project || project.orgId !== session.orgId) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 })
+    }
+    const ctx = await buildPermissionContext(session.login, session.orgId!)
+    try {
+      await requireProjectPermission(ctx, project.id, "plan")
+    } catch (e) {
+      if (e instanceof PermissionDeniedError) {
+        return NextResponse.json({ success: false, error: "Plan not permitted for your role" }, { status: 403 })
+      }
+      throw e
     }
     const baseRequest = ensureAssistantState(fetched)
 
@@ -557,5 +650,8 @@ export async function POST(req: NextRequest, context: { params: Promise<{ reques
   } catch (error) {
     console.error("[api/requests/apply] error", error)
     return NextResponse.json({ success: false, error: "Failed to apply to configuration" }, { status: 400 })
+  }
+  }
 }
-}
+
+export const POST = makeApplyPOST(realApplyDeps)

@@ -42,7 +42,7 @@ TfPilot is **multi-tenant** at the org level. All environments, requests, projec
 
 | Role | Identity | Scope | Capabilities |
 |------|----------|-------|--------------|
-| **Platform admin** | `getUserRole(login) === "admin"` (TFPILOT_ADMINS) | Whole platform | List/create/archive/restore orgs; view any org detail; bypass archived-org enforcement on platform routes |
+| **Platform admin** | `isPlatformAdmin(login)` (platform_admins table) | Whole platform | List/create/archive/restore orgs; view any org detail; bypass archived-org enforcement on platform routes |
 | **Org admin** | `org_memberships.role === "admin"` | Single org | Manage members, teams, project access within that org |
 | **Project access** | Team membership or org admin | Per project | Required for create/approve/apply/deploy/destroy on resources in that project |
 

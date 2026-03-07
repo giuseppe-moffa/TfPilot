@@ -8,10 +8,10 @@ This document describes how roles, permissions, and allowlists control access ac
 
 TfPilot uses multiple authorization layers:
 
-1. **Role-based access (GitHub login)** — `getUserRole(login)` assigns one of four roles from env allowlists. Roles gate request lifecycle actions (create, update, approve, deploy, destroy).
-2. **Platform admin** — `getUserRole(login) === "admin"` (TFPILOT_ADMINS). Platform-wide: list/create/archive/restore orgs; view any org detail; bypass archived-org enforcement on platform routes.
-3. **Org admin** — `org_memberships.role === "admin"`. Per-org: manage members, teams, project access.
-4. **Project access** — `userHasProjectKeyAccess(login, orgId, projectKey)`. Required for request lifecycle actions on resources in that project. Granted via org admin or team membership in a team with `project_team_access`.
+1. **Org roles** — `org_memberships.role` (viewer, developer, approver, admin). Per-org; gates request lifecycle actions. Resolved via `getUserOrgRole(login, orgId)`.
+2. **Platform admin** — `platform_admins` table. Platform-wide: list/create/archive/restore orgs; view any org detail; bypass archived-org enforcement on platform routes. Check via `isPlatformAdmin(login)`.
+3. **Org admin** — `org_memberships.role === "admin"`. Per-org: manage members, teams, project access. Short-circuits to full project authority.
+4. **Project roles** — `project_user_roles` and `project_team_roles`. Per-project permissions (viewer, planner, operator, deployer, admin). Required for request lifecycle actions. Org admin bypasses.
 5. **Admin-by-email** — `requireAdminByEmail()` checks `TFPILOT_ADMIN_EMAILS`. Used for catalogue/template admin UI and Insights.
 
 ### Dual permission model: RBAC + project access
@@ -25,28 +25,35 @@ Both must pass. A developer with project access can create requests; an approver
 
 | Mechanism              | Identity          | Config               | Use case                           |
 |------------------------|-------------------|----------------------|------------------------------------|
-| Role (login)           | `session.login`   | `TFPILOT_ADMINS`, `TFPILOT_APPROVERS` | Request lifecycle, environments, destroy |
-| Platform admin         | `session.login`   | `TFPILOT_ADMINS`     | Platform org management (/api/platform/orgs) |
-| Project access         | org/team membership | `project_team_access`, org admin | Which project user may operate on |
+| Org role               | `session.login` + org | `org_memberships` | Request lifecycle, environments (org-scoped) |
+| Platform admin         | `session.login`   | `platform_admins` table | Platform org management (/api/platform/orgs) |
+| Project role           | org/team + project | `project_user_roles`, `project_team_roles`, org admin | Per-project permissions (plan, approve, apply, destroy) |
 | Admin-by-email        | `session.email`   | `TFPILOT_ADMIN_EMAILS` | Catalogue, request templates, Insights |
 
 ---
 
-## Roles (login-based)
+## Org roles
 
-Defined in **lib/auth/roles.ts**. Role resolution order:
-
-1. No login → `viewer`
-2. In `TFPILOT_ADMINS` → `admin`
-3. In `TFPILOT_APPROVERS` → `approver`
-4. Otherwise → `developer`
+Defined in **org_memberships** table. Resolved via `getUserOrgRole(login, orgId)` in `lib/auth/orgRoles.ts`.
 
 | Role        | Description                                      |
 |-------------|--------------------------------------------------|
 | **viewer**  | Read-only. Cannot create, update, approve, deploy, or destroy. |
 | **developer** | Create requests, update config, trigger plan. Cannot approve, merge, apply, deploy, or destroy. |
-| **approver** | Developer permissions + approve PRs, merge, apply. Prod actions may require prod allowlists. |
-| **admin**   | Full platform access including environment deploy and destroy. |
+| **approver** | Developer permissions + approve PRs, merge, apply. |
+| **admin**   | Full org access including environment deploy and destroy. Org admin short-circuits to full project authority. |
+
+## Project roles
+
+Defined in **project_user_roles** and **project_team_roles**. Resolved via `resolveEffectiveProjectRole` in `lib/auth/projectRoles.ts`. Org admin bypasses (treated as project admin).
+
+| Role        | plan | approve | apply | destroy | deploy_env |
+|-------------|:----:|:-------:|:-----:|:-------:|:----------:|
+| viewer      | ✗    | ✗       | ✗     | ✗       | ✗          |
+| planner     | ✓    | ✗       | ✗     | ✗       | ✗          |
+| operator    | ✓    | ✓       | ✓     | ✗       | ✗          |
+| deployer    | ✓    | ✓       | ✓     | ✗       | ✓          |
+| admin       | ✓    | ✓       | ✓     | ✓       | ✓          |
 
 ---
 
@@ -54,12 +61,9 @@ Defined in **lib/auth/roles.ts**. Role resolution order:
 
 | Variable                         | Type   | Purpose                                                                 |
 |---------------------------------|--------|-------------------------------------------------------------------------|
-| `TFPILOT_ALLOWED_LOGINS`        | CSV    | GitHub logins allowed to sign in. Empty = allow any authenticated user. |
-| `TFPILOT_ADMINS`                | CSV    | GitHub logins with `admin` role.                                       |
-| `TFPILOT_APPROVERS`             | CSV    | GitHub logins with `approver` role (not in TFPILOT_ADMINS).             |
-| `TFPILOT_PROD_ALLOWED_USERS`    | CSV    | Who can run plan/apply/merge on **prod** environments. Empty = any approver/admin. |
-| `TFPILOT_DESTROY_PROD_ALLOWED_USERS` | CSV | Who can destroy **prod** resources. Additional check beyond admin role. Empty = any admin. |
 | `TFPILOT_ADMIN_EMAILS`          | CSV    | Emails with access to catalogue admin, request templates admin, Insights. Requires `user:email` scope. |
+
+**Platform admins:** Stored in `platform_admins` table. Seed via `npm run db:seed-platform-admins`. Optional env `TFPILOT_ADMINS` (CSV) for initial seed only; not used at runtime.
 
 ---
 
@@ -80,8 +84,7 @@ Defined in **lib/auth/roles.ts**. Role resolution order:
 | Destroy request                | ✗     | ✗         | ✗        | ✓**   |
 | Update branch                  | ✗     | ✗         | ✓*       | ✓*    |
 
-\* On **prod** environments: requires `TFPILOT_PROD_ALLOWED_USERS` if configured.  
-\** On **prod**: additionally requires `TFPILOT_DESTROY_PROD_ALLOWED_USERS` if configured.
+Prod access is gated by project roles (operator/deployer/admin); no separate prod allowlists.
 
 ### Environments
 

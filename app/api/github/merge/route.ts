@@ -7,7 +7,8 @@ import { getRequest, updateRequest } from "@/lib/storage/requestsStore"
 import { getSessionFromCookies } from "@/lib/auth/session"
 import { env } from "@/lib/config/env"
 import { logLifecycleEvent } from "@/lib/logs/lifecycle"
-import { getUserRole } from "@/lib/auth/roles"
+import { requireRequestProjectPermission } from "@/lib/auth/requestProjectPermission"
+import { getRequestOrgId } from "@/lib/db/requestsList"
 import { getIdempotencyKey, assertIdempotentOrRecord, ConflictError } from "@/lib/requests/idempotency"
 import { logInfo, logWarn } from "@/lib/observability/logger"
 
@@ -22,10 +23,6 @@ export async function POST(req: NextRequest) {
     if (!session) {
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
     }
-    const role = getUserRole(session.login)
-    if (role !== "approver" && role !== "admin") {
-      return NextResponse.json({ error: "Merge not permitted for your role" }, { status: 403 })
-    }
 
     const token = await getGitHubAccessToken(req)
     if (!token) {
@@ -36,6 +33,14 @@ export async function POST(req: NextRequest) {
     if (!request) {
       return NextResponse.json({ error: "Request not found" }, { status: 404 })
     }
+    const permRes = await requireRequestProjectPermission(
+      { login: session.login, orgId: session.orgId ?? null },
+      request as { project_key?: string; org_id?: string },
+      body.requestId,
+      "approve",
+      { getRequestOrgId }
+    )
+    if (permRes) return permRes
     if (!request.targetOwner || !request.targetRepo || !request.prNumber) {
       return NextResponse.json({ error: "Missing target repo or PR info" }, { status: 400 })
     }
@@ -66,13 +71,6 @@ export async function POST(req: NextRequest) {
         )
       }
       throw err
-    }
-
-    const isProd = request.environment_key?.toLowerCase() === "prod"
-    if (isProd && env.TFPILOT_PROD_ALLOWED_USERS.length > 0) {
-      if (!env.TFPILOT_PROD_ALLOWED_USERS.includes(session.login)) {
-        return NextResponse.json({ error: "Prod merge not allowed for this user" }, { status: 403 })
-      }
     }
 
     // Do not run update-branch in preflight — only run when merge fails with "out of date" (see below)

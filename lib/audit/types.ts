@@ -10,15 +10,19 @@ export const AUDIT_EVENT_TYPES = [
   "org_created",
   "org_archived",
   "org_restored",
+  "org_member_added",
+  "org_member_removed",
   "team_created",
   "team_member_added",
   "team_member_removed",
   "project_access_granted",
   "project_access_revoked",
+  "project_user_role_assigned",
+  "project_user_role_removed",
   "request_created",
   "request_approved",
-  "request_applied",
-  "request_destroyed",
+  "request_apply_dispatched",
+  "request_destroy_dispatched",
   "environment_destroy_requested",
   "environment_deploy_pr_opened",
 ] as const
@@ -35,8 +39,12 @@ export type AuditMetadata = {
   team_id?: string
   team_slug?: string
   project_key?: string
+  user_login?: string
+  role?: string
   environment_id?: string
+  environment_slug?: string
   module?: string
+  pr_number?: number
 }
 
 /** Input for write helper before DB persistence. */

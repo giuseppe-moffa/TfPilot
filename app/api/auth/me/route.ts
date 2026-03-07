@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server"
 
 import { getSessionFromCookies } from "@/lib/auth/session"
-import { getUserRole, type UserRole } from "@/lib/auth/roles"
+import { getUserOrgRole } from "@/lib/auth/orgRoles"
+import { isPlatformAdmin } from "@/lib/db/platformAdmins"
 import { isOrgArchived } from "@/lib/db/orgs"
 
 export async function GET() {
@@ -9,7 +10,12 @@ export async function GET() {
   if (!session) {
     return NextResponse.json({ authenticated: false })
   }
-  const role: UserRole = getUserRole(session.login)
+  const orgRole =
+    session.orgId && session.login
+      ? await getUserOrgRole(session.login, session.orgId)
+      : null
+  const isOrgAdmin = orgRole === "admin"
+  const platformAdmin = await isPlatformAdmin(session.login)
   const org =
     session.orgId && session.orgSlug
       ? {
@@ -18,5 +24,12 @@ export async function GET() {
           orgArchived: await isOrgArchived(session.orgId),
         }
       : undefined
-  return NextResponse.json({ authenticated: true, user: session, role, org })
+  return NextResponse.json({
+    authenticated: true,
+    user: session,
+    orgRole,
+    isOrgAdmin,
+    isPlatformAdmin: platformAdmin,
+    org,
+  })
 }

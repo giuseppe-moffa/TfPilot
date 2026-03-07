@@ -9,8 +9,15 @@ import { withCorrelation } from "@/lib/observability/correlation"
 import { logError, logInfo, logWarn } from "@/lib/observability/logger"
 import { archiveRequest, getRequest, updateRequest } from "@/lib/storage/requestsStore"
 import { logLifecycleEvent } from "@/lib/logs/lifecycle"
-import { getUserRole } from "@/lib/auth/roles"
-import { userHasProjectKeyAccess } from "@/lib/auth/projectAccess"
+import { writeAuditEvent, auditWriteDeps } from "@/lib/audit/write"
+import {
+  buildPermissionContext,
+  requireProjectPermission,
+  PermissionDeniedError,
+  type PermissionContext,
+  type ProjectPermission,
+} from "@/lib/auth/permissions"
+import { getProjectByKey } from "@/lib/db/projects"
 import { getIdempotencyKey, assertIdempotentOrRecord, ConflictError } from "@/lib/requests/idempotency"
 import { acquireLock, releaseLock, LockConflictError, type RequestDocWithLock } from "@/lib/requests/lock"
 import { getCurrentAttemptStrict, patchAttemptRunId, persistDispatchAttempt } from "@/lib/requests/runsModel"
@@ -19,8 +26,65 @@ import { putRunIndex } from "@/lib/requests/runIndex"
 import { resolveDestroyRunId } from "@/lib/requests/resolveDestroyRunId"
 import { getMissingEnvFields } from "@/lib/requests/requireEnvFields"
 import { getRequestOrgId } from "@/lib/db/requestsList"
+import type { SessionPayload } from "@/lib/auth/session"
 
-export async function POST(req: NextRequest, { params }: { params: Promise<{ requestId: string }> }) {
+type RequestDocForDestroy = {
+  id: string
+  org_id?: string
+  project_key?: string
+  targetOwner?: string
+  targetRepo?: string
+  targetEnvPath?: string
+  targetBase?: string
+  environment_key?: string
+  environment_slug?: string
+  environment_id?: string
+  module?: string
+  mergedSha?: string
+  commitSha?: string
+  runs?: RunsState
+  pr?: { headSha?: string }
+}
+
+export type DestroyRouteDeps = {
+  getSessionFromCookies: () => Promise<SessionPayload | null>
+  requireActiveOrg: (session: SessionPayload) => Promise<NextResponse | null>
+  getGitHubAccessToken: (req: NextRequest) => Promise<string | null>
+  getRequest: (id: string) => Promise<unknown>
+  getRequestOrgId: (id: string) => Promise<string | null>
+  getProjectByKey: (orgId: string, projectKey: string) => Promise<{ id: string; orgId: string } | null>
+  buildPermissionContext: (login: string, orgId: string) => Promise<PermissionContext>
+  requireProjectPermission: (
+    ctx: PermissionContext,
+    projectId: string,
+    permission: ProjectPermission
+  ) => Promise<unknown>
+  getIdempotencyKey: (req: NextRequest) => string | null
+  assertIdempotentOrRecord: (opts: {
+    requestDoc: { idempotency?: Record<string, { key: string; at: string }> }
+    operation: string
+    key: string
+    now: Date
+  }) => { ok: boolean; mode: string; patch?: { idempotency: Record<string, { key: string; at: string }> } }
+  updateRequest: (id: string, fn: (current: unknown) => unknown) => Promise<unknown[]>
+}
+
+const realDestroyDeps: DestroyRouteDeps = {
+  getSessionFromCookies,
+  requireActiveOrg,
+  getGitHubAccessToken,
+  getRequest,
+  getRequestOrgId,
+  getProjectByKey,
+  buildPermissionContext,
+  requireProjectPermission,
+  getIdempotencyKey,
+  assertIdempotentOrRecord,
+  updateRequest,
+}
+
+export function makeDestroyPOST(deps: DestroyRouteDeps) {
+  return async function POST(req: NextRequest, { params }: { params: Promise<{ requestId: string }> }) {
   const start = Date.now()
   const correlation = withCorrelation(req, {})
   const holder = correlation.correlationId
@@ -32,39 +96,45 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
       return NextResponse.json({ error: "requestId required" }, { status: 400 })
     }
 
-    const session = await getSessionFromCookies()
+    const session = await deps.getSessionFromCookies()
     if (!session) {
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
     }
     if (!session.orgId) {
       return NextResponse.json({ error: "Not found" }, { status: 404 })
     }
-    const archivedRes = await requireActiveOrg(session)
+    const archivedRes = await deps.requireActiveOrg(session)
     if (archivedRes) return archivedRes
-    const role = getUserRole(session.login)
-    if (role !== "admin") {
-      return NextResponse.json({ error: "Destroy not permitted for your role" }, { status: 403 })
-    }
-    const token = await getGitHubAccessToken(req)
+    const token = await deps.getGitHubAccessToken(req)
     if (!token) {
       return NextResponse.json({ error: "GitHub not connected" }, { status: 401 })
     }
 
-    const request = await getRequest(requestId).catch(() => null)
-    if (!request) {
+    const raw = await deps.getRequest(requestId).catch(() => null)
+    if (!raw) {
       return NextResponse.json({ error: "Request not found" }, { status: 404 })
     }
-    const resourceOrgId = (request as { org_id?: string }).org_id ?? (await getRequestOrgId(requestId))
+    const request = raw as RequestDocForDestroy
+    const resourceOrgId = request.org_id ?? (await deps.getRequestOrgId(requestId))
     if (!resourceOrgId || resourceOrgId !== session.orgId) {
       return NextResponse.json({ error: "Not found" }, { status: 404 })
     }
-    const projectKey = (request as { project_key?: string }).project_key
+    const projectKey = request.project_key
     if (!projectKey) {
       return NextResponse.json({ error: "Not found" }, { status: 404 })
     }
-    const hasAccess = await userHasProjectKeyAccess(session.login, session.orgId, projectKey)
-    if (!hasAccess) {
+    const project = await deps.getProjectByKey(session.orgId, projectKey)
+    if (!project || project.orgId !== session.orgId) {
       return NextResponse.json({ error: "Not found" }, { status: 404 })
+    }
+    const ctx = await deps.buildPermissionContext(session.login, session.orgId)
+    try {
+      await deps.requireProjectPermission(ctx, project.id, "destroy")
+    } catch (e) {
+      if (e instanceof PermissionDeniedError) {
+        return NextResponse.json({ error: "Destroy not permitted for your role" }, { status: 403 })
+      }
+      throw e
     }
 
     const missing = getMissingEnvFields(request as Record<string, unknown>)
@@ -76,11 +146,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
       )
     }
 
-    const idemKey = getIdempotencyKey(req) ?? ""
+    const idemKey = deps.getIdempotencyKey(req) ?? ""
     const now = new Date()
     let idemPatch: { idempotency: Record<string, { key: string; at: string }> } | null = null
     try {
-      const idem = assertIdempotentOrRecord({
+      const idem = deps.assertIdempotentOrRecord({
         requestDoc: request as { idempotency?: Record<string, { key: string; at: string }> },
         operation: "destroy",
         key: idemKey,
@@ -96,7 +166,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
           request,
         })
       }
-      if (idem.ok === true && idem.mode === "recorded") idemPatch = idem.patch
+      if (idem.ok === true && idem.mode === "recorded") idemPatch = idem.patch ?? null
     } catch (err) {
       if (err instanceof ConflictError) {
         logWarn("idempotency.conflict", { ...correlation, requestId: request.id, operation: err.operation })
@@ -109,7 +179,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
     }
 
     if (idemPatch) {
-      await updateRequest(request.id, (current) => ({ ...current, ...idemPatch, updatedAt: now.toISOString() }))
+      await deps.updateRequest(request.id, (current) => ({ ...(current as Record<string, unknown>), ...(idemPatch as Record<string, unknown>), updatedAt: now.toISOString() }))
     }
     try {
       const lockResult = acquireLock({
@@ -119,7 +189,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
         now,
       })
       if (lockResult.patch) {
-        await updateRequest(request.id, (c) => ({ ...c, ...lockResult.patch, updatedAt: now.toISOString() }))
+        await deps.updateRequest(request.id, (c) => ({ ...(c as Record<string, unknown>), ...(lockResult.patch as Record<string, unknown>), updatedAt: now.toISOString() }))
       }
     } catch (lockErr) {
       if (lockErr instanceof LockConflictError) {
@@ -137,28 +207,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
 
     const envKey = request.environment_key
     const isProd = envKey?.toLowerCase() === "prod"
-    if (isProd && env.TFPILOT_PROD_ALLOWED_USERS.length > 0) {
-      if (!env.TFPILOT_PROD_ALLOWED_USERS.includes(session.login)) {
-        return NextResponse.json({ error: "Prod destroy not allowed for this user" }, { status: 403 })
-      }
-    }
-
-    // Additional prod destroy allowlist check (separate from general prod access)
-    if (isProd && env.TFPILOT_DESTROY_PROD_ALLOWED_USERS.length > 0) {
-      if (!env.TFPILOT_DESTROY_PROD_ALLOWED_USERS.includes(session.login)) {
-        await logLifecycleEvent({
-          requestId: request.id,
-          event: "destroy_blocked",
-          actor: session.login,
-          source: "api/requests/[requestId]/destroy",
-          data: {
-            reason: "not_in_destroy_prod_allowlist",
-            environment: envKey,
-          },
-        })
-        return NextResponse.json({ error: "You're not allowed to destroy prod requests" }, { status: 403 })
-      }
-    }
 
     // Fire cleanup workflow first so code removal is ready before destroy completes
     const envSlug = request.environment_slug ?? ""
@@ -410,6 +458,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
         targetRepo: `${request.targetOwner}/${request.targetRepo}`,
       },
     })
+    writeAuditEvent(auditWriteDeps, {
+      org_id: (request as { org_id?: string }).org_id!,
+      actor_login: session.login,
+      source: "user",
+      event_type: "request_destroy_dispatched",
+      entity_type: "request",
+      entity_id: request.id,
+      request_id: request.id,
+      project_key: request.project_key,
+      environment_id: request.environment_id,
+    }).catch(() => {})
 
     // Write an archive copy under history/ while keeping the active tombstone
     try {
@@ -435,3 +494,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
     return NextResponse.json({ error: "Failed to dispatch destroy" }, { status: 500 })
   }
 }
+}
+
+export const POST = makeDestroyPOST(realDestroyDeps)

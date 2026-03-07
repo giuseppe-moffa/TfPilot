@@ -613,7 +613,7 @@ function RequestDetailPage() {
   const canDestroy = canDestroyData?.canDestroy === true
 
   const { data: meData } = useSWR("auth-me", () => fetcher("/api/auth/me"), { revalidateOnFocus: false })
-  const isAdmin = meData?.role === "admin"
+  const isPlatformAdmin = meData?.isPlatformAdmin === true
 
   const updateAllowedFields = React.useMemo(() => {
     const schema = moduleSchemas?.find((s) => s.type === request?.module)
@@ -1429,7 +1429,7 @@ function RequestDetailPage() {
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            {isAdmin && (
+            {isPlatformAdmin && (
               <Button
                 size="sm"
                 variant="outline"

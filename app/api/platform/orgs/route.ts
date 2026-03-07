@@ -1,31 +1,18 @@
 /**
  * Platform orgs: list all orgs with member counts (GET).
  * Create org with initial admin (POST).
- * Platform-admin only (getUserRole === "admin").
+ * Platform-admin only (platform_admins table).
  */
 
 import { NextRequest, NextResponse } from "next/server"
 
-import { getSessionFromCookies } from "@/lib/auth/session"
-import { getUserRole } from "@/lib/auth/roles"
+import { requirePlatformAdmin } from "@/lib/auth/platformAdmin"
 import { writeAuditEvent, auditWriteDeps } from "@/lib/audit/write"
 import { listAllOrgsWithCounts, createOrgWithInitialAdmin } from "@/lib/db/orgs"
 
-async function requirePlatformAdmin() {
-  const session = await getSessionFromCookies()
-  if (!session) {
-    return { error: NextResponse.json({ error: "Not authenticated" }, { status: 401 }) }
-  }
-  const role = getUserRole(session.login)
-  if (role !== "admin") {
-    return { error: NextResponse.json(null, { status: 404 }) }
-  }
-  return { session }
-}
-
 export async function GET(req: NextRequest) {
   const result = await requirePlatformAdmin()
-  if (result.error) return result.error
+  if ("error" in result) return result.error
 
   const { searchParams } = new URL(req.url)
   const filterParam = searchParams.get("filter")
@@ -39,8 +26,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const result = await requirePlatformAdmin()
-  if (result.error) return result.error
+  const platformResult = await requirePlatformAdmin()
+  if ("error" in platformResult) return platformResult.error
 
   let body: { slug?: unknown; name?: unknown; adminLogin?: unknown }
   try {
@@ -74,7 +61,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Failed to create org" }, { status: 500 })
   }
 
-  const { session } = result
+  const { session } = platformResult
   await writeAuditEvent(auditWriteDeps, {
     org_id: createResult.org.id,
     actor_login: session.login,

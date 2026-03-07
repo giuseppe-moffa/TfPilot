@@ -30,15 +30,17 @@ export async function listProjectTeamAccessByOrg(orgId: string): Promise<Project
 
 /**
  * Grant team access to project. ON CONFLICT DO NOTHING (idempotent).
+ * Returns true if a row was inserted, false if already existed.
  */
-export async function grantProjectTeamAccess(projectId: string, teamId: string): Promise<void> {
-  if (!isDatabaseConfigured() || !projectId?.trim() || !teamId?.trim()) return
-  await query(
+export async function grantProjectTeamAccess(projectId: string, teamId: string): Promise<boolean> {
+  if (!isDatabaseConfigured() || !projectId?.trim() || !teamId?.trim()) return false
+  const result = await query(
     `INSERT INTO project_team_access (project_id, team_id, created_at)
      VALUES ($1, $2, NOW())
      ON CONFLICT (project_id, team_id) DO NOTHING`,
     [projectId.trim(), teamId.trim()]
   )
+  return result != null && (result.rowCount ?? 0) > 0
 }
 
 /**

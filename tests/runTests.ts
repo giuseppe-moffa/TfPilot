@@ -36,7 +36,6 @@ import { tests as envTemplatesStoreTests } from "./unit/envTemplatesStore.test"
 import { tests as envTemplatesValidationTests } from "./unit/envTemplatesValidation.test"
 import { tests as envTemplatesAdminRouteTests } from "./api/envTemplatesAdminRoute.test"
 import { tests as validateTemplateIdOrThrowTests } from "./unit/validateTemplateIdOrThrow.test"
-import { tests as projectAccessTests } from "./unit/projectAccess.test"
 import { tests as projectAccessEnforcementTests } from "./unit/projectAccessEnforcement.test"
 import { tests as projectAccessEnforcementRouteTests } from "./api/projectAccessEnforcementRoute.test"
 import { tests as orgLifecycleTests } from "./unit/orgLifecycle.test"
@@ -46,7 +45,13 @@ import { tests as idempotencyTests } from "./unit/idempotency.test"
 import { tests as indexerTests } from "./unit/indexer.test"
 import { tests as requestsListRouteTests } from "./api/requestsListRoute.test"
 import { tests as requestsSyncRouteTests } from "./api/requestsSyncRoute.test"
-
+import { tests as auditRouteTests } from "./api/auditRoute.test"
+import { tests as projectRoleManagementRouteTests } from "./api/projectRoleManagementRoute.test"
+import { tests as requestActionRouteTests } from "./api/requestActionRoute.test"
+import { tests as environmentActionRouteTests } from "./api/environmentActionRoute.test"
+import { tests as teamMemberAuditProducerTests } from "./unit/teamMemberAuditProducer.test"
+import { tests as projectRolesTests } from "./unit/projectRoles.test"
+import { tests as permissionsTests } from "./unit/permissions.test"
 const allSuites = [
   reconcileTests,
   completionTimeTests,
@@ -80,7 +85,6 @@ const allSuites = [
   envTemplatesValidationTests,
   envTemplatesAdminRouteTests,
   validateTemplateIdOrThrowTests,
-  projectAccessTests,
   projectAccessEnforcementTests,
   projectAccessEnforcementRouteTests,
   orgLifecycleTests,
@@ -90,6 +94,13 @@ const allSuites = [
   indexerTests,
   requestsListRouteTests,
   requestsSyncRouteTests,
+  auditRouteTests,
+  projectRoleManagementRouteTests,
+  requestActionRouteTests,
+  environmentActionRouteTests,
+  teamMemberAuditProducerTests,
+  projectRolesTests,
+  permissionsTests,
 ]
 
 let passed = 0

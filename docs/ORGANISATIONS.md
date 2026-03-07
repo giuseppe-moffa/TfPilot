@@ -9,19 +9,19 @@ Organisation (org) tenancy, membership, teams, and project access in TfPilot.
 - **Orgs** are the top-level tenancy unit. All environments, requests, projects, and teams are scoped to an org.
 - **Members** are identified by GitHub login. Membership is stored in `org_memberships` (org_id, login, role).
 - **Org roles:** `viewer`, `developer`, `approver`, `admin`. Only org `admin` can manage members, teams, and project access.
-- **Platform roles:** Separate from org roles. `getUserRole(login)` uses `TFPILOT_ADMINS` and `TFPILOT_APPROVERS` env vars. Used for request lifecycle RBAC (apply, approve, destroy, deploy). See [RBAC.md](RBAC.md).
+- **Platform admins:** `platform_admins` table. Platform-wide org lifecycle (list/create/archive/restore). See [RBAC.md](RBAC.md).
 - **Session:** The active org is stored in the session cookie (`orgId`, `orgSlug`). Org-scoped APIs use `session.orgId` only; never from client.
 
 ---
 
 ## Project access
 
-Access to projects (and thus environments and requests) is enforced via `userHasProjectKeyAccess`:
+Access to projects (and thus environments and requests) is enforced via the permission engine (`requireRequestProjectPermission`, `buildPermissionContext`):
 
-1. **Org admin** — Full access to all projects in the org.
+1. **Org admin** — Full access to all projects in the org (short-circuits to project admin).
 2. **Team membership** — User must be in at least one team that has `project_team_access` to the project.
 
-Projects are stored in `projects` (org_id, project_key, name). Team→project grants are in `project_team_access`. All request lifecycle and environment APIs (create, deploy, destroy, apply, approve) check both platform role and project access. Cross-org: `resource.org_id` must match `session.orgId`; otherwise 404.
+Projects are stored in `projects` (org_id, project_key, name). Team→project grants are in `project_team_access`. All request lifecycle and environment APIs (create, deploy, destroy, apply, approve) check both org/project roles and project access. Cross-org: `resource.org_id` must match `session.orgId`; otherwise 404.
 
 ---
 
@@ -76,7 +76,7 @@ Users who belong to multiple orgs see a compact org switcher in the header. Swit
 
 ## Org lifecycle (platform-admin only)
 
-Platform admins (`getUserRole(login) === "admin"`) manage org lifecycle via `/api/platform/orgs` and `/settings/platform/orgs`:
+Platform admins (`platform_admins` table, `isPlatformAdmin(login)`) manage org lifecycle via `/api/platform/orgs` and `/settings/platform/orgs`:
 
 - **Create:** POST `/api/platform/orgs` — Body: `slug`, `name`, `adminLogin`. Creates org + initial admin membership atomically. Duplicate slug → 400.
 - **Archive:** POST `/api/platform/orgs/[orgId]/archive` — Sets `archived_at = NOW()`. Idempotent.

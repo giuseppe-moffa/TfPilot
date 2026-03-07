@@ -14,13 +14,15 @@ import { getUserOrgRole } from "@/lib/auth/orgRoles"
 import {
   getOrgById,
   listOrgMembers,
-  upsertOrgMember,
+  insertOrgMember,
   isValidOrgRole,
   getOrgMember,
   updateOrgMemberRole,
   deleteOrgMember,
   countOrgAdmins,
 } from "@/lib/db/orgs"
+import { fetchGitHubUserProfile } from "@/lib/github/fetchUserProfile"
+import { writeAuditEvent, auditWriteDeps } from "@/lib/audit/write"
 
 async function requireOrgAdmin() {
   const session = await getSessionFromCookies()
@@ -55,6 +57,8 @@ export async function GET() {
     org: { id: org.id, slug: org.slug, name: org.name },
     members: members.map((m) => ({
       login: m.login,
+      display_name: m.display_name ?? null,
+      avatar_url: m.avatar_url ?? null,
       role: m.role,
       joinedAt: m.created_at,
     })),
@@ -87,13 +91,45 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  const member = await upsertOrgMember(session!.orgId!, normalizedLogin, rawRole)
+  const profile = await fetchGitHubUserProfile(normalizedLogin)
+  const profileForInsert = profile
+    ? { display_name: profile.name ?? null, avatar_url: profile.avatar_url ?? null }
+    : undefined
+  let member = await insertOrgMember(session!.orgId!, normalizedLogin, rawRole, profileForInsert)
+  if (member) {
+    writeAuditEvent(auditWriteDeps, {
+      org_id: session!.orgId!,
+      actor_login: session!.login,
+      source: "user",
+      event_type: "org_member_added",
+      entity_type: "org",
+      entity_id: session!.orgId!,
+      metadata: { login: normalizedLogin },
+    }).catch(() => {})
+    return NextResponse.json({
+      member: {
+        login: member.login,
+        display_name: member.display_name ?? null,
+        avatar_url: member.avatar_url ?? null,
+        role: member.role,
+        joinedAt: member.created_at,
+      },
+    })
+  }
+
+  member = await updateOrgMemberRole(session!.orgId!, normalizedLogin, rawRole)
   if (!member) {
     return NextResponse.json({ error: "Failed to add member" }, { status: 500 })
   }
 
   return NextResponse.json({
-    member: { login: member.login, role: member.role, joinedAt: member.created_at },
+    member: {
+      login: member.login,
+      display_name: member.display_name ?? null,
+      avatar_url: member.avatar_url ?? null,
+      role: member.role,
+      joinedAt: member.created_at,
+    },
   })
 }
 
@@ -144,7 +180,13 @@ export async function PATCH(req: NextRequest) {
   }
 
   return NextResponse.json({
-    member: { login: member.login, role: member.role, joinedAt: member.created_at },
+    member: {
+      login: member.login,
+      display_name: member.display_name ?? null,
+      avatar_url: member.avatar_url ?? null,
+      role: member.role,
+      joinedAt: member.created_at,
+    },
   })
 }
 
@@ -185,6 +227,16 @@ export async function DELETE(req: NextRequest) {
   if (!deleted) {
     return NextResponse.json({ error: "Failed to remove member" }, { status: 500 })
   }
+
+  writeAuditEvent(auditWriteDeps, {
+    org_id: session!.orgId!,
+    actor_login: session!.login,
+    source: "user",
+    event_type: "org_member_removed",
+    entity_type: "org",
+    entity_id: session!.orgId!,
+    metadata: { login: normalizedLogin },
+  }).catch(() => {})
 
   return NextResponse.json({ ok: true })
 }

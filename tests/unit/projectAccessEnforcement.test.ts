@@ -6,8 +6,8 @@
 import { makePOST } from "@/app/api/environments/[id]/deploy/route"
 import type { DeployRouteDeps } from "@/app/api/environments/[id]/deploy/route"
 import type { SessionPayload } from "@/lib/auth/session"
-import type { UserRole } from "@/lib/auth/roles"
 import type { Environment } from "@/lib/db/environments"
+import { PermissionDeniedError } from "@/lib/auth/permissions"
 
 function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(`Assertion failed: ${message}`)
@@ -35,25 +35,37 @@ const BASE_ENV_ROW: Environment = {
   archived_at: null,
 }
 
+const PROJECT_ID = "proj_1"
+
 function createMockDeps(config: {
   session: SessionPayload | null
-  getUserRole: (login?: string | null) => UserRole
-  userHasProjectKeyAccess: (login: string | undefined | null, orgId: string, projectKey: string) => Promise<boolean>
+  projectAccess: boolean
+  deployAllowed: boolean
   envOrgId?: string
+  getEnvironmentById?: (id: string) => Promise<Environment | null>
 }): DeployRouteDeps {
   const orgId = config.envOrgId ?? "default"
   const envRow: Environment = { ...BASE_ENV_ROW, org_id: orgId }
+  const getEnv = config.getEnvironmentById ?? (async (id: string) => (id === "env_123" ? envRow : null))
 
   return {
     getSessionFromCookies: async () => config.session,
-    getUserRole: config.getUserRole,
-    userHasProjectKeyAccess: config.userHasProjectKeyAccess,
+    requireActiveOrg: async () => null,
     getGitHubAccessToken: async () => "token",
-    getEnvironmentById: async (id) => {
-      if (id === "env_123") return envRow
-      return null
+    getEnvironmentById: getEnv,
+    getProjectByKey: async (oId, _key) =>
+      config.projectAccess && oId === orgId ? { id: PROJECT_ID, orgId: oId } : null,
+    buildPermissionContext: async () => ({
+      login: config.session?.login ?? "",
+      orgId: orgId,
+      orgRole: config.deployAllowed ? ("admin" as const) : null,
+      teamIds: [],
+      projectRoleCache: new Map(),
+    }),
+    requireProjectPermission: async () => {
+      if (!config.deployAllowed) throw new PermissionDeniedError()
     },
-    isEnvironmentDeployed: async () => ({ ok: true, deployed: false, deployPrOpen: false }),
+    isEnvironmentDeployed: async () => ({ ok: true, deployed: false, deployPrOpen: false, envRootExists: false }),
     createDeployPR: async () => ({
       pr_number: 1,
       pr_url: "https://example.com/pr/1",
@@ -69,10 +81,10 @@ export const tests = [
     fn: async () => {
       const POST = makePOST(
         createMockDeps({
-          session: { login: "admin1", orgId: "default" },
-          getUserRole: () => "admin",
-          userHasProjectKeyAccess: async () => true,
-          getEnvironmentById: async (id) =>
+          session: { login: "admin1", name: "Admin", avatarUrl: null, orgId: "default" },
+          projectAccess: true,
+          deployAllowed: true,
+          getEnvironmentById: async (id: string) =>
             id === "env_123"
               ? ({
                   environment_id: "env_123",
@@ -100,10 +112,10 @@ export const tests = [
     fn: async () => {
       const POST = makePOST(
         createMockDeps({
-          session: { login: "admin1", orgId: "default" },
-          getUserRole: () => "admin",
-          userHasProjectKeyAccess: async () => false,
-          getEnvironmentById: async (id) =>
+          session: { login: "admin1", name: "Admin", avatarUrl: null, orgId: "default" },
+          projectAccess: false,
+          deployAllowed: true,
+          getEnvironmentById: async (id: string) =>
             id === "env_123"
               ? ({
                   environment_id: "env_123",
@@ -133,10 +145,10 @@ export const tests = [
     fn: async () => {
       const POST = makePOST(
         createMockDeps({
-          session: { login: "dev1", orgId: "default" },
-          getUserRole: () => "developer",
-          userHasProjectKeyAccess: async () => true,
-          getEnvironmentById: async (id) =>
+          session: { login: "dev1", name: "Dev", avatarUrl: null, orgId: "default" },
+          projectAccess: true,
+          deployAllowed: false,  // deployer+ required for deploy_env
+          getEnvironmentById: async (id: string) =>
             id === "env_123"
               ? ({
                   environment_id: "env_123",
@@ -165,13 +177,49 @@ export const tests = [
     },
   },
   {
+    name: "deploy: operator with project access -> 403 (deploy_env denied)",
+    fn: async () => {
+      const POST = makePOST(
+        createMockDeps({
+          session: { login: "op1", name: "Operator", avatarUrl: null, orgId: "default" },
+          projectAccess: true,
+          deployAllowed: false,
+          getEnvironmentById: async (id: string) =>
+            id === "env_123"
+              ? ({
+                  environment_id: "env_123",
+                  org_id: "default",
+                  project_key: "core",
+                  environment_key: "dev",
+                  environment_slug: "test",
+                  repo_full_name: "owner/repo",
+                  template_id: "blank",
+                  template_version: "v1",
+                  created_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString(),
+                  archived_at: null,
+                } as Environment)
+              : null,
+        })
+      )
+      const req = mockRequest() as unknown as import("next/server").NextRequest
+      const res = await POST(req, { params: Promise.resolve({ id: "env_123" }) })
+      assert(res.status === 403, `expected 403, got ${res.status}`)
+      const body = await res.json()
+      assert(
+        body?.error === "Deploy not permitted for your role",
+        `expected role error, got ${JSON.stringify(body)}`
+      )
+    },
+  },
+  {
     name: "deploy: unauthenticated -> 401",
     fn: async () => {
       const POST = makePOST(
         createMockDeps({
           session: null,
-          getUserRole: () => "viewer",
-          userHasProjectKeyAccess: async () => false,
+          projectAccess: false,
+          deployAllowed: false,
           getEnvironmentById: async () => null,
         })
       )
@@ -185,10 +233,10 @@ export const tests = [
     fn: async () => {
       const POST = makePOST(
         createMockDeps({
-          session: { login: "admin1", orgId: "other-org" },
-          getUserRole: () => "admin",
-          userHasProjectKeyAccess: async () => true,
-          getEnvironmentById: async (id) =>
+          session: { login: "admin1", name: "Admin", avatarUrl: null, orgId: "other-org" },
+          projectAccess: true,
+          deployAllowed: true,
+          getEnvironmentById: async (id: string) =>
             id === "env_123"
               ? ({
                   environment_id: "env_123",

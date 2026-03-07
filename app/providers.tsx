@@ -12,7 +12,12 @@ type AuthUser = {
 
 type AuthContextValue = {
   user: AuthUser | null
-  role: "viewer" | "developer" | "approver" | "admin" | null
+  /** Org-scoped role from org_memberships (viewer, developer, approver, admin). */
+  orgRole: "viewer" | "developer" | "approver" | "admin" | null
+  /** True when orgRole === "admin". */
+  isOrgAdmin: boolean
+  /** True when user is in platform_admins table. */
+  isPlatformAdmin: boolean
   /** True when session has orgId and that org is archived. */
   orgArchived: boolean
   loading: boolean
@@ -39,43 +44,53 @@ const STORAGE_KEY = "awsConnection"
 
 type SessionData = {
   user: AuthUser | null
-  role: "viewer" | "developer" | "approver" | "admin" | null
+  orgRole: "viewer" | "developer" | "approver" | "admin" | null
+  isOrgAdmin: boolean
+  isPlatformAdmin: boolean
   orgArchived: boolean
 }
 
 async function fetchSession(): Promise<SessionData> {
   try {
     const res = await fetch("/api/auth/me", { credentials: "include" })
-    if (!res.ok) return { user: null, role: null, orgArchived: false }
+    if (!res.ok) return { user: null, orgRole: null, isOrgAdmin: false, isPlatformAdmin: false, orgArchived: false }
     const data = (await res.json()) as {
       authenticated: boolean
       user?: AuthUser
-      role?: "viewer" | "developer" | "approver" | "admin"
+      orgRole?: "viewer" | "developer" | "approver" | "admin"
+      isOrgAdmin?: boolean
+      isPlatformAdmin?: boolean
       org?: { orgId: string; orgSlug: string; orgArchived?: boolean }
     }
-    if (!data.authenticated || !data.user) return { user: null, role: null, orgArchived: false }
+    if (!data.authenticated || !data.user) return { user: null, orgRole: null, isOrgAdmin: false, isPlatformAdmin: false, orgArchived: false }
     return {
       user: data.user,
-      role: data.role ?? null,
+      orgRole: data.orgRole ?? null,
+      isOrgAdmin: Boolean(data.isOrgAdmin),
+      isPlatformAdmin: Boolean(data.isPlatformAdmin),
       orgArchived: Boolean(data.org?.orgArchived),
     }
   } catch {
-    return { user: null, role: null, orgArchived: false }
+    return { user: null, orgRole: null, isOrgAdmin: false, isPlatformAdmin: false, orgArchived: false }
   }
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = React.useState<AuthUser | null>(null)
-  const [role, setRole] = React.useState<"viewer" | "developer" | "approver" | "admin" | null>(null)
+  const [orgRole, setOrgRole] = React.useState<"viewer" | "developer" | "approver" | "admin" | null>(null)
+  const [isOrgAdmin, setIsOrgAdmin] = React.useState(false)
+  const [isPlatformAdmin, setIsPlatformAdmin] = React.useState(false)
   const [orgArchived, setOrgArchived] = React.useState(false)
   const [loading, setLoading] = React.useState(true)
 
   const refresh = React.useCallback(async () => {
     setLoading(true)
-    const { user: u, role: r, orgArchived: oa } = await fetchSession()
+    const { user: u, orgRole: r, isOrgAdmin: oa, isPlatformAdmin: pa, orgArchived: oarch } = await fetchSession()
     setUser(u)
-    setRole(r)
-    setOrgArchived(oa)
+    setOrgRole(r)
+    setIsOrgAdmin(oa)
+    setIsPlatformAdmin(pa)
+    setOrgArchived(oarch)
     setLoading(false)
   }, [])
 
@@ -88,7 +103,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await fetch("/api/auth/logout", { method: "POST", credentials: "include" })
     } finally {
       setUser(null)
-      setRole(null)
+      setOrgRole(null)
+      setIsOrgAdmin(false)
+      setIsPlatformAdmin(false)
       setOrgArchived(false)
       setLoading(false)
       if (typeof window !== "undefined") {
@@ -101,7 +118,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     <AuthContext.Provider
       value={{
         user,
-        role,
+        orgRole,
+        isOrgAdmin,
+        isPlatformAdmin,
         orgArchived,
         loading,
         refresh,

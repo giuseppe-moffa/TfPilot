@@ -4,15 +4,19 @@
  */
 
 import { NextRequest, NextResponse } from "next/server"
-import { getSessionFromCookies } from "@/lib/auth/session"
+import { getSessionFromCookies, type SessionPayload } from "@/lib/auth/session"
 import { requireActiveOrg } from "@/lib/auth/requireActiveOrg"
 import { getGitHubAccessToken } from "@/lib/github/auth"
 import { gh } from "@/lib/github/client"
 import { githubRequest } from "@/lib/github/rateAware"
 import { env } from "@/lib/config/env"
-import { getUserRole } from "@/lib/auth/roles"
-import { userHasProjectKeyAccess } from "@/lib/auth/projectAccess"
-import { archiveEnvironment, getEnvironmentById } from "@/lib/db/environments"
+import {
+  buildPermissionContext,
+  requireProjectPermission,
+  PermissionDeniedError,
+} from "@/lib/auth/permissions"
+import { getProjectByKey } from "@/lib/db/projects"
+import { archiveEnvironment, getEnvironmentById, type Environment } from "@/lib/db/environments"
 import {
   getEnvDestroyPending,
   putEnvDestroyRunIndex,
@@ -24,6 +28,7 @@ import { resolveEnvDestroyRunId } from "@/lib/github/resolveEnvDestroyRunId"
 import { buildEnvDestroyInputs } from "@/lib/github/dispatchEnvDestroy"
 import { logInfo, logWarn } from "@/lib/observability/logger"
 import { incrementEnvMetric } from "@/lib/observability/metrics"
+import { writeAuditEvent, auditWriteDeps } from "@/lib/audit/write"
 
 const RESOLVE_ATTEMPTS = 12
 const BACKOFF_MS = [500, 500, 1000, 1000, 1500, 1500, 2000, 2000, 2000, 2000, 2000, 2000]
@@ -34,59 +39,81 @@ function parseRepoFullName(repo_full_name: string): { owner: string; repo: strin
   return { owner: parts[0], repo: parts[1] }
 }
 
-export async function POST(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const { id: environmentId } = await params
-  if (!environmentId) {
-    return NextResponse.json({ error: "environment_id required" }, { status: 400 })
-  }
+export type EnvDestroyRouteDeps = {
+  getSessionFromCookies: () => Promise<SessionPayload | null>
+  requireActiveOrg: (session: SessionPayload) => Promise<NextResponse | null>
+  getGitHubAccessToken: (req: NextRequest) => Promise<string | null>
+  getEnvironmentById: (id: string) => Promise<Environment | null>
+  getProjectByKey: (orgId: string, projectKey: string) => Promise<{ id: string; orgId: string } | null>
+  buildPermissionContext: (login: string, orgId: string) => Promise<import("@/lib/auth/permissions").PermissionContext>
+  requireProjectPermission: (
+    ctx: import("@/lib/auth/permissions").PermissionContext,
+    projectId: string,
+    permission: "deploy_env"
+  ) => Promise<unknown>
+}
 
-  const session = await getSessionFromCookies()
-  if (!session) {
-    return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
-  }
-  if (!session.orgId) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 })
-  }
-  const archivedRes = await requireActiveOrg(session)
-  if (archivedRes) return archivedRes
-  const role = getUserRole(session.login)
-  if (role !== "admin") {
-    return NextResponse.json({ error: "Destroy not permitted for your role" }, { status: 403 })
-  }
-  const token = await getGitHubAccessToken(req)
-  if (!token) {
-    return NextResponse.json({ error: "GitHub not connected" }, { status: 401 })
-  }
+const realEnvDestroyDeps: EnvDestroyRouteDeps = {
+  getSessionFromCookies,
+  requireActiveOrg,
+  getGitHubAccessToken,
+  getEnvironmentById,
+  getProjectByKey,
+  buildPermissionContext,
+  requireProjectPermission,
+}
 
-  const envRow = await getEnvironmentById(environmentId)
-  if (!envRow) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 })
-  }
-  if (envRow.org_id !== session.orgId) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 })
-  }
-  const hasAccess = await userHasProjectKeyAccess(session.login, session.orgId, envRow.project_key)
-  if (!hasAccess) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 })
-  }
+export function makeEnvDestroyPOST(deps: EnvDestroyRouteDeps) {
+  return async function POST(
+    req: NextRequest,
+    { params }: { params: Promise<{ id: string }> }
+  ) {
+    const { id: environmentId } = await params
+    if (!environmentId) {
+      return NextResponse.json({ error: "environment_id required" }, { status: 400 })
+    }
+
+    const session = await deps.getSessionFromCookies()
+    if (!session) {
+      return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
+    }
+    if (!session.orgId) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 })
+    }
+    const archivedRes = await deps.requireActiveOrg(session)
+    if (archivedRes) return archivedRes
+
+    const token = await deps.getGitHubAccessToken(req)
+    if (!token) {
+      return NextResponse.json({ error: "GitHub not connected" }, { status: 401 })
+    }
+
+    const envRow = await deps.getEnvironmentById(environmentId)
+    if (!envRow) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 })
+    }
+    if (envRow.org_id !== session.orgId) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 })
+    }
+    const project = await deps.getProjectByKey(session.orgId, envRow.project_key)
+    if (!project || project.orgId !== session.orgId) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 })
+    }
+    const ctx = await deps.buildPermissionContext(session.login, session.orgId)
+    try {
+      await deps.requireProjectPermission(ctx, project.id, "deploy_env")
+    } catch (e) {
+      if (e instanceof PermissionDeniedError) {
+        return NextResponse.json({ error: "Destroy not permitted for your role" }, { status: 403 })
+      }
+      throw e
+    }
 
   if (envRow.archived_at) {
     return NextResponse.json(
       { ok: true, message: "Environment already archived", alreadyArchived: true },
       { status: 200 }
     )
-  }
-
-  if (envRow.environment_key === "prod" && env.TFPILOT_DESTROY_PROD_ALLOWED_USERS.length > 0) {
-    if (!env.TFPILOT_DESTROY_PROD_ALLOWED_USERS.includes(session.login)) {
-      return NextResponse.json(
-        { error: "You're not allowed to destroy prod environments" },
-        { status: 403 }
-      )
-    }
   }
 
   const repo = parseRepoFullName(envRow.repo_full_name)
@@ -232,10 +259,25 @@ export async function POST(
   })
   incrementEnvMetric("env.destroy.dispatch", { env_id: environmentId, run_id: runId })
 
+  writeAuditEvent(auditWriteDeps, {
+    org_id: envRow.org_id,
+    actor_login: session.login,
+    source: "user",
+    event_type: "environment_destroy_requested",
+    entity_type: "environment",
+    entity_id: environmentId,
+    environment_id: environmentId,
+    project_key: envRow.project_key,
+    metadata: { project_key: envRow.project_key, environment_slug: envRow.environment_slug },
+  }).catch(() => {})
+
   return NextResponse.json({
     ok: true,
     runId,
     url,
     message: "Environment destroy dispatched. Archive will occur when the workflow completes successfully.",
   })
+  }
 }
+
+export const POST = makeEnvDestroyPOST(realEnvDestroyDeps)

@@ -20,6 +20,7 @@
     "test:invariants": "tsx tests/runTests.ts",
     "db:migrate": "tsx scripts/db-migrate.ts",
     "db:seed": "tsx scripts/seed-default-org.ts",
+    "db:seed-platform-admins": "tsx scripts/seed-platform-admins.ts",
     "db:rebuild-index": "tsx scripts/rebuild-requests-index.ts"
   },
   "dependencies": {

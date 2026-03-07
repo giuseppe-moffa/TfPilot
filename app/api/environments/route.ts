@@ -7,8 +7,12 @@ import { NextRequest, NextResponse } from "next/server"
 import { getSessionFromCookies } from "@/lib/auth/session"
 import { requireActiveOrg } from "@/lib/auth/requireActiveOrg"
 import { getGitHubAccessToken } from "@/lib/github/auth"
-import { getUserRole } from "@/lib/auth/roles"
-import { userHasProjectKeyAccess } from "@/lib/auth/projectAccess"
+import {
+  buildPermissionContext,
+  requireProjectPermission,
+  PermissionDeniedError,
+} from "@/lib/auth/permissions"
+import { getProjectByKey } from "@/lib/db/projects"
 import {
   listEnvironments,
   createEnvironment,
@@ -62,11 +66,6 @@ export async function POST(req: NextRequest) {
   const archivedRes = await requireActiveOrg(session)
   if (archivedRes) return archivedRes
 
-  const role = getUserRole(session.login)
-  if (role === "viewer") {
-    return NextResponse.json({ error: "Insufficient role" }, { status: 403 })
-  }
-
   const token = await getGitHubAccessToken(req)
   if (!token) {
     return NextResponse.json({ error: "GitHub not connected" }, { status: 401 })
@@ -110,9 +109,18 @@ export async function POST(req: NextRequest) {
     .toLowerCase()
   const environment_slug = (typeof body.environment_slug === "string" ? body.environment_slug : "").trim()
 
-  const hasAccess = await userHasProjectKeyAccess(session.login, session.orgId, project_key)
-  if (!hasAccess) {
-    return NextResponse.json({ error: "No access to this project" }, { status: 403 })
+  const project = await getProjectByKey(session.orgId!, project_key)
+  if (!project || project.orgId !== session.orgId) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 })
+  }
+  const ctx = await buildPermissionContext(session.login, session.orgId!)
+  try {
+    await requireProjectPermission(ctx, project.id, "deploy_env")
+  } catch (e) {
+    if (e instanceof PermissionDeniedError) {
+      return NextResponse.json({ error: "Create not permitted for your role" }, { status: 403 })
+    }
+    throw e
   }
 
   const infra = resolveInfraRepoByProjectAndEnvKey(project_key, environment_key)

@@ -6,7 +6,7 @@ Short playbook for recovery and common operations. No application logic changes 
 
 ## Platform admin org management
 
-Platform admins (`getUserRole(login) === "admin"`) manage orgs via `/api/platform/orgs` and `/settings/platform/orgs`:
+Platform admins (`platform_admins` table) manage orgs via `/api/platform/orgs` and `/settings/platform/orgs`:
 
 | Task | Endpoint / Action |
 |------|-------------------|

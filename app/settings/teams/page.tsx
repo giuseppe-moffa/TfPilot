@@ -1,11 +1,13 @@
 "use client"
 
 import * as React from "react"
-import { ChevronDown, ChevronRight } from "lucide-react"
+import Link from "next/link"
+import { Search, UsersRound, Trash2, Plus, FolderPlus } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+
 import {
   Table,
   TableBody,
@@ -14,11 +16,28 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import { TeamMembersAvatars } from "@/components/teams/TeamMembersAvatars"
+import { TeamProjectAssignments } from "@/components/teams/TeamProjectAssignments"
+import { AssignTeamProjectDialog } from "@/components/teams/AssignTeamProjectDialog"
 
 type TeamWithMembers = {
   id: string
   slug: string
   name: string
+  description?: string | null
   createdAt: string
   membersCount: number
   members: { login: string }[]
@@ -38,20 +57,23 @@ type ProjectsResponse = {
   projects: ProjectSummary[]
 }
 
-type Grant = { teamId: string; projectId: string }
+type Grant = { teamId: string; projectId: string; role?: string }
 
 type AccessResponse = {
   grants: Grant[]
 }
 
-function formatTimestamp(iso?: string) {
-  if (!iso) return "—"
-  const d = new Date(iso)
-  return d.toLocaleDateString(undefined, {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  })
+type OrgMember = {
+  login: string
+  display_name: string | null
+  avatar_url: string | null
+  role: string
+  joinedAt: string
+}
+
+type OrgMembersResponse = {
+  org: { id: string; slug: string; name: string }
+  members: OrgMember[]
 }
 
 async function fetchTeams(): Promise<{
@@ -82,45 +104,61 @@ async function fetchAccess(): Promise<Grant[]> {
   return json.grants ?? []
 }
 
+async function fetchOrgMembers(): Promise<OrgMembersResponse | null> {
+  const res = await fetch("/api/org/members", { credentials: "include" })
+  if (!res.ok) return null
+  return (await res.json()) as OrgMembersResponse
+}
+
+const PAGE_SIZE = 10
+
+function slugFromName(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9-]/g, "")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "") || "team"
+}
+
 export default function TeamsPage() {
   const [data, setData] = React.useState<TeamsResponse | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [forbidden, setForbidden] = React.useState(false)
-  const [expanded, setExpanded] = React.useState<Set<string>>(new Set())
   const [message, setMessage] = React.useState<{ type: "success" | "error"; text: string } | null>(
     null
   )
+  const [searchQuery, setSearchQuery] = React.useState("")
+  const [page, setPage] = React.useState(1)
 
-  const [createSlug, setCreateSlug] = React.useState("")
+  const [createOpen, setCreateOpen] = React.useState(false)
   const [createName, setCreateName] = React.useState("")
+  const [createDescription, setCreateDescription] = React.useState("")
   const [createLoading, setCreateLoading] = React.useState(false)
 
-  const [addMemberLogins, setAddMemberLogins] = React.useState<Record<string, string>>({})
-  const [addLoading, setAddLoading] = React.useState<Record<string, boolean>>({})
-  const [removeLoading, setRemoveLoading] = React.useState<Record<string, boolean>>({})
+  const [assignTeamId, setAssignTeamId] = React.useState<string | null>(null)
+  const [assignTeamName, setAssignTeamName] = React.useState<string>("")
+  const [removingProjectId, setRemovingProjectId] = React.useState<string | null>(null)
 
+  const [orgMembers, setOrgMembers] = React.useState<OrgMember[]>([])
   const [projects, setProjects] = React.useState<ProjectSummary[]>([])
   const [grants, setGrants] = React.useState<Grant[]>([])
-  const [projectAccessLoading, setProjectAccessLoading] = React.useState<Record<string, boolean>>({})
-  const [projectAccessMessage, setProjectAccessMessage] = React.useState<{
-    teamId: string
-    type: "success" | "error"
-    text: string
-  } | null>(null)
 
   const load = React.useCallback(() => {
     setLoading(true)
     setError(null)
     setForbidden(false)
-    Promise.all([fetchTeams(), fetchProjects(), fetchAccess()])
-      .then(([teamsResult, projectsList, grantsList]) => {
+    Promise.all([fetchTeams(), fetchProjects(), fetchAccess(), fetchOrgMembers()])
+      .then(([teamsResult, projectsList, grantsList, membersResult]) => {
         if (teamsResult.forbidden) setForbidden(true)
         else if (teamsResult.error) setError("Failed to load teams")
         else if (teamsResult.data) setData(teamsResult.data)
         if (!teamsResult.forbidden) {
           setProjects(projectsList)
           setGrants(grantsList)
+          setOrgMembers(membersResult?.members ?? [])
         }
       })
       .catch(() => setError("Failed to load teams"))
@@ -131,35 +169,49 @@ export default function TeamsPage() {
     load()
   }, [load])
 
-  const toggleExpand = (id: string) => {
-    setExpanded((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
+  const filteredTeams = React.useMemo(() => {
+    if (!data?.teams) return []
+    const q = searchQuery.trim().toLowerCase()
+    if (!q) return data.teams
+    return data.teams.filter(
+      (t) =>
+        t.name.toLowerCase().includes(q) || t.slug.toLowerCase().includes(q)
+    )
+  }, [data?.teams, searchQuery])
+
+  const paginatedTeams = React.useMemo(() => {
+    const start = (page - 1) * PAGE_SIZE
+    return filteredTeams.slice(start, start + PAGE_SIZE)
+  }, [filteredTeams, page])
+
+  const totalPages = Math.max(1, Math.ceil(filteredTeams.length / PAGE_SIZE))
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!createSlug.trim() || !createName.trim()) return
+    if (!createName.trim()) return
     setCreateLoading(true)
     setMessage(null)
     try {
+      const name = createName.trim()
       const res = await fetch("/api/org/teams", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ slug: createSlug.trim(), name: createName.trim() }),
+        body: JSON.stringify({
+          slug: slugFromName(name),
+          name,
+          description: createDescription.trim() || undefined,
+        }),
       })
       const json = await res.json().catch(() => ({}))
       if (!res.ok) {
-        setMessage({ type: "error", text: json.error ?? "Failed to create team" })
+        setMessage({ type: "error", text: (json.error as string) ?? "Failed to create team" })
         return
       }
       setMessage({ type: "success", text: "Team created" })
-      setCreateSlug("")
       setCreateName("")
+      setCreateDescription("")
+      setCreateOpen(false)
       load()
     } catch {
       setMessage({ type: "error", text: "Failed to create team" })
@@ -168,103 +220,44 @@ export default function TeamsPage() {
     }
   }
 
-  const handleAddMember = async (teamId: string) => {
-    const login = addMemberLogins[teamId]?.trim()
-    if (!login) return
-    setAddLoading((prev) => ({ ...prev, [teamId]: true }))
+  const handleDeleteTeam = async (teamId: string) => {
     setMessage(null)
     try {
-      const res = await fetch(`/api/org/teams/${teamId}/members`, {
-        method: "POST",
+      const res = await fetch(`/api/org/teams/${teamId}`, {
+        method: "DELETE",
         credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ login }),
       })
       const json = await res.json().catch(() => ({}))
       if (!res.ok) {
-        setMessage({ type: "error", text: json.error ?? "Failed to add member" })
-        return
-      }
-      setMessage({ type: "success", text: "Member added" })
-      setAddMemberLogins((prev) => ({ ...prev, [teamId]: "" }))
-      load()
-    } catch {
-      setMessage({ type: "error", text: "Failed to add member" })
-    } finally {
-      setAddLoading((prev) => ({ ...prev, [teamId]: false }))
-    }
-  }
-
-  const hasProjectAccess = (teamId: string, projectId: string) =>
-    grants.some((g) => g.teamId === teamId && g.projectId === projectId)
-
-  const handleProjectAccessToggle = async (teamId: string, projectId: string, checked: boolean) => {
-    const key = `${teamId}:${projectId}`
-    setProjectAccessLoading((prev) => ({ ...prev, [key]: true }))
-    setProjectAccessMessage(null)
-    try {
-      const res = await fetch("/api/org/teams/access", {
-        method: checked ? "POST" : "DELETE",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ teamId, projectId }),
-      })
-      const json = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        setProjectAccessMessage({
-          teamId,
+        setMessage({
           type: "error",
-          text: (json.error as string) ?? "Failed to update access",
+          text: (json.error as string) ?? "Failed to delete team",
         })
         return
       }
-      setProjectAccessMessage({
-        teamId,
-        type: "success",
-        text: checked ? "Access granted" : "Access revoked",
-      })
+      setMessage({ type: "success", text: "Team deleted" })
       load()
     } catch {
-      setProjectAccessMessage({
-        teamId,
-        type: "error",
-        text: "Failed to update access",
-      })
-    } finally {
-      setProjectAccessLoading((prev) => ({ ...prev, [key]: false }))
+      setMessage({ type: "error", text: "Failed to delete team" })
     }
   }
 
-  const handleRemoveMember = async (teamId: string, login: string) => {
-    setRemoveLoading((prev) => ({ ...prev, [`${teamId}:${login}`]: true }))
-    setMessage(null)
-    try {
-      const res = await fetch(`/api/org/teams/${teamId}/members`, {
-        method: "DELETE",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ login }),
-      })
-      const json = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        setMessage({ type: "error", text: json.error ?? "Failed to remove member" })
-        return
+  const membersWithAvatars = (team: TeamWithMembers) =>
+    team.members.map((m) => {
+      const om = orgMembers.find((o) => o.login === m.login)
+      return {
+        login: m.login,
+        avatarUrl: om?.avatar_url ?? `https://github.com/${m.login}.png`,
       }
-      setMessage({ type: "success", text: "Member removed" })
-      load()
-    } catch {
-      setMessage({ type: "error", text: "Failed to remove member" })
-    } finally {
-      setRemoveLoading((prev) => ({ ...prev, [`${teamId}:${login}`]: false }))
-    }
-  }
+    })
 
   if (loading) {
     return (
-      <div className="space-y-6">
-        <p className="text-sm text-muted-foreground">Loading teams…</p>
-        <div className="h-32 animate-pulse rounded-lg bg-muted" />
-        <div className="h-48 animate-pulse rounded-lg bg-muted" />
+      <div className="flex min-h-0 flex-1 flex-col">
+        <Card className="flex min-h-0 flex-1 flex-col p-6">
+          <div className="h-32 animate-pulse rounded-lg bg-muted" />
+          <div className="mt-4 h-48 animate-pulse rounded-lg bg-muted" />
+        </Card>
       </div>
     )
   }
@@ -272,7 +265,7 @@ export default function TeamsPage() {
   if (forbidden || error) {
     return (
       <Card className="p-6">
-        <p className="text-sm text-muted-foreground">
+        <p className="text-muted-foreground">
           {error ?? "You don't have permission to view teams."}
         </p>
       </Card>
@@ -281,215 +274,259 @@ export default function TeamsPage() {
 
   if (!data) return null
 
-  const { teams } = data
-
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-semibold">Teams</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Teams group members for project access. View teams and member counts below.
-        </p>
-      </div>
-
-      {message && (
-        <p
-          className={
-            message.type === "success"
-              ? "text-sm text-emerald-600 dark:text-emerald-500"
-              : "text-sm text-destructive"
-          }
-        >
-          {message.text}
-        </p>
-      )}
-
-      <Card className="p-6">
-        <h3 className="mb-4 text-sm font-medium">Create team</h3>
-        <form onSubmit={handleCreate} className="flex flex-wrap items-end gap-3">
-          <div className="flex flex-col gap-1">
-            <label htmlFor="create-slug" className="text-xs text-muted-foreground">
-              Slug
-            </label>
-            <Input
-              id="create-slug"
-              placeholder="my-team"
-              value={createSlug}
-              onChange={(e) => setCreateSlug(e.target.value)}
-              className="w-40"
-              disabled={createLoading}
-            />
+    <div className="flex min-h-0 flex-1 flex-col">
+      <Card className="flex min-h-0 flex-1 flex-col pt-0">
+        <div className="flex flex-wrap items-center justify-between gap-4 px-6 py-6">
+          <div>
+            <h3 className="text-base font-semibold">Manage teams</h3>
+            <p className="text-xs text-muted-foreground">
+              Teams allow you to manage permissions for a group of users on a project, rather than
+              individually
+            </p>
           </div>
-          <div className="flex flex-col gap-1">
-            <label htmlFor="create-name" className="text-xs text-muted-foreground">
-              Name
-            </label>
-            <Input
-              id="create-name"
-              placeholder="My Team"
-              value={createName}
-              onChange={(e) => setCreateName(e.target.value)}
-              className="w-40"
-              disabled={createLoading}
-            />
-          </div>
-          <Button type="submit" disabled={createLoading || !createSlug.trim() || !createName.trim()}>
-            {createLoading ? "Creating…" : "Create"}
+          <Button
+            size="lg"
+            className="cursor-pointer shrink-0 gap-2"
+            onClick={() => {
+              setCreateOpen(true)
+              setCreateName("")
+              setCreateDescription("")
+            }}
+          >
+            <Plus className="h-4 w-4" />
+            Add Team
           </Button>
-        </form>
-      </Card>
+        </div>
+        <div className="flex min-h-0 flex-1 flex-col px-6 pb-6 pt-2">
+          <div className="mb-4 flex flex-wrap items-center gap-3">
+            <div className="relative max-w-sm">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Filter teams by name"
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value)
+                  setPage(1)
+                }}
+                className="pl-9"
+              />
+            </div>
+          </div>
 
-      <Card className="p-6">
-        {teams.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No teams yet.</p>
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-8" />
-                <TableHead>Name</TableHead>
-                <TableHead>Slug</TableHead>
-                <TableHead>Members</TableHead>
-                <TableHead>Created</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {teams.map((t) => (
-                <React.Fragment key={t.id}>
-                  <TableRow
-                    className="cursor-pointer"
-                    onClick={() => toggleExpand(t.id)}
-                  >
-                    <TableCell className="w-8 py-2">
-                      {expanded.has(t.id) ? (
-                        <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                      ) : (
-                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                      )}
+          {message && (
+            <p
+              className={`mb-3 text-sm ${
+                message.type === "success"
+                  ? "text-green-600 dark:text-green-500"
+                  : "text-destructive"
+              }`}
+            >
+              {message.text}
+            </p>
+          )}
+
+          {filteredTeams.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No teams yet.</p>
+          ) : (
+            <div>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Team Name</TableHead>
+                  <TableHead>Description</TableHead>
+                  <TableHead>Members</TableHead>
+                  <TableHead>Projects</TableHead>
+                  <TableHead className="w-[120px]">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {paginatedTeams.map((t) => (
+                  <TableRow key={t.id} className="hover:bg-muted/30">
+                    <TableCell>
+                      <div className="font-medium">{t.name}</div>
                     </TableCell>
-                    <TableCell className="font-medium">{t.name}</TableCell>
-                    <TableCell className="text-muted-foreground">{t.slug}</TableCell>
-                    <TableCell>{t.membersCount}</TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {formatTimestamp(t.createdAt)}
+                    <TableCell className="text-muted-foreground max-w-[200px] truncate">
+                      {t.description?.trim() || "No description"}
+                    </TableCell>
+                    <TableCell>
+                      <TeamMembersAvatars members={membersWithAvatars(t)} />
+                    </TableCell>
+                    <TableCell>
+                      <TeamProjectAssignments
+                        teamId={t.id}
+                        assignments={grants
+                          .filter((g) => g.teamId === t.id)
+                          .map((g) => ({
+                            projectId: g.projectId,
+                            projectName:
+                              projects.find((p) => p.id === g.projectId)?.name ?? g.projectId,
+                            role: g.role ?? "operator",
+                          }))}
+                        projectsAvailable={projects.length > 0}
+                        onAssign={() => {
+                          setAssignTeamId(t.id)
+                          setAssignTeamName(t.name)
+                        }}
+                        onRemove={(teamId, projectId) => {
+                          const projectName =
+                            projects.find((p) => p.id === projectId)?.name ?? projectId
+                          if (
+                            !window.confirm(
+                              `Remove "${t.name}" from project "${projectName}"? This will revoke the team's access.`
+                            )
+                          )
+                            return
+                          setRemovingProjectId(projectId)
+                          fetch("/api/org/teams/access", {
+                            method: "DELETE",
+                            credentials: "include",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ teamId, projectId }),
+                          })
+                            .then((res) => {
+                              if (!res.ok) return res.json().then((j) => Promise.reject(j))
+                              setMessage({ type: "success", text: "Assignment removed" })
+                              load()
+                            })
+                            .catch((json) =>
+                              setMessage({
+                                type: "error",
+                                text: (json?.error as string) ?? "Failed to remove assignment",
+                              })
+                            )
+                            .finally(() => setRemovingProjectId(null))
+                        }}
+                        removingProjectId={removingProjectId}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Link
+                                href={`/settings/teams/${t.id}`}
+                                className="inline-flex items-center justify-center rounded-md hover:bg-muted/50"
+                                aria-label="Manage team"
+                              >
+                                <UsersRound className="h-4 w-4 text-muted-foreground hover:text-foreground" />
+                              </Link>
+                            </TooltipTrigger>
+                            <TooltipContent>Manage team</TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label="Delete team"
+                          onClick={() => {
+                            if (window.confirm(`Delete team "${t.name}"? This cannot be undone.`)) {
+                              handleDeleteTeam(t.id)
+                            }
+                          }}
+                          className="text-muted-foreground hover:text-destructive"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
-                  {expanded.has(t.id) && (
-                    <TableRow>
-                      <TableCell colSpan={5} className="bg-muted/30 p-4">
-                        <div className="space-y-3">
-                          <div className="text-sm font-medium">Members</div>
-                          {t.members.length === 0 ? (
-                            <p className="text-sm text-muted-foreground">No members yet.</p>
-                          ) : (
-                            <ul className="space-y-2">
-                              {t.members.map((m) => (
-                                <li
-                                  key={m.login}
-                                  className="flex items-center justify-between gap-2 rounded border bg-background px-3 py-2 text-sm"
-                                >
-                                  <span>{m.login}</span>
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="xs"
-                                    disabled={removeLoading[`${t.id}:${m.login}`]}
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      handleRemoveMember(t.id, m.login)
-                                    }}
-                                  >
-                                    {removeLoading[`${t.id}:${m.login}`] ? "Removing…" : "Remove"}
-                                  </Button>
-                                </li>
-                              ))}
-                            </ul>
-                          )}
-                          <div className="flex items-center gap-2 pt-2">
-                            <Input
-                              placeholder="GitHub login"
-                              value={addMemberLogins[t.id] ?? ""}
-                              onChange={(e) =>
-                                setAddMemberLogins((prev) => ({ ...prev, [t.id]: e.target.value }))
-                              }
-                              onClick={(e) => e.stopPropagation()}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") {
-                                  e.preventDefault()
-                                  handleAddMember(t.id)
-                                }
-                              }}
-                              className="max-w-[200px]"
-                            />
-                            <Button
-                              type="button"
-                              size="sm"
-                              disabled={addLoading[t.id] || !(addMemberLogins[t.id]?.trim())}
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                handleAddMember(t.id)
-                              }}
-                            >
-                              {addLoading[t.id] ? "Adding…" : "Add"}
-                            </Button>
-                          </div>
-                          <div className="border-t pt-4">
-                            <div className="text-sm font-medium mb-2">Project access</div>
-                            {projectAccessMessage?.teamId === t.id && (
-                              <p
-                                className={
-                                  projectAccessMessage.type === "success"
-                                    ? "text-sm text-emerald-600 dark:text-emerald-500 mb-2"
-                                    : "text-sm text-destructive mb-2"
-                                }
-                              >
-                                {projectAccessMessage.text}
-                              </p>
-                            )}
-                            {projects.length === 0 ? (
-                              <p className="text-sm text-muted-foreground">No projects in this org.</p>
-                            ) : (
-                              <ul className="space-y-2">
-                                {projects.map((p) => {
-                                  const key = `${t.id}:${p.id}`
-                                  const checked = hasProjectAccess(t.id, p.id)
-                                  const isLoading = projectAccessLoading[key]
-                                  return (
-                                    <li
-                                      key={p.id}
-                                      className="flex items-center gap-2 rounded border bg-background px-3 py-2 text-sm"
-                                    >
-                                      <input
-                                        type="checkbox"
-                                        id={key}
-                                        className="h-4 w-4"
-                                        checked={checked}
-                                        disabled={isLoading}
-                                        onChange={(e) => {
-                                          e.stopPropagation()
-                                          handleProjectAccessToggle(t.id, p.id, e.target.checked)
-                                        }}
-                                        onClick={(e) => e.stopPropagation()}
-                                      />
-                                      <label htmlFor={key} className="flex-1 cursor-pointer">
-                                        {p.name} ({p.projectKey})
-                                      </label>
-                                    </li>
-                                  )
-                                })}
-                              </ul>
-                            )}
-                          </div>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </React.Fragment>
-              ))}
-            </TableBody>
-          </Table>
-        )}
+                ))}
+              </TableBody>
+            </Table>
+
+            {totalPages > 1 && (
+              <div className="mt-4 flex items-center justify-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
+                  Previous
+                </Button>
+                <span className="text-sm text-muted-foreground">
+                  Page {page} of {totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                >
+                  Next
+                </Button>
+              </div>
+            )}
+            </div>
+          )}
+        </div>
       </Card>
+
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent>
+          <DialogHeader className="pb-12">
+            <DialogTitle>Create Team</DialogTitle>
+            <DialogDescription>
+              Create a new team to manage permissions for a group of users.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleCreate} className="space-y-4">
+            <div className="flex flex-col gap-1">
+              <label htmlFor="create-name" className="text-xs font-medium text-muted-foreground">
+                Name
+              </label>
+              <Input
+                id="create-name"
+                placeholder="My Team"
+                value={createName}
+                onChange={(e) => setCreateName(e.target.value)}
+                disabled={createLoading}
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label htmlFor="create-desc" className="text-xs font-medium text-muted-foreground">
+                Description (optional)
+              </label>
+              <Input
+                id="create-desc"
+                placeholder="Team description"
+                value={createDescription}
+                onChange={(e) => setCreateDescription(e.target.value)}
+                disabled={createLoading}
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={createLoading || !createName.trim()}
+              >
+                {createLoading ? "Creating…" : "Create"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <AssignTeamProjectDialog
+        open={assignTeamId !== null}
+        onOpenChange={(o) => !o && setAssignTeamId(null)}
+        teamId={assignTeamId ?? ""}
+        teamName={assignTeamName}
+        projects={projects}
+        existingProjectIds={
+          assignTeamId
+            ? new Set(
+                grants.filter((g) => g.teamId === assignTeamId).map((g) => g.projectId)
+              )
+            : new Set()
+        }
+        onSuccess={load}
+      />
     </div>
   )
 }

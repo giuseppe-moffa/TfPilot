@@ -15,6 +15,7 @@ import {
   createTeam,
   getTeamBySlug,
 } from "@/lib/db/teams"
+import { writeAuditEvent, auditWriteDeps } from "@/lib/audit/write"
 
 async function requireOrgAdmin() {
   const session = await getSessionFromCookies()
@@ -46,6 +47,7 @@ export async function GET() {
         id: t.id,
         slug: t.slug,
         name: t.name,
+        description: t.description ?? null,
         createdAt: t.createdAt,
         membersCount: t.membersCount,
         members: members.map((m) => ({ login: m.login })),
@@ -61,9 +63,9 @@ export async function POST(req: NextRequest) {
   if (result.error) return result.error
   const { session } = result
 
-  let body: { slug?: unknown; name?: unknown }
+  let body: { slug?: unknown; name?: unknown; description?: unknown }
   try {
-    body = (await req.json()) as { slug?: unknown; name?: unknown }
+    body = (await req.json()) as { slug?: unknown; name?: unknown; description?: unknown }
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 })
   }
@@ -79,21 +81,35 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Name is required" }, { status: 400 })
   }
 
+  const rawDescription =
+    typeof body.description === "string" ? body.description.trim() || null : null
+
   const existing = await getTeamBySlug(session!.orgId!, normalizedSlug)
   if (existing) {
     return NextResponse.json({ error: "Team slug already exists" }, { status: 400 })
   }
 
-  const team = await createTeam(session!.orgId!, normalizedSlug, rawName)
+  const team = await createTeam(session!.orgId!, normalizedSlug, rawName, rawDescription)
   if (!team) {
     return NextResponse.json({ error: "Failed to create team" }, { status: 500 })
   }
+
+  writeAuditEvent(auditWriteDeps, {
+    org_id: session!.orgId!,
+    actor_login: session!.login,
+    source: "user",
+    event_type: "team_created",
+    entity_type: "team",
+    entity_id: team.id,
+    metadata: { team_slug: team.slug, name: team.name },
+  }).catch(() => {})
 
   return NextResponse.json({
     team: {
       id: team.id,
       slug: team.slug,
       name: team.name,
+      description: team.description ?? null,
       createdAt: team.createdAt,
     },
   })

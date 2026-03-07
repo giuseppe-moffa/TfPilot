@@ -13,6 +13,7 @@ function assert(condition: boolean, message: string): void {
 
 const mockEnv = {
   environment_id: "env_abc",
+  org_id: "org_default",
   project_key: "core",
   repo_full_name: "owner/core-terraform",
   environment_key: "dev",

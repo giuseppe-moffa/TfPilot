@@ -7,8 +7,12 @@ import { NextRequest, NextResponse } from "next/server"
 import { getSessionFromCookies, type SessionPayload } from "@/lib/auth/session"
 import { requireActiveOrg } from "@/lib/auth/requireActiveOrg"
 import { getGitHubAccessToken } from "@/lib/github/auth"
-import { getUserRole, type UserRole } from "@/lib/auth/roles"
-import { userHasProjectKeyAccess } from "@/lib/auth/projectAccess"
+import {
+  buildPermissionContext,
+  requireProjectPermission,
+  PermissionDeniedError,
+} from "@/lib/auth/permissions"
+import { getProjectByKey } from "@/lib/db/projects"
 import { getEnvironmentById, type Environment } from "@/lib/db/environments"
 import { resolveInfraRepoByProjectAndEnvKey } from "@/config/infra-repos"
 import {
@@ -30,13 +34,20 @@ import {
   type CreateDeployPRParams,
   type CreateDeployPRResult,
 } from "@/lib/github/createDeployPR"
+import { writeAuditEvent, auditWriteDeps } from "@/lib/audit/write"
 
 export type DeployRouteDeps = {
   getSessionFromCookies: () => Promise<SessionPayload | null>
-  getUserRole: (login?: string | null) => UserRole
-  userHasProjectKeyAccess: (login: string | undefined | null, orgId: string, projectKey: string) => Promise<boolean>
+  requireActiveOrg: (session: SessionPayload) => Promise<NextResponse | null>
   getGitHubAccessToken: (req?: NextRequest) => Promise<string | null>
   getEnvironmentById: (id: string) => Promise<Environment | null>
+  getProjectByKey: (orgId: string, projectKey: string) => Promise<{ id: string; orgId: string } | null>
+  buildPermissionContext: (login: string, orgId: string) => Promise<import("@/lib/auth/permissions").PermissionContext>
+  requireProjectPermission: (
+    ctx: import("@/lib/auth/permissions").PermissionContext,
+    projectId: string,
+    permission: "deploy_env"
+  ) => Promise<unknown>
   isEnvironmentDeployed: (
     token: string,
     params: IsEnvironmentDeployedParams
@@ -46,10 +57,12 @@ export type DeployRouteDeps = {
 
 const realDeps: DeployRouteDeps = {
   getSessionFromCookies,
-  getUserRole,
-  userHasProjectKeyAccess,
+  requireActiveOrg,
   getGitHubAccessToken,
   getEnvironmentById,
+  getProjectByKey,
+  buildPermissionContext,
+  requireProjectPermission,
   isEnvironmentDeployed,
   createDeployPR,
 }
@@ -72,12 +85,8 @@ export function makePOST(deps: DeployRouteDeps) {
     if (!session.orgId) {
       return NextResponse.json({ error: "Not found" }, { status: 404 })
     }
-    const archivedRes = await requireActiveOrg(session)
+    const archivedRes = await deps.requireActiveOrg(session)
     if (archivedRes) return archivedRes
-    const role = deps.getUserRole(session.login)
-    if (role !== "admin") {
-      return NextResponse.json({ error: "Deploy not permitted for your role" }, { status: 403 })
-    }
 
     const token = await deps.getGitHubAccessToken(req)
     if (!token) {
@@ -92,9 +101,18 @@ export function makePOST(deps: DeployRouteDeps) {
       return NextResponse.json({ error: "Not found" }, { status: 404 })
     }
 
-    const hasAccess = await deps.userHasProjectKeyAccess(session.login, session.orgId, envRow.project_key)
-    if (!hasAccess) {
+    const project = await deps.getProjectByKey(session.orgId!, envRow.project_key)
+    if (!project || project.orgId !== session.orgId) {
       return NextResponse.json({ error: "Not found" }, { status: 404 })
+    }
+    const ctx = await deps.buildPermissionContext(session.login, session.orgId!)
+    try {
+      await deps.requireProjectPermission(ctx, project.id, "deploy_env")
+    } catch (e) {
+      if (e instanceof PermissionDeniedError) {
+        return NextResponse.json({ error: "Deploy not permitted for your role" }, { status: 403 })
+      }
+      throw e
     }
 
     if (envRow.archived_at) {
@@ -181,6 +199,18 @@ export function makePOST(deps: DeployRouteDeps) {
 
     try {
       const result = await deps.createDeployPR(token, createParams)
+
+      writeAuditEvent(auditWriteDeps, {
+        org_id: envRow.org_id,
+        actor_login: session.login,
+        source: "user",
+        event_type: "environment_deploy_pr_opened",
+        entity_type: "environment",
+        entity_id: environmentId,
+        environment_id: envRow.environment_id,
+        project_key: envRow.project_key,
+        metadata: { project_key: envRow.project_key, environment_slug: envRow.environment_slug, pr_number: result.pr_number },
+      }).catch(() => {})
 
       return NextResponse.json(
         {

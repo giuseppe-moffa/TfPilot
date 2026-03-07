@@ -2,9 +2,17 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
+import { Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog"
 import {
   Table,
   TableBody,
@@ -66,6 +74,7 @@ export default function PlatformOrgsClient() {
   const [createName, setCreateName] = React.useState("")
   const [createAdminLogin, setCreateAdminLogin] = React.useState("")
   const [createLoading, setCreateLoading] = React.useState(false)
+  const [createOpen, setCreateOpen] = React.useState(false)
   const [filter, setFilter] = React.useState<FilterValue>("active")
   const [archivingId, setArchivingId] = React.useState<string | null>(null)
   const [restoringId, setRestoringId] = React.useState<string | null>(null)
@@ -114,6 +123,7 @@ export default function PlatformOrgsClient() {
       setCreateSlug("")
       setCreateName("")
       setCreateAdminLogin("")
+      setCreateOpen(false)
       load()
     } catch {
       setMessage({ type: "error", text: "Failed to create org" })
@@ -170,9 +180,11 @@ export default function PlatformOrgsClient() {
 
   if (loading) {
     return (
-      <div className="space-y-6">
-        <p className="text-sm text-muted-foreground">Loading orgs…</p>
-        <div className="h-32 animate-pulse rounded-lg bg-muted" />
+      <div className="flex min-h-0 flex-1 flex-col">
+        <Card className="flex min-h-0 flex-1 flex-col p-6">
+          <div className="h-32 animate-pulse rounded-lg bg-muted" />
+          <div className="mt-4 h-48 animate-pulse rounded-lg bg-muted" />
+        </Card>
       </div>
     )
   }
@@ -181,7 +193,7 @@ export default function PlatformOrgsClient() {
     return (
       <Card className="p-6">
         <p className="text-sm text-muted-foreground">
-          {error ?? "You don't have permission to view platform orgs."}
+          {error ?? "You don't have permission to view organisations."}
         </p>
       </Card>
     )
@@ -192,79 +204,32 @@ export default function PlatformOrgsClient() {
   const { orgs } = data
 
   return (
-    <div className="space-y-6">
-      <Card className="p-6">
-        <h3 className="mb-4 text-sm font-medium">Create org</h3>
-        <form onSubmit={handleCreate} className="flex flex-wrap items-end gap-3">
-          <div className="flex flex-col gap-1">
-            <label htmlFor="create-slug" className="text-xs text-muted-foreground">
-              Slug
-            </label>
-            <Input
-              id="create-slug"
-              placeholder="acme"
-              value={createSlug}
-              onChange={(e) => setCreateSlug(e.target.value)}
-              className="w-40"
-              disabled={createLoading}
-            />
-          </div>
-          <div className="flex flex-col gap-1">
-            <label htmlFor="create-name" className="text-xs text-muted-foreground">
-              Name
-            </label>
-            <Input
-              id="create-name"
-              placeholder="Acme"
-              value={createName}
-              onChange={(e) => setCreateName(e.target.value)}
-              className="w-40"
-              disabled={createLoading}
-            />
-          </div>
-          <div className="flex flex-col gap-1">
-            <label htmlFor="create-admin-login" className="text-xs text-muted-foreground">
-              Initial admin GitHub login
-            </label>
-            <Input
-              id="create-admin-login"
-              placeholder="someuser"
-              value={createAdminLogin}
-              onChange={(e) => setCreateAdminLogin(e.target.value)}
-              className="w-40"
-              disabled={createLoading}
-            />
+    <div className="flex min-h-0 flex-1 flex-col">
+      <Card className="flex min-h-0 flex-1 flex-col pt-0">
+        <div className="flex flex-wrap items-center justify-between gap-4 px-6 py-6">
+          <div>
+            <h3 className="text-base font-semibold">Manage Organisations</h3>
+            <p className="text-xs text-muted-foreground">
+              View and create organizations on the platform.
+            </p>
           </div>
           <Button
-            type="submit"
-            disabled={
-              createLoading ||
-              !createSlug.trim() ||
-              !createName.trim() ||
-              !createAdminLogin.trim()
-            }
+            size="lg"
+            className="cursor-pointer shrink-0 gap-2"
+            onClick={() => {
+              setCreateOpen(true)
+              setCreateSlug("")
+              setCreateName("")
+              setCreateAdminLogin("")
+            }}
           >
-            {createLoading ? "Creating…" : "Create"}
+            <Plus className="h-4 w-4" />
+            Create org
           </Button>
-        </form>
-      </Card>
-
-      {message && (
-        <p
-          className={
-            message.type === "success"
-              ? "text-sm text-emerald-600 dark:text-emerald-500"
-              : "text-sm text-destructive"
-          }
-        >
-          {message.text}
-        </p>
-      )}
-
-      <Card className="p-6">
-        <div className="mb-4 flex items-center gap-4">
-          <span className="text-sm text-muted-foreground">Filter:</span>
-          <div className="flex gap-2">
+        </div>
+        <div className="flex min-h-0 flex-1 flex-col px-6 pb-6 pt-2">
+          <div className="mb-4 flex flex-wrap items-center gap-3">
+            <span className="text-sm text-muted-foreground">Filter:</span>
             {(["active", "archived", "all"] as const).map((f) => (
               <Button
                 key={f}
@@ -276,17 +241,29 @@ export default function PlatformOrgsClient() {
               </Button>
             ))}
           </div>
-        </div>
-        {orgs.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            {filter === "active"
-              ? "No active orgs."
-              : filter === "archived"
-                ? "No archived orgs."
-                : "No orgs yet."}
-          </p>
-        ) : (
-          <Table>
+
+          {message && (
+            <p
+              className={
+                message.type === "success"
+                  ? "mb-3 text-sm text-emerald-600 dark:text-emerald-500"
+                  : "mb-3 text-sm text-destructive"
+              }
+            >
+              {message.text}
+            </p>
+          )}
+
+          {orgs.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              {filter === "active"
+                ? "No active orgs."
+                : filter === "archived"
+                  ? "No archived orgs."
+                  : "No orgs yet."}
+            </p>
+          ) : (
+            <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Name</TableHead>
@@ -302,7 +279,7 @@ export default function PlatformOrgsClient() {
                 <TableRow
                   key={o.id}
                   className={`cursor-pointer hover:bg-muted/50 ${o.archivedAt ? "opacity-75" : ""}`}
-                  onClick={() => router.push(`/settings/platform/orgs/${encodeURIComponent(o.id)}`)}
+                  onClick={() => router.push(`/settings/organisations/${encodeURIComponent(o.id)}`)}
                 >
                   <TableCell className="font-medium">
                     <span className="flex items-center gap-2">
@@ -345,8 +322,74 @@ export default function PlatformOrgsClient() {
               ))}
             </TableBody>
           </Table>
-        )}
+          )}
+        </div>
       </Card>
+
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create organisation</DialogTitle>
+            <DialogDescription>
+              Create a new organisation on the platform. You must specify an initial admin GitHub login.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleCreate} className="space-y-4">
+            <div className="flex flex-col gap-1">
+              <label htmlFor="create-slug" className="text-xs font-medium text-muted-foreground">
+                Slug
+              </label>
+              <Input
+                id="create-slug"
+                placeholder="acme"
+                value={createSlug}
+                onChange={(e) => setCreateSlug(e.target.value)}
+                disabled={createLoading}
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label htmlFor="create-name" className="text-xs font-medium text-muted-foreground">
+                Name
+              </label>
+              <Input
+                id="create-name"
+                placeholder="Acme"
+                value={createName}
+                onChange={(e) => setCreateName(e.target.value)}
+                disabled={createLoading}
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label htmlFor="create-admin-login" className="text-xs font-medium text-muted-foreground">
+                Initial admin GitHub login
+              </label>
+              <Input
+                id="create-admin-login"
+                placeholder="someuser"
+                value={createAdminLogin}
+                onChange={(e) => setCreateAdminLogin(e.target.value)}
+                disabled={createLoading}
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={
+                  createLoading ||
+                  !createSlug.trim() ||
+                  !createName.trim() ||
+                  !createAdminLogin.trim()
+                }
+              >
+                {createLoading ? "Creating…" : "Create"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

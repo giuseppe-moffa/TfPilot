@@ -35,10 +35,10 @@ const primaryNavItems = [
 ] as const
 
 const settingsNavItems = [
-  { label: "Members", href: "/settings/org" },
+  { label: "Members", href: "/settings/members" },
   { label: "Teams", href: "/settings/teams" },
   { label: "Audit", href: "/settings/audit" },
-  { label: "Platform Orgs", href: "/settings/platform/orgs" },
+  { label: "Organisations", href: "/settings/organisations" },
 ] as const
 
 function getPageTitle(pathname: string): string {
@@ -46,10 +46,10 @@ function getPageTitle(pathname: string): string {
   if (pathname.startsWith("/requests")) return "Resources"
   if (pathname.startsWith("/catalogue")) return "Catalogue"
   if (pathname.startsWith("/insights")) return "Insights"
-  if (pathname.startsWith("/settings/org")) return "Members"
+  if (pathname.startsWith("/settings/members")) return "Members"
   if (pathname.startsWith("/settings/teams")) return "Teams"
   if (pathname.startsWith("/settings/audit")) return "Audit"
-  if (pathname.startsWith("/settings/platform/orgs")) return "Platform Orgs"
+  if (pathname.startsWith("/settings/organisations")) return "Organisations"
   return ""
 }
 
@@ -58,7 +58,7 @@ type UserOrg = { orgId: string; orgSlug: string; orgName: string }
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const router = useRouter()
-  const { user, role, orgArchived, loading, logout, refresh } = useAuth()
+  const { user, isPlatformAdmin, orgArchived, loading, logout, refresh } = useAuth()
   const { theme, toggleTheme } = useTheme()
   const pageTitle = getPageTitle(pathname)
 
@@ -69,12 +69,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return s
   })
 
-  const isPlatformAdmin = role === "admin"
   const canAccessDespiteArchived =
-    isPlatformAdmin && pathname.startsWith("/settings/platform/orgs")
+    isPlatformAdmin && pathname.startsWith("/settings/organisations")
   const showArchivedBlock = orgArchived && !canAccessDespiteArchived
   const visibleSettingsItems = settingsNavItems.filter(
-    (item) => item.href !== "/settings/platform/orgs" || isPlatformAdmin
+    (item) => item.href !== "/settings/organisations" || isPlatformAdmin
   )
 
   React.useEffect(() => {
@@ -367,10 +366,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     {isPlatformAdmin && (
                       <span className="block mt-2">
                         <Link
-                          href="/settings/platform/orgs"
+                          href="/settings/organisations"
                           className="text-primary hover:underline"
                         >
-                          Go to Platform Orgs
+                          Go to Organisations
                         </Link>{" "}
                         to restore this organization.
                       </span>

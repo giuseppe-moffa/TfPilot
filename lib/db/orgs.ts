@@ -20,6 +20,8 @@ export type OrgMember = {
   login: string
   role: string
   created_at: string
+  display_name?: string | null
+  avatar_url?: string | null
 }
 
 const VALID_ORG_ROLES = ["viewer", "developer", "approver", "admin"] as const
@@ -60,11 +62,35 @@ export async function getOrgBySlug(slug: string): Promise<Org | null> {
 export async function listOrgMembers(orgId: string): Promise<OrgMember[]> {
   if (!isDatabaseConfigured() || !orgId?.trim()) return []
   const result = await query<OrgMember>(
-    "SELECT login, role, created_at FROM org_memberships WHERE org_id = $1 ORDER BY created_at ASC",
+    "SELECT login, role, created_at, display_name, avatar_url FROM org_memberships WHERE org_id = $1 ORDER BY created_at ASC",
     [orgId.trim()]
   )
   if (!result) return []
   return result.rows
+}
+
+/**
+ * Insert org membership. Fails silently on conflict (user already a member).
+ * Returns the member row if inserted, null if conflict or DB not configured.
+ */
+export async function insertOrgMember(
+  orgId: string,
+  login: string,
+  role: string,
+  profile?: { display_name?: string | null; avatar_url?: string | null }
+): Promise<OrgMember | null> {
+  if (!isDatabaseConfigured() || !orgId?.trim() || !login?.trim() || !role?.trim()) return null
+  const displayName = profile?.display_name ?? null
+  const avatarUrl = profile?.avatar_url ?? null
+  const result = await query<OrgMember>(
+    `INSERT INTO org_memberships (org_id, login, role, created_at, display_name, avatar_url)
+     VALUES ($1, $2, $3, NOW(), $4, $5)
+     ON CONFLICT (org_id, login) DO NOTHING
+     RETURNING login, role, created_at, display_name, avatar_url`,
+    [orgId.trim(), login.trim().toLowerCase(), role.trim(), displayName, avatarUrl]
+  )
+  if (!result || result.rows.length === 0) return null
+  return result.rows[0]!
 }
 
 /**
@@ -109,7 +135,7 @@ export async function countOrgAdmins(orgId: string): Promise<number> {
 export async function getOrgMember(orgId: string, login: string): Promise<OrgMember | null> {
   if (!isDatabaseConfigured() || !orgId?.trim() || !login?.trim()) return null
   const result = await query<OrgMember>(
-    "SELECT login, role, created_at FROM org_memberships WHERE org_id = $1 AND login = $2",
+    "SELECT login, role, created_at, display_name, avatar_url FROM org_memberships WHERE org_id = $1 AND login = $2",
     [orgId.trim(), login.trim().toLowerCase()]
   )
   if (!result || result.rows.length === 0) return null
@@ -127,7 +153,7 @@ export async function updateOrgMemberRole(
   if (!isDatabaseConfigured() || !orgId?.trim() || !login?.trim() || !role?.trim()) return null
   const result = await query<OrgMember>(
     `UPDATE org_memberships SET role = $3 WHERE org_id = $1 AND login = $2
-     RETURNING login, role, created_at`,
+     RETURNING login, role, created_at, display_name, avatar_url`,
     [orgId.trim(), login.trim().toLowerCase(), role.trim()]
   )
   if (!result || result.rows.length === 0) return null

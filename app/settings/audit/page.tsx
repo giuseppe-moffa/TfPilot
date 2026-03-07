@@ -45,8 +45,8 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
   project_access_revoked: "Project access revoked",
   request_created: "Request created",
   request_approved: "Request approved",
-  request_applied: "Request applied",
-  request_destroyed: "Request destroyed",
+  request_apply_dispatched: "Request apply dispatched",
+  request_destroy_dispatched: "Request destroy dispatched",
   environment_destroy_requested: "Environment destroy requested",
   environment_deploy_pr_opened: "Environment deploy PR opened",
 }

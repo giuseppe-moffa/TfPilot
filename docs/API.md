@@ -160,7 +160,7 @@ Switch active org in session. **Requires session.** Body: `{ orgId }`. Verifies 
 
 ## Platform orgs (platform-admin only)
 
-Platform-admin = `getUserRole(login) === "admin"` (TFPILOT_ADMINS). Non-admins receive **404** (same as org-not-found).
+Platform-admin = `isPlatformAdmin(login)` (platform_admins table). Non-admins receive **404** (same as org-not-found).
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|

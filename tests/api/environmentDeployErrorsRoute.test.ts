@@ -33,9 +33,10 @@ const BASE_ENV_ROW = {
   archived_at: null as string | null,
 }
 
+const PROJECT_ID = "proj_1"
 const SESSION_MOCKS: Pick<
   DeployRouteDeps,
-  "getSessionFromCookies" | "getUserRole" | "getGitHubAccessToken" | "userHasProjectKeyAccess"
+  "getSessionFromCookies" | "requireActiveOrg" | "getGitHubAccessToken" | "getProjectByKey" | "buildPermissionContext" | "requireProjectPermission"
 > = {
   getSessionFromCookies: async () => ({
     login: "admin",
@@ -45,9 +46,18 @@ const SESSION_MOCKS: Pick<
     orgId: TEST_ORG_ID,
     orgSlug: "default",
   }),
-  getUserRole: () => "admin" as const,
+  requireActiveOrg: async () => null,
   getGitHubAccessToken: async () => "token",
-  userHasProjectKeyAccess: async () => true,
+  getProjectByKey: async (orgId, _key) =>
+    orgId === TEST_ORG_ID ? { id: PROJECT_ID, orgId: TEST_ORG_ID } : null,
+  buildPermissionContext: async () => ({
+    login: "admin",
+    orgId: TEST_ORG_ID,
+    orgRole: "admin" as const,
+    teamIds: [],
+    projectRoleCache: new Map(),
+  }),
+  requireProjectPermission: async () => null,
 }
 
 const STUB_CREATE_DEPLOY_PR: DeployRouteDeps["createDeployPR"] = async () => ({

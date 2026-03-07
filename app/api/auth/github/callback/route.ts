@@ -170,11 +170,6 @@ export async function GET(req: NextRequest) {
 
     const email = await fetchGithubUserEmail(token)
 
-    if (env.TFPILOT_ALLOWED_LOGINS.length > 0 && !env.TFPILOT_ALLOWED_LOGINS.includes(user.login)) {
-      console.warn('[auth/github/callback] Login rejected: user not in TFPILOT_ALLOWED_LOGINS:', user.login)
-      return NextResponse.redirect(loginErrorUrl(getPublicBaseUrl(), "not_allowed"))
-    }
-
     const org = await resolveActiveOrgForLogin(user.login)
     if (!org) {
       console.warn('[auth/github/callback] Login rejected: no org membership for:', user.login)

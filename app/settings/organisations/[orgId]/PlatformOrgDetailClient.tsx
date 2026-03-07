@@ -141,15 +141,15 @@ export default function PlatformOrgDetailClient({ orgId }: { orgId: string }) {
     <div className="space-y-6">
       <div className="flex items-center gap-2">
         <Link
-          href="/settings/platform/orgs"
+          href="/settings/organisations"
           className="text-sm text-muted-foreground hover:text-foreground"
         >
-          ← Platform Orgs
+          ← Organisations
         </Link>
       </div>
 
       <div className="flex items-center justify-between gap-4">
-        <h2 className="text-lg font-semibold">Platform Org</h2>
+        <h2 className="text-lg font-semibold">Organisation</h2>
         {org.archivedAt ? (
           <div className="flex items-center gap-2">
             <Badge variant="secondary">Archived</Badge>

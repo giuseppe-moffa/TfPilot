@@ -6,19 +6,13 @@
 import { NextResponse } from "next/server"
 
 import { getSessionFromCookies } from "@/lib/auth/session"
-import { getUserRole } from "@/lib/auth/roles"
+import { requirePlatformAdmin } from "@/lib/auth/platformAdmin"
 import { getRequest, listAllRequestIds } from "@/lib/storage/requestsStore"
 import { isMissingEnvField } from "@/lib/requests/auditMissingEnv"
 
 export async function GET() {
-  const session = await getSessionFromCookies()
-  if (!session) {
-    return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
-  }
-  const role = getUserRole(session.login)
-  if (role !== "admin") {
-    return NextResponse.json({ error: "Admin only" }, { status: 403 })
-  }
+  const result = await requirePlatformAdmin()
+  if ("error" in result) return result.error
 
   const ids = await listAllRequestIds()
   const missing: string[] = []

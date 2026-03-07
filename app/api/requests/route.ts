@@ -37,11 +37,22 @@ import { putPrIndex } from "@/lib/requests/prIndex"
 import { getCurrentAttemptStrict, patchAttemptRunId, persistDispatchAttempt } from "@/lib/requests/runsModel"
 import type { RunsState } from "@/lib/requests/runsModel"
 import { putRunIndex } from "@/lib/requests/runIndex"
-import { getUserRole } from "@/lib/auth/roles"
-import { userHasProjectKeyAccess } from "@/lib/auth/projectAccess"
+import {
+  buildPermissionContext,
+  requireProjectPermission,
+  PermissionDeniedError,
+} from "@/lib/auth/permissions"
+import { getProjectByKey } from "@/lib/db/projects"
 import { ensureAssistantState } from "@/lib/assistant/state"
-import { resolveRequestEnvironment } from "@/lib/requests/resolveRequestEnvironment"
+import {
+  resolveRequestEnvironment,
+  type ResolveRequestEnvironmentResult,
+  type ResolvedRequestEnvironment,
+} from "@/lib/requests/resolveRequestEnvironment"
 import { validateCreateBody } from "@/lib/requests/validateCreateBody"
+import { writeAuditEvent, auditWriteDeps } from "@/lib/audit/write"
+import type { PermissionContext, ProjectPermission } from "@/lib/auth/permissions"
+import type { CheckCreateResult } from "@/lib/requests/idempotency"
 
 type RequestPayload = {
   /** environment_id (preferred) or (project_key, environment_key, environment_slug) */
@@ -505,7 +516,74 @@ async function createBranchCommitPrAndPlan(
   }
 }
 
-export async function POST(request: NextRequest) {
+type GenerateModel2Result = { files: Array<{ path: string; content: string }> }
+type CreateBranchResult = {
+  branchName: string
+  prNumber: number
+  prUrl: string
+  commitSha?: string
+  planHeadSha?: string
+  workflowRunId?: number
+  workflowRunUrl?: string
+  baseSha?: string
+}
+
+export type RequestsPOSTDeps = {
+  getSessionFromCookies: () => Promise<SessionPayload | null>
+  requireActiveOrg: (session: SessionPayload) => Promise<NextResponse | null>
+  getGitHubAccessToken: (req: NextRequest) => Promise<string | null>
+  getIdempotencyKey: (req: NextRequest) => string | null
+  checkCreateIdempotency: (key: string, now: Date) => CheckCreateResult
+  resolveRequestEnvironment: (input: {
+    environment_id?: string
+    project_key?: string
+    environment_key?: string
+    environment_slug?: string
+    _deps?: import("@/lib/requests/resolveRequestEnvironment").ResolveRequestEnvironmentDeps
+  }) => Promise<ResolveRequestEnvironmentResult>
+  getProjectByKey: (orgId: string, projectKey: string) => Promise<{ id: string; orgId: string } | null>
+  buildPermissionContext: (login: string, orgId: string) => Promise<PermissionContext>
+  requireProjectPermission: (
+    ctx: PermissionContext,
+    projectId: string,
+    permission: "plan"
+  ) => Promise<unknown>
+  generateModel2TerraformFiles: (
+    token: string,
+    envKey: string,
+    envSlug: string,
+    request: StoredRequest,
+    owner: string,
+    repo: string
+  ) => Promise<GenerateModel2Result>
+  createBranchCommitPrAndPlan: (
+    token: string,
+    request: StoredRequest,
+    files: Array<{ path: string; content: string }>,
+    target: { owner: string; repo: string; base: string }
+  ) => Promise<CreateBranchResult>
+  saveRequest: (doc: unknown) => Promise<void>
+  recordCreate: (key: string, requestId: string, requestDoc: Record<string, unknown>, now: Date) => void
+}
+
+const realRequestsPOSTDeps: RequestsPOSTDeps = {
+  getSessionFromCookies,
+  requireActiveOrg,
+  getGitHubAccessToken,
+  getIdempotencyKey,
+  checkCreateIdempotency,
+  resolveRequestEnvironment,
+  getProjectByKey,
+  buildPermissionContext,
+  requireProjectPermission,
+  generateModel2TerraformFiles,
+  createBranchCommitPrAndPlan,
+  saveRequest,
+  recordCreate,
+}
+
+export function makeRequestsPOST(deps: RequestsPOSTDeps) {
+  return async function POST(request: NextRequest) {
   const start = Date.now()
   const correlation = withCorrelation(request, {})
   let userLogin: string | undefined
@@ -520,19 +598,15 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const session = await getSessionFromCookies()
+    const session = await deps.getSessionFromCookies()
     if (!session) {
       return NextResponse.json({ success: false, error: "Not authenticated" }, { status: 401 })
     }
     userLogin = session.login
-    const role = getUserRole(session.login)
-    if (role === "viewer") {
-      return NextResponse.json({ success: false, error: "Insufficient role" }, { status: 403 })
-    }
     if (!session.orgId) {
       return NextResponse.json({ success: false, error: "No org context" }, { status: 403 })
     }
-    const archivedRes = await requireActiveOrg(session)
+    const archivedRes = await deps.requireActiveOrg(session)
     if (archivedRes) return archivedRes
 
     // validate module exists based on registry
@@ -541,14 +615,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: "Unknown module" }, { status: 400 })
     }
 
-    const token = await getGitHubAccessToken(request)
+    const token = await deps.getGitHubAccessToken(request)
     if (!token) {
       return NextResponse.json({ success: false, error: "GitHub not connected" }, { status: 401 })
     }
 
-    const idemKey = getIdempotencyKey(request)
+    const idemKey = deps.getIdempotencyKey(request)
     const now = new Date()
-    const createCheck = checkCreateIdempotency(idemKey ?? "", now)
+    const createCheck = deps.checkCreateIdempotency(idemKey ?? "", now)
     if (createCheck.ok === false && createCheck.mode === "replay") {
       const replayId = (createCheck.requestDoc as { id?: string }).id
       logInfo("idempotency.replay", { ...correlation, operation: "create", requestId: replayId })
@@ -558,7 +632,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const envResult = await resolveRequestEnvironment({
+    const envResult = await deps.resolveRequestEnvironment({
       environment_id: body.environment_id,
       project_key: body.project_key,
       environment_key: body.environment_key,
@@ -569,9 +643,18 @@ export async function POST(request: NextRequest) {
     }
     const { resolved } = envResult
 
-    const hasAccess = await userHasProjectKeyAccess(session.login, session.orgId!, resolved.project_key)
-    if (!hasAccess) {
-      return NextResponse.json({ success: false, error: "No project access" }, { status: 403 })
+    const project = await deps.getProjectByKey(session.orgId!, resolved.project_key)
+    if (!project || project.orgId !== session.orgId) {
+      return NextResponse.json({ success: false, error: "Not found" }, { status: 404 })
+    }
+    const ctx = await deps.buildPermissionContext(session.login, session.orgId!)
+    try {
+      await deps.requireProjectPermission(ctx, project.id, "plan")
+    } catch (e) {
+      if (e instanceof PermissionDeniedError) {
+        return NextResponse.json({ success: false, error: "Forbidden" }, { status: 403 })
+      }
+      throw e
     }
 
     const targetRepo = resolved.targetRepo
@@ -584,13 +667,6 @@ export async function POST(request: NextRequest) {
     console.log("[api/requests] module =", body.module)
 
     getModuleType(body.module!, regEntry.category)
-
-    const isProd = resolved.environment_key.toLowerCase() === "prod"
-    if (isProd && env.TFPILOT_PROD_ALLOWED_USERS.length > 0) {
-      if (!env.TFPILOT_PROD_ALLOWED_USERS.includes(session.login)) {
-        return NextResponse.json({ success: false, error: "Prod deployments not allowed for this user" }, { status: 403 })
-      }
-    }
 
     const normalizedConfig = normalizeConfigKeys(body.config as Record<string, unknown>)
     if (typeof normalizedConfig.name === "string") {
@@ -650,7 +726,7 @@ export async function POST(request: NextRequest) {
     }
     validatePolicy(newRequest.config)
 
-    const generated = await generateModel2TerraformFiles(
+    const generated = await deps.generateModel2TerraformFiles(
       token,
       resolved.environment_key,
       resolved.environment_slug,
@@ -658,7 +734,7 @@ export async function POST(request: NextRequest) {
       targetRepo.owner,
       targetRepo.repo
     )
-    const ghResult = await createBranchCommitPrAndPlan(token, newRequest, generated.files, targetRepo)
+    const ghResult = await deps.createBranchCommitPrAndPlan(token, newRequest, generated.files, targetRepo)
 
     const resolvedAt = new Date().toISOString()
     const moduleCommitSha = ghResult.baseSha ?? "unknown"
@@ -728,8 +804,21 @@ export async function POST(request: NextRequest) {
 
     const newRequestWithAssistant = ensureAssistantState(newRequest)
 
-    await saveRequest(newRequestWithAssistant)
-    if (idemKey) recordCreate(idemKey, requestId, newRequestWithAssistant as Record<string, unknown>, now)
+    await deps.saveRequest(newRequestWithAssistant)
+    if (idemKey) deps.recordCreate(idemKey, requestId, newRequestWithAssistant as Record<string, unknown>, now)
+
+    writeAuditEvent(auditWriteDeps, {
+      org_id: session.orgId!,
+      actor_login: session.login,
+      source: "user",
+      event_type: "request_created",
+      entity_type: "request",
+      entity_id: requestId,
+      request_id: requestId,
+      project_key: newRequestWithAssistant.project_key,
+      environment_id: newRequestWithAssistant.environment_id,
+      metadata: { project_key: newRequestWithAssistant.project_key, environment_id: newRequestWithAssistant.environment_id, module: newRequestWithAssistant.module },
+    }).catch(() => {})
 
     await putPrIndex(targetRepo.owner, targetRepo.repo, ghResult.prNumber, requestId).catch(() => {})
     if (ghResult.workflowRunId != null) {
@@ -786,7 +875,10 @@ export async function POST(request: NextRequest) {
       error instanceof Error ? error.message : typeof error === "string" ? error : "Invalid JSON payload"
     return NextResponse.json({ success: false, error: message }, { status: 400 })
   }
+  }
 }
+
+export const POST = makeRequestsPOST(realRequestsPOSTDeps)
 
 /** Dependencies for GET /api/requests list handler. Injected for testability. */
 export type RequestsListRouteDeps = {
