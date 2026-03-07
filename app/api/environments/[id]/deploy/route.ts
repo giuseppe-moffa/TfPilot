@@ -5,9 +5,10 @@
 
 import { NextRequest, NextResponse } from "next/server"
 import { getSessionFromCookies, type SessionPayload } from "@/lib/auth/session"
+import { requireActiveOrg } from "@/lib/auth/requireActiveOrg"
 import { getGitHubAccessToken } from "@/lib/github/auth"
-import { getUserRole } from "@/lib/auth/roles"
-import type { UserRole } from "@/lib/auth/roles"
+import { getUserRole, type UserRole } from "@/lib/auth/roles"
+import { userHasProjectKeyAccess } from "@/lib/auth/projectAccess"
 import { getEnvironmentById, type Environment } from "@/lib/db/environments"
 import { resolveInfraRepoByProjectAndEnvKey } from "@/config/infra-repos"
 import {
@@ -33,6 +34,7 @@ import {
 export type DeployRouteDeps = {
   getSessionFromCookies: () => Promise<SessionPayload | null>
   getUserRole: (login?: string | null) => UserRole
+  userHasProjectKeyAccess: (login: string | undefined | null, orgId: string, projectKey: string) => Promise<boolean>
   getGitHubAccessToken: (req?: NextRequest) => Promise<string | null>
   getEnvironmentById: (id: string) => Promise<Environment | null>
   isEnvironmentDeployed: (
@@ -45,6 +47,7 @@ export type DeployRouteDeps = {
 const realDeps: DeployRouteDeps = {
   getSessionFromCookies,
   getUserRole,
+  userHasProjectKeyAccess,
   getGitHubAccessToken,
   getEnvironmentById,
   isEnvironmentDeployed,
@@ -69,6 +72,8 @@ export function makePOST(deps: DeployRouteDeps) {
     if (!session.orgId) {
       return NextResponse.json({ error: "Not found" }, { status: 404 })
     }
+    const archivedRes = await requireActiveOrg(session)
+    if (archivedRes) return archivedRes
     const role = deps.getUserRole(session.login)
     if (role !== "admin") {
       return NextResponse.json({ error: "Deploy not permitted for your role" }, { status: 403 })
@@ -84,6 +89,11 @@ export function makePOST(deps: DeployRouteDeps) {
       return NextResponse.json({ error: "Not found" }, { status: 404 })
     }
     if (envRow.org_id !== session.orgId) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 })
+    }
+
+    const hasAccess = await deps.userHasProjectKeyAccess(session.login, session.orgId, envRow.project_key)
+    if (!hasAccess) {
       return NextResponse.json({ error: "Not found" }, { status: 404 })
     }
 

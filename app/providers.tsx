@@ -12,6 +12,9 @@ type AuthUser = {
 
 type AuthContextValue = {
   user: AuthUser | null
+  role: "viewer" | "developer" | "approver" | "admin" | null
+  /** True when session has orgId and that org is archived. */
+  orgArchived: boolean
   loading: boolean
   refresh: () => Promise<void>
   logout: () => Promise<void>
@@ -34,26 +37,45 @@ const AwsConnectionContext = React.createContext<AwsConnectionContextValue | nul
 
 const STORAGE_KEY = "awsConnection"
 
-async function fetchSession(): Promise<AuthUser | null> {
+type SessionData = {
+  user: AuthUser | null
+  role: "viewer" | "developer" | "approver" | "admin" | null
+  orgArchived: boolean
+}
+
+async function fetchSession(): Promise<SessionData> {
   try {
     const res = await fetch("/api/auth/me", { credentials: "include" })
-    if (!res.ok) return null
-    const data = (await res.json()) as { authenticated: boolean; user?: AuthUser }
-    if (!data.authenticated || !data.user) return null
-    return data.user
+    if (!res.ok) return { user: null, role: null, orgArchived: false }
+    const data = (await res.json()) as {
+      authenticated: boolean
+      user?: AuthUser
+      role?: "viewer" | "developer" | "approver" | "admin"
+      org?: { orgId: string; orgSlug: string; orgArchived?: boolean }
+    }
+    if (!data.authenticated || !data.user) return { user: null, role: null, orgArchived: false }
+    return {
+      user: data.user,
+      role: data.role ?? null,
+      orgArchived: Boolean(data.org?.orgArchived),
+    }
   } catch {
-    return null
+    return { user: null, role: null, orgArchived: false }
   }
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = React.useState<AuthUser | null>(null)
+  const [role, setRole] = React.useState<"viewer" | "developer" | "approver" | "admin" | null>(null)
+  const [orgArchived, setOrgArchived] = React.useState(false)
   const [loading, setLoading] = React.useState(true)
 
   const refresh = React.useCallback(async () => {
     setLoading(true)
-    const sessionUser = await fetchSession()
-    setUser(sessionUser)
+    const { user: u, role: r, orgArchived: oa } = await fetchSession()
+    setUser(u)
+    setRole(r)
+    setOrgArchived(oa)
     setLoading(false)
   }, [])
 
@@ -66,6 +88,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await fetch("/api/auth/logout", { method: "POST", credentials: "include" })
     } finally {
       setUser(null)
+      setRole(null)
+      setOrgArchived(false)
       setLoading(false)
       if (typeof window !== "undefined") {
         window.location.href = "/login"
@@ -77,6 +101,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     <AuthContext.Provider
       value={{
         user,
+        role,
+        orgArchived,
         loading,
         refresh,
         logout,

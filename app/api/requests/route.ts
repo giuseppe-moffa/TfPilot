@@ -23,6 +23,7 @@ import { buildResourceName } from "@/lib/requests/naming"
 import { normalizeName, validateResourceName } from "@/lib/validation/resourceName"
 import { injectServerAuthoritativeTags, assertRequiredTagsPresent } from "@/lib/requests/tags"
 import { getSessionFromCookies, requireSession } from "@/lib/auth/session"
+import { requireActiveOrg } from "@/lib/auth/requireActiveOrg"
 import { withCorrelation } from "@/lib/observability/correlation"
 import { logError, logInfo, logWarn, timeAsync } from "@/lib/observability/logger"
 import {
@@ -37,6 +38,7 @@ import { getCurrentAttemptStrict, patchAttemptRunId, persistDispatchAttempt } fr
 import type { RunsState } from "@/lib/requests/runsModel"
 import { putRunIndex } from "@/lib/requests/runIndex"
 import { getUserRole } from "@/lib/auth/roles"
+import { userHasProjectKeyAccess } from "@/lib/auth/projectAccess"
 import { ensureAssistantState } from "@/lib/assistant/state"
 import { resolveRequestEnvironment } from "@/lib/requests/resolveRequestEnvironment"
 import { validateCreateBody } from "@/lib/requests/validateCreateBody"
@@ -530,6 +532,8 @@ export async function POST(request: NextRequest) {
     if (!session.orgId) {
       return NextResponse.json({ success: false, error: "No org context" }, { status: 403 })
     }
+    const archivedRes = await requireActiveOrg(session)
+    if (archivedRes) return archivedRes
 
     // validate module exists based on registry
     const regEntry = moduleRegistry.find((m) => m.type === body.module)
@@ -564,6 +568,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: envResult.error }, { status: 400 })
     }
     const { resolved } = envResult
+
+    const hasAccess = await userHasProjectKeyAccess(session.login, session.orgId!, resolved.project_key)
+    if (!hasAccess) {
+      return NextResponse.json({ success: false, error: "No project access" }, { status: 403 })
+    }
+
     const targetRepo = resolved.targetRepo
 
     const requestId = generateRequestId(resolved.environment_key, body.module!)
@@ -785,6 +795,8 @@ export async function GET(req: NextRequest) {
   if (!session.orgId) {
     return NextResponse.json({ success: false, error: "No org context" }, { status: 403 })
   }
+  const archivedRes = await requireActiveOrg(session)
+  if (archivedRes) return archivedRes
   const correlation = withCorrelation(req, {})
 
   const limitParam = req.nextUrl.searchParams.get("limit")

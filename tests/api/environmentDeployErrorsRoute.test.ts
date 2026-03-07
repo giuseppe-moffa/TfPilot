@@ -17,8 +17,11 @@ function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(`Assertion failed: ${message}`)
 }
 
+const TEST_ORG_ID = "default"
+
 const BASE_ENV_ROW = {
   environment_id: "env_test123",
+  org_id: TEST_ORG_ID,
   project_key: "core",
   environment_key: "dev",
   environment_slug: "ai-agent",
@@ -30,11 +33,9 @@ const BASE_ENV_ROW = {
   archived_at: null as string | null,
 }
 
-const TEST_ORG_ID = "default"
-
 const SESSION_MOCKS: Pick<
   DeployRouteDeps,
-  "getSessionFromCookies" | "getUserRole" | "getGitHubAccessToken"
+  "getSessionFromCookies" | "getUserRole" | "getGitHubAccessToken" | "userHasProjectKeyAccess"
 > = {
   getSessionFromCookies: async () => ({
     login: "admin",
@@ -46,6 +47,7 @@ const SESSION_MOCKS: Pick<
   }),
   getUserRole: () => "admin" as const,
   getGitHubAccessToken: async () => "token",
+  userHasProjectKeyAccess: async () => true,
 }
 
 const STUB_CREATE_DEPLOY_PR: DeployRouteDeps["createDeployPR"] = async () => ({

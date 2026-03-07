@@ -11,7 +11,10 @@ import { env } from "@/lib/config/env"
 import { moduleRegistry, type ModuleRegistryEntry, type ModuleField } from "@/config/module-registry"
 import { getRequest, saveRequest, updateRequest } from "@/lib/storage/requestsStore"
 import { getSessionFromCookies } from "@/lib/auth/session"
+import { requireActiveOrg } from "@/lib/auth/requireActiveOrg"
+import { getRequestOrgId } from "@/lib/db/requestsList"
 import { getUserRole } from "@/lib/auth/roles"
+import { userHasProjectKeyAccess } from "@/lib/auth/projectAccess"
 import { withCorrelation } from "@/lib/observability/correlation"
 import { logError, logInfo, logWarn } from "@/lib/observability/logger"
 import { logLifecycleEvent } from "@/lib/logs/lifecycle"
@@ -425,6 +428,11 @@ export async function POST(req: NextRequest) {
     if (!session) {
       return NextResponse.json({ success: false, error: "Not authenticated" }, { status: 401 })
     }
+    if (!session.orgId) {
+      return NextResponse.json({ success: false, error: "Not found" }, { status: 404 })
+    }
+    const archivedRes = await requireActiveOrg(session)
+    if (archivedRes) return archivedRes
     const role = getUserRole(session.login)
     if (role === "viewer") {
       return NextResponse.json({ success: false, error: "Insufficient role" }, { status: 403 })
@@ -438,6 +446,20 @@ export async function POST(req: NextRequest) {
     const current = ensureAssistantState(await getRequest(body.requestId))
     if (!current) {
       return NextResponse.json({ success: false, error: "Request not found" }, { status: 404 })
+    }
+    if (!session.orgId) {
+      return NextResponse.json({ success: false, error: "Not found" }, { status: 404 })
+    }
+    const resourceOrgId = (current as { org_id?: string }).org_id ?? (await getRequestOrgId(body.requestId))
+    if (!resourceOrgId || resourceOrgId !== session.orgId) {
+      return NextResponse.json({ success: false, error: "Not found" }, { status: 404 })
+    }
+    const projectKey = (current as { project_key?: string }).project_key
+    if (projectKey) {
+      const hasAccess = await userHasProjectKeyAccess(session.login, session.orgId, projectKey)
+      if (!hasAccess) {
+        return NextResponse.json({ success: false, error: "Not found" }, { status: 404 })
+      }
     }
 
     const immutErr = assertEnvironmentImmutability(current, body.patch as Record<string, unknown>)

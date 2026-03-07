@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 
 import { requireSession } from "@/lib/auth/session"
+import { requireActiveOrg } from "@/lib/auth/requireActiveOrg"
 import { withCorrelation } from "@/lib/observability/correlation"
 import { timeAsync } from "@/lib/observability/logger"
 import { getRequest } from "@/lib/storage/requestsStore"
@@ -16,6 +17,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ requestI
   if (!session.orgId) {
     return NextResponse.json({ error: "Not found" }, { status: 404 })
   }
+  const archivedRes = await requireActiveOrg(session)
+  if (archivedRes) return archivedRes
 
   const { requestId } = await params
   if (!requestId) {

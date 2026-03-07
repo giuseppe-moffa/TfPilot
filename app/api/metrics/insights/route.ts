@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 
 import { getSessionFromCookies } from "@/lib/auth/session"
+import { requireActiveOrg } from "@/lib/auth/requireActiveOrg"
 import { listRequestIndexRowsPage } from "@/lib/db/requestsList"
 import { buildOpsMetrics, type OpsMetricsPayload } from "@/lib/observability/ops-metrics"
 import { getRequest } from "@/lib/storage/requestsStore"
@@ -39,6 +40,8 @@ export async function GET() {
   if (!session.orgId) {
     return NextResponse.json({ success: false, error: "No org context" }, { status: 403 })
   }
+  const archivedRes = await requireActiveOrg(session)
+  if (archivedRes) return archivedRes
 
   const orgId = session.orgId
   const cached = getCached(orgId)

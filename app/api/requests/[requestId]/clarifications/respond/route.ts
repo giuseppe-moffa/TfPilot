@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { moduleRegistry, type ModuleField, type ModuleRegistryEntry } from "@/config/module-registry"
 import { ensureAssistantState, isAllowedPatchPath } from "@/lib/assistant/state"
 import { getSessionFromCookies } from "@/lib/auth/session"
+import { requireActiveOrg } from "@/lib/auth/requireActiveOrg"
 import { getRequest, updateRequest } from "@/lib/storage/requestsStore"
 import { deriveLifecycleStatus } from "@/lib/requests/deriveLifecycleStatus"
 import { getCurrentAttemptStrict } from "@/lib/requests/runsModel"
@@ -231,6 +232,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
     if (!session) {
       return NextResponse.json({ success: false, error: "Not authenticated" }, { status: 401 })
     }
+    if (!session.orgId) {
+      return NextResponse.json({ success: false, error: "Not found" }, { status: 404 })
+    }
+    const archivedRes = await requireActiveOrg(session)
+    if (archivedRes) return archivedRes
 
     const body = (await req.json()) as { clarificationId?: string; answer?: unknown }
     if (!body.clarificationId) {

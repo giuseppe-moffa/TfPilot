@@ -1,6 +1,26 @@
 # TfPilot documentation index
 
-Canonical docs only. For archived/retired docs see `docs/archive/`.
+Canonical docs only.
+
+## Doc refresh (multi-org, platform admin, org lifecycle) — 2026-03-07
+
+**What changed**
+- **Multi-org architecture:** SYSTEM_OVERVIEW documents orgs, org_memberships, session org context, org switching, platform admin vs org admin vs project access. Sources of truth table includes org tables.
+- **Org lifecycle:** Create, archive, restore; archived_at semantics; archived org runtime enforcement (requireActiveOrg); platform admin bypass.
+- **Teams:** teams, team_memberships, project_team_access, projects tables; Team → project access model.
+- **Platform admin system:** /api/platform/orgs, /settings/platform/orgs; list, create, archive, restore, org detail. Non-admins receive 404.
+- **Runtime guard:** requireActiveOrg(session) documented; applied in org-scoped routes; platform routes bypass.
+- **RBAC.md:** Platform admin, project access, dual permission model (RBAC + project access). Examples: Approve, Apply, Deploy, Destroy.
+- **ORGANISATIONS.md:** Org lifecycle, archived enforcement, org switcher (excludes archived, switch rejected).
+- **API.md:** Auth orgs, switch-org, platform orgs endpoints.
+- **POSTGRES_INDEX.md:** Org and project tables (orgs, org_memberships, teams, team_memberships, project_team_access, projects).
+- **OPERATIONS.md:** Platform admin org management runbook.
+- **INSIGHTS.md:** Ops metrics org-scoped; requires session.orgId; 403 when org archived.
+- **Org Lifecycle Test Coverage:** 273 tests covering org lifecycle, archived enforcement, platform admin gating, org creation, org switching, RBAC + project access. See tests/unit/orgLifecycle.test.ts, tests/api/orgLifecycleRoute.test.ts.
+
+---
+
+For archived/retired docs see `docs/archive/`.
 
 ---
 

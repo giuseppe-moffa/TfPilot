@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 
 import { getSessionFromCookies } from "@/lib/auth/session"
+import { requireActiveOrg } from "@/lib/auth/requireActiveOrg"
 import { getEnvTemplatesIndex, getEnvTemplate } from "@/lib/env-templates-store"
 
 type RouteContext = { params: Promise<{ id: string }> }
@@ -18,6 +19,8 @@ export async function GET(_req: Request, context: RouteContext) {
   if (!session.orgId) {
     return NextResponse.json({ error: "No org context" }, { status: 403 })
   }
+  const archivedRes = await requireActiveOrg(session)
+  if (archivedRes) return archivedRes
   const { id } = await context.params
   try {
     const index = await getEnvTemplatesIndex(session.orgId)

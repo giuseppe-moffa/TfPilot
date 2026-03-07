@@ -16,8 +16,84 @@ TfPilot is a **PR-native, deterministic Terraform control plane**: AI-assisted s
 |-------|------|-----------|
 | **S3 request document** | Full request JSON (facts, runs, PR, approval, lock, etc.). Path: `requests/<requestId>.json`. | **Authoritative.** All lifecycle and status are derived from this document. |
 | **Postgres `requests_index`** | Index/projection for list and pagination only. | **Projection only.** No lifecycle or status column. Used for ordering and cursor pagination; can be rebuilt from S3. |
+| **Postgres `orgs`** | Org tenancy: id, slug, name, archived_at. | **Authoritative** for org identity and lifecycle. |
+| **Postgres `org_memberships`** | Org membership: org_id, login, role. | **Authoritative** for who belongs to which org. |
+| **Postgres `teams`, `team_memberships`, `project_team_access`** | Team → project access model. | **Authoritative** for project access grants. |
 
 **Key invariant:** Request lifecycle and status are **never** stored as truth in Postgres. They are always derived from the S3 document via `deriveLifecycleStatus(request)` (see [REQUEST_LIFECYCLE.md](REQUEST_LIFECYCLE.md)). The index is write-through: after every S3 save, the app upserts the row; index write failures are logged and do not block persistence. See [POSTGRES_INDEX.md](POSTGRES_INDEX.md).
+
+---
+
+## Multi-org architecture
+
+TfPilot is **multi-tenant** at the org level. All environments, requests, projects, and teams are scoped to an **org**.
+
+### Org model
+
+| Table | Purpose |
+|-------|---------|
+| **orgs** | `id`, `slug`, `name`, `created_at`, `updated_at`, `archived_at` (NULL = active) |
+| **org_memberships** | `org_id`, `login`, `role` (viewer, developer, approver, admin) |
+
+- **Session org context:** The active org is stored in the session cookie (`orgId`, `orgSlug`). Org-scoped APIs use `session.orgId` only; never from client.
+- **Org switching:** `GET /api/auth/orgs` returns orgs the user belongs to (excludes archived). `POST /api/auth/switch-org` updates session with new orgId/orgSlug. `orgSlug` comes from DB only, never from client.
+
+### Platform admin vs org admin vs project access
+
+| Role | Identity | Scope | Capabilities |
+|------|----------|-------|--------------|
+| **Platform admin** | `getUserRole(login) === "admin"` (TFPILOT_ADMINS) | Whole platform | List/create/archive/restore orgs; view any org detail; bypass archived-org enforcement on platform routes |
+| **Org admin** | `org_memberships.role === "admin"` | Single org | Manage members, teams, project access within that org |
+| **Project access** | Team membership or org admin | Per project | Required for create/approve/apply/deploy/destroy on resources in that project |
+
+**Dual permission model:** RBAC (role) gates *what* action is allowed; project access gates *which* project the user may operate on. Both must pass. See [RBAC.md](RBAC.md) and [ORGANISATIONS.md](ORGANISATIONS.md).
+
+---
+
+## Org lifecycle and archived enforcement
+
+### Org lifecycle
+
+- **Create:** `POST /api/platform/orgs` — platform-admin only. Body: `slug`, `name`, `adminLogin`. Creates org + initial admin membership atomically.
+- **Archive:** `POST /api/platform/orgs/[orgId]/archive` — sets `archived_at = NOW()`. Idempotent.
+- **Restore:** `POST /api/platform/orgs/[orgId]/restore` — clears `archived_at`. Idempotent.
+
+### Archived organization runtime enforcement
+
+When `session.orgId` points to an **archived org**, org-scoped APIs return **403** `{ error: "Organization archived" }`.
+
+- **Guard:** `requireActiveOrg(session)` in `lib/auth/requireActiveOrg.ts`. Applied after session/orgId checks in all org-scoped routes.
+- **Exclusions:** Archived orgs are excluded from `GET /api/auth/orgs` (org switcher). `POST /api/auth/switch-org` rejects switching to an archived org (400).
+- **Platform admin bypass:** Platform routes (`GET/POST /api/platform/orgs`, `GET /api/platform/orgs/[orgId]`, archive, restore) do **not** use `requireActiveOrg`. Platform admins can list, view, archive, and restore orgs even when their current session org is archived.
+
+---
+
+## Teams and project access
+
+| Table | Purpose |
+|-------|---------|
+| **teams** | `id`, `org_id`, `slug`, `name` |
+| **team_memberships** | `team_id`, `login` |
+| **project_team_access** | `project_id`, `team_id` |
+| **projects** | `id`, `org_id`, `project_key`, `name`, `repo_full_name`, `default_branch` |
+
+**Team → project access:** Users gain access to a project if (a) they are org admin, or (b) they are in at least one team that has `project_team_access` to that project. All request lifecycle and environment APIs check both RBAC and project access. Cross-org: `resource.org_id` must match `session.orgId`; otherwise 404.
+
+---
+
+## Platform admin system
+
+**API:** `GET/POST /api/platform/orgs`, `GET /api/platform/orgs/[orgId]`, `POST /api/platform/orgs/[orgId]/archive`, `POST /api/platform/orgs/[orgId]/restore`. Platform-admin only (404 for non-admins).
+
+**UI:** `/settings/platform/orgs` — list orgs (filter: active/archived/all), create org, view org detail, archive, restore.
+
+**Capabilities:** List orgs with member counts; create org with initial admin; archive/restore org; view org detail (members, teams, stats). Non-platform-admin callers receive 404 (same denial as org-not-found).
+
+---
+
+## Runtime guard: requireActiveOrg
+
+`requireActiveOrg(session)` in **lib/auth/requireActiveOrg.ts** returns 403 `{ error: "Organization archived" }` when `session.orgId` exists and the org is archived. Applied after session/orgId checks in all org-scoped routes (requests, environments, request-templates, environment-templates, metrics/insights, org members/teams/projects, etc.). Platform routes do **not** use this guard.
 
 ---
 
@@ -225,7 +301,7 @@ See [INVARIANTS.md](INVARIANTS.md) for the full formal checklist.
 ## Observability and Insights
 
 - **Insights page** (`/insights`): Dashboard of platform metrics (cached ~60s) and in-memory GitHub API usage. Requires session. See [docs/INSIGHTS.md](INSIGHTS.md) for full feature docs.
-- **Ops metrics** (`GET /api/metrics/insights`): Aggregates from S3 request data — total requests, apply/plan success rates (7d), failures (24h/7d), status distribution, activity windows, durations (e.g. Created → Plan ready). Served by **lib/observability/ops-metrics.ts**; cached; no DB.
+- **Ops metrics** (`GET /api/metrics/insights`): Org-scoped aggregates from Postgres request index + S3 — total requests, apply/plan success rates (7d), failures (24h/7d), status distribution, activity windows, durations (e.g. Created → Plan ready). Requires `session.orgId`; blocked by `requireActiveOrg` when org is archived. Served by **lib/observability/ops-metrics.ts**; cached ~60s.
 - **GitHub API usage** (`GET /api/metrics/github`): In-memory only (same process; resets on deploy/restart). Single call-site: **lib/github/client.ts** `ghResponse()` calls `recordGitHubCall()`. Snapshot includes:
   - **Windows:** 5m and 60m rolling aggregates (calls, rate-limited, success/client/server/fetch errors).
   - **Last-seen rate limit:** remaining/limit, reset, observedAt.
@@ -242,6 +318,18 @@ See [INVARIANTS.md](INVARIANTS.md) for the full formal checklist.
 - **Drift detection:** Active drift status per environment; UI indicators.
 - **Plan/apply activity events:** Activity timeline could include `plan_succeeded`, `apply_succeeded`, `destroy_succeeded` when run/attempt data is available from the index (currently Postgres projection has no runs).
 - **Environment health indicators:** Consolidated health status per environment (deploy, drift, request count).
+
+---
+
+## Org Lifecycle Test Coverage
+
+The invariant test suite (`npm run test:invariants`) includes **273 tests** covering:
+
+- **Org lifecycle:** Archive/restore (sets archived_at, idempotent); org creation (valid, duplicate slug, missing fields); org detail (404, archived visible to platform admin, members/teams/stats shape).
+- **Archived org enforcement:** Active org → normal behavior; archived org → 403 "Organization archived" on GET/POST requests, environments, metrics/insights, request-templates/admin; platform routes bypass enforcement.
+- **Platform admin gating:** Non-platform-admin → 404 on GET/POST /api/platform/orgs, GET /api/platform/orgs/[orgId], archive, restore.
+- **Org switching:** GET /api/auth/orgs excludes archived; POST switch-org to archived rejected; switch to active succeeds.
+- **RBAC + project access:** Deploy, apply, approve, destroy, project access enforcement (see `tests/api/projectAccessEnforcementRoute.test.ts`, `tests/unit/projectAccessEnforcement.test.ts`, `tests/api/orgLifecycleRoute.test.ts`, `tests/unit/orgLifecycle.test.ts`).
 
 ---
 

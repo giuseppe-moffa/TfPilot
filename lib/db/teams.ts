@@ -48,6 +48,34 @@ export async function createTeam(
   return result.rows[0]!
 }
 
+export type TeamWithCount = {
+  id: string
+  orgId: string
+  slug: string
+  name: string
+  createdAt: string
+  membersCount: number
+}
+
+/**
+ * List teams for an org with member counts. Returns empty array when DB not configured.
+ */
+export async function listTeamsWithCounts(orgId: string): Promise<TeamWithCount[]> {
+  if (!isDatabaseConfigured() || !orgId?.trim()) return []
+  const result = await query<TeamWithCount>(
+    `SELECT t.id, t.org_id AS "orgId", t.slug, t.name, t.created_at AS "createdAt",
+            COUNT(m.login)::int AS "membersCount"
+     FROM teams t
+     LEFT JOIN team_memberships m ON m.team_id = t.id
+     WHERE t.org_id = $1
+     GROUP BY t.id, t.org_id, t.slug, t.name, t.created_at
+     ORDER BY t.name`,
+    [orgId.trim()]
+  )
+  if (!result) return []
+  return result.rows
+}
+
 /**
  * List teams for an org. Returns empty array when DB not configured.
  */
@@ -60,6 +88,20 @@ export async function listTeams(orgId: string): Promise<Team[]> {
   )
   if (!result) return []
   return result.rows
+}
+
+/**
+ * Get team by ID. Returns null when not found.
+ */
+export async function getTeamById(teamId: string): Promise<Team | null> {
+  if (!isDatabaseConfigured() || !teamId?.trim()) return null
+  const result = await query<Team>(
+    `SELECT id, org_id AS "orgId", slug, name, created_at AS "createdAt", updated_at AS "updatedAt"
+     FROM teams WHERE id = $1`,
+    [teamId.trim()]
+  )
+  if (!result || result.rows.length === 0) return null
+  return result.rows[0]!
 }
 
 /**

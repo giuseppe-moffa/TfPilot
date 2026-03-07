@@ -142,6 +142,38 @@ Returns environment templates (static config from `config/environment-templates.
 
 ---
 
+## Auth and org switching
+
+### GET /api/auth/orgs
+
+Returns org memberships for the current user. **Requires session.** Archived orgs are excluded (for org switcher).
+
+**Response (200):** `{ orgs: [{ orgId, orgSlug, orgName }] }`.
+
+### POST /api/auth/switch-org
+
+Switch active org in session. **Requires session.** Body: `{ orgId }`. Verifies user is member; rejects archived org (400). Updates session with orgId/orgSlug from DB only.
+
+**Response (200):** `{ ok: true }`. **400** when orgId missing, not a member, or org is archived.
+
+---
+
+## Platform orgs (platform-admin only)
+
+Platform-admin = `getUserRole(login) === "admin"` (TFPILOT_ADMINS). Non-admins receive **404** (same as org-not-found).
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `GET /api/platform/orgs` | GET | List orgs with member counts. Query: `?filter=active` (default) \| `archived` \| `all`. |
+| `POST /api/platform/orgs` | POST | Create org. Body: `slug`, `name`, `adminLogin`. Creates org + initial admin atomically. 400 for duplicate slug, missing fields. |
+| `GET /api/platform/orgs/[orgId]` | GET | Org detail: org, members, teams, stats. 404 when org not found. |
+| `POST /api/platform/orgs/[orgId]/archive` | POST | Soft-archive org (sets `archived_at`). Idempotent. |
+| `POST /api/platform/orgs/[orgId]/restore` | POST | Restore archived org (clears `archived_at`). Idempotent. |
+
+**Archived org enforcement:** Org-scoped APIs (requests, environments, metrics/insights, etc.) return **403** `{ error: "Organization archived" }` when `session.orgId` points to an archived org. Platform routes bypass this; platform admins can list/view/archive/restore orgs even when current org is archived.
+
+---
+
 ## Other endpoints
 
 - **GET /api/requests/[requestId]** — Single request from S3; no Postgres required for this route.

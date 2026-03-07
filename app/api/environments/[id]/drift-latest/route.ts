@@ -5,6 +5,7 @@
 
 import { NextRequest, NextResponse } from "next/server"
 import { getSessionFromCookies } from "@/lib/auth/session"
+import { requireActiveOrg } from "@/lib/auth/requireActiveOrg"
 import { getGitHubAccessToken } from "@/lib/github/auth"
 import { gh } from "@/lib/github/client"
 import { env } from "@/lib/config/env"
@@ -38,6 +39,11 @@ export async function GET(
   if (!session) {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
   }
+  if (!session.orgId) {
+    return NextResponse.json({ error: "Environment not found" }, { status: 404 })
+  }
+  const archivedRes = await requireActiveOrg(session)
+  if (archivedRes) return archivedRes
 
   const token = await getGitHubAccessToken(req)
   if (!token) {
@@ -46,6 +52,9 @@ export async function GET(
 
   const envRow = await getEnvironmentById(environmentId)
   if (!envRow) {
+    return NextResponse.json({ error: "Environment not found" }, { status: 404 })
+  }
+  if (envRow.org_id !== session.orgId) {
     return NextResponse.json({ error: "Environment not found" }, { status: 404 })
   }
 

@@ -6,14 +6,28 @@ This document describes how roles, permissions, and allowlists control access ac
 
 ## Overview
 
-TfPilot uses two parallel authorization mechanisms:
+TfPilot uses multiple authorization layers:
 
 1. **Role-based access (GitHub login)** — `getUserRole(login)` assigns one of four roles from env allowlists. Roles gate request lifecycle actions (create, update, approve, deploy, destroy).
-2. **Admin-by-email** — `requireAdminByEmail()` checks `TFPILOT_ADMIN_EMAILS`. Used for catalogue/template admin UI and Insights.
+2. **Platform admin** — `getUserRole(login) === "admin"` (TFPILOT_ADMINS). Platform-wide: list/create/archive/restore orgs; view any org detail; bypass archived-org enforcement on platform routes.
+3. **Org admin** — `org_memberships.role === "admin"`. Per-org: manage members, teams, project access.
+4. **Project access** — `userHasProjectKeyAccess(login, orgId, projectKey)`. Required for request lifecycle actions on resources in that project. Granted via org admin or team membership in a team with `project_team_access`.
+5. **Admin-by-email** — `requireAdminByEmail()` checks `TFPILOT_ADMIN_EMAILS`. Used for catalogue/template admin UI and Insights.
+
+### Dual permission model: RBAC + project access
+
+| Check | What it gates | Example |
+|-------|---------------|---------|
+| **RBAC (role)** | *What* action is allowed | Approve requires approver/admin; Deploy/Destroy require admin |
+| **Project access** | *Which* project the user may operate on | User must be org admin or in a team with access to the project |
+
+Both must pass. A developer with project access can create requests; an approver with project access can approve; an admin with project access can deploy/destroy. Without project access → 404.
 
 | Mechanism              | Identity          | Config               | Use case                           |
 |------------------------|-------------------|----------------------|------------------------------------|
 | Role (login)           | `session.login`   | `TFPILOT_ADMINS`, `TFPILOT_APPROVERS` | Request lifecycle, environments, destroy |
+| Platform admin         | `session.login`   | `TFPILOT_ADMINS`     | Platform org management (/api/platform/orgs) |
+| Project access         | org/team membership | `project_team_access`, org admin | Which project user may operate on |
 | Admin-by-email        | `session.email`   | `TFPILOT_ADMIN_EMAILS` | Catalogue, request templates, Insights |
 
 ---
@@ -106,6 +120,7 @@ Defined in **lib/auth/roles.ts**. Role resolution order:
 | `POST /api/requests/:id/destroy` | `admin` only        | Prod: `TFPILOT_DESTROY_PROD_ALLOWED_USERS` |
 | `GET /api/requests/:id/can-destroy` | `admin` only   | Prod: `TFPILOT_DESTROY_PROD_ALLOWED_USERS` |
 | `/api/request-templates/admin/**` | `requireAdminByEmail` | 404 for non-admins |
+| `/api/platform/orgs/**` | Platform admin only | 404 for non-admins (same as org-not-found) |
 | `/insights` page           | Server: `TFPILOT_ADMIN_EMAILS` | `notFound()` for non-admins |
 
 ---

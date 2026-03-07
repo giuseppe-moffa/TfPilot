@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 
 import { getSessionFromCookies } from "@/lib/auth/session"
+import { requireActiveOrg } from "@/lib/auth/requireActiveOrg"
 import { getGitHubAccessToken } from "@/lib/github/auth"
 import { gh } from "@/lib/github/client"
 import { env } from "@/lib/config/env"
@@ -9,6 +10,7 @@ import { logError, logInfo, logWarn } from "@/lib/observability/logger"
 import { archiveRequest, getRequest, updateRequest } from "@/lib/storage/requestsStore"
 import { logLifecycleEvent } from "@/lib/logs/lifecycle"
 import { getUserRole } from "@/lib/auth/roles"
+import { userHasProjectKeyAccess } from "@/lib/auth/projectAccess"
 import { getIdempotencyKey, assertIdempotentOrRecord, ConflictError } from "@/lib/requests/idempotency"
 import { acquireLock, releaseLock, LockConflictError, type RequestDocWithLock } from "@/lib/requests/lock"
 import { getCurrentAttemptStrict, patchAttemptRunId, persistDispatchAttempt } from "@/lib/requests/runsModel"
@@ -37,11 +39,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
     if (!session.orgId) {
       return NextResponse.json({ error: "Not found" }, { status: 404 })
     }
+    const archivedRes = await requireActiveOrg(session)
+    if (archivedRes) return archivedRes
     const role = getUserRole(session.login)
     if (role !== "admin") {
       return NextResponse.json({ error: "Destroy not permitted for your role" }, { status: 403 })
     }
-
     const token = await getGitHubAccessToken(req)
     if (!token) {
       return NextResponse.json({ error: "GitHub not connected" }, { status: 401 })
@@ -53,6 +56,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
     }
     const resourceOrgId = (request as { org_id?: string }).org_id ?? (await getRequestOrgId(requestId))
     if (!resourceOrgId || resourceOrgId !== session.orgId) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 })
+    }
+    const projectKey = (request as { project_key?: string }).project_key
+    if (!projectKey) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 })
+    }
+    const hasAccess = await userHasProjectKeyAccess(session.login, session.orgId, projectKey)
+    if (!hasAccess) {
       return NextResponse.json({ error: "Not found" }, { status: 404 })
     }
 

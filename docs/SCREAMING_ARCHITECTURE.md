@@ -31,7 +31,9 @@ The codebase is organized so that **top-level folders and route shapes reflect t
 - **`app/requests/`** — Request list, request detail `[requestId]`, new request, plan view. The primary user journey.
 - **`app/api/requests/`** — Request CRUD, sync, approve, apply, destroy, assistant state, drift, logs. Request-scoped APIs.
 - **`app/api/github/`** — Plan/apply dispatch, merge, webhook receiver, plan/apply output, PR diff. GitHub as execution boundary.
-- **`app/api/auth/`** — Session, GitHub OAuth, logout, me.
+- **`app/api/auth/`** — Session, GitHub OAuth, logout, me, orgs (GET org memberships for switcher), switch-org (POST).
+- **`app/api/platform/orgs/`** — Platform-admin org management: list, create, archive, restore, org detail. Non-admins receive 404.
+- **`app/settings/platform/orgs/`** — Platform admin UI: list orgs (filter active/archived/all), create org, view org detail, archive, restore.
 - **`app/api/stream/`** — SSE: server pushes requestId/updatedAt so UI can revalidate.
 - **`app/api/modules/`** — Module catalog and schema (Terraform modules).
 - **`app/api/request-templates/`** — Request templates (admin/seed, CRUD).
@@ -48,7 +50,7 @@ The codebase is organized so that **top-level folders and route shapes reflect t
 - **`lib/storage/`** — S3 request store (read/write requests, history, optimistic locking).
 - **`lib/status/`** — Canonical status config (labels, colors); consumed by UI and by `deriveLifecycleStatus`.
 - **`lib/sse/`** — SSE stream client (UI subscription to request updates).
-- **`lib/auth/`** — Session, roles, admin.
+- **`lib/auth/`** — Session, roles, admin, requireActiveOrg (archived-org guard), projectAccess.
 - **`lib/assistant/`** — Assistant state (e.g. for request creation flow).
 - **`lib/plan/`** — Plan output stripping / formatting.
 - **`lib/config/`** — Env, polling config.

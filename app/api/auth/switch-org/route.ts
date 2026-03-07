@@ -7,7 +7,7 @@
 import { NextRequest, NextResponse } from "next/server"
 
 import { getSessionFromCookies, setSession } from "@/lib/auth/session"
-import { getUserOrg } from "@/lib/db/orgs"
+import { getUserOrg, isOrgArchived } from "@/lib/db/orgs"
 
 export async function POST(req: NextRequest) {
   const session = await getSessionFromCookies()
@@ -30,6 +30,10 @@ export async function POST(req: NextRequest) {
   const org = await getUserOrg(session.login, orgId)
   if (!org) {
     return NextResponse.json({ error: "Not a member of this org" }, { status: 400 })
+  }
+
+  if (await isOrgArchived(orgId)) {
+    return NextResponse.json({ error: "Cannot switch to archived org" }, { status: 400 })
   }
 
   const res = NextResponse.json({ ok: true })

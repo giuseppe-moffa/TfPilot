@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3"
 
 import { getSessionFromCookies } from "@/lib/auth/session"
+import { requireActiveOrg } from "@/lib/auth/requireActiveOrg"
+import { getRequestOrgId } from "@/lib/db/requestsList"
 import { env } from "@/lib/config/env"
 import { buildAuditEvents } from "@/lib/requests/auditEvents"
 import { getRequest } from "@/lib/storage/requestsStore"
@@ -42,6 +44,11 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ req
     if (!session) {
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
     }
+    if (!session.orgId) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 })
+    }
+    const archivedRes = await requireActiveOrg(session)
+    if (archivedRes) return archivedRes
 
     let request: any = null
     try {
@@ -52,6 +59,10 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ req
 
     if (!request) {
       return NextResponse.json({ error: "Request not found" }, { status: 404 })
+    }
+    const resourceOrgId = (request as { org_id?: string }).org_id ?? (await getRequestOrgId(requestId))
+    if (!resourceOrgId || resourceOrgId !== session.orgId) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 })
     }
 
     const generatedAt = new Date().toISOString()

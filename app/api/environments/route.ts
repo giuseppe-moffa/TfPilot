@@ -5,8 +5,10 @@
 
 import { NextRequest, NextResponse } from "next/server"
 import { getSessionFromCookies } from "@/lib/auth/session"
+import { requireActiveOrg } from "@/lib/auth/requireActiveOrg"
 import { getGitHubAccessToken } from "@/lib/github/auth"
 import { getUserRole } from "@/lib/auth/roles"
+import { userHasProjectKeyAccess } from "@/lib/auth/projectAccess"
 import {
   listEnvironments,
   createEnvironment,
@@ -32,6 +34,8 @@ export async function GET(req: NextRequest) {
   if (!session.orgId) {
     return NextResponse.json({ error: "No org context" }, { status: 403 })
   }
+  const archivedRes = await requireActiveOrg(session)
+  if (archivedRes) return archivedRes
 
   const project_key = req.nextUrl.searchParams.get("project_key") ?? undefined
   const include_archived = req.nextUrl.searchParams.get("include_archived") === "true"
@@ -55,6 +59,9 @@ export async function POST(req: NextRequest) {
   if (!session.orgId) {
     return NextResponse.json({ error: "No org context" }, { status: 403 })
   }
+  const archivedRes = await requireActiveOrg(session)
+  if (archivedRes) return archivedRes
+
   const role = getUserRole(session.login)
   if (role === "viewer") {
     return NextResponse.json({ error: "Insufficient role" }, { status: 403 })
@@ -103,6 +110,11 @@ export async function POST(req: NextRequest) {
     .toLowerCase()
   const environment_slug = (typeof body.environment_slug === "string" ? body.environment_slug : "").trim()
 
+  const hasAccess = await userHasProjectKeyAccess(session.login, session.orgId, project_key)
+  if (!hasAccess) {
+    return NextResponse.json({ error: "No access to this project" }, { status: 403 })
+  }
+
   const infra = resolveInfraRepoByProjectAndEnvKey(project_key, environment_key)
   if (!infra) {
     return NextResponse.json(
@@ -122,6 +134,7 @@ export async function POST(req: NextRequest) {
   let env
   try {
     env = await createEnvironment({
+      orgId: session.orgId,
       project_key,
       repo_full_name,
       environment_key,

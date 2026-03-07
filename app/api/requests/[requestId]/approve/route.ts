@@ -3,11 +3,13 @@ import { NextRequest, NextResponse } from "next/server"
 import { getRequest, updateRequest } from "@/lib/storage/requestsStore"
 import { getRequestOrgId } from "@/lib/db/requestsList"
 import { getSessionFromCookies } from "@/lib/auth/session"
+import { requireActiveOrg } from "@/lib/auth/requireActiveOrg"
 import { env } from "@/lib/config/env"
 import { getGitHubAccessToken } from "@/lib/github/auth"
 import { gh } from "@/lib/github/client"
 import { logLifecycleEvent } from "@/lib/logs/lifecycle"
 import { getUserRole } from "@/lib/auth/roles"
+import { userHasProjectKeyAccess } from "@/lib/auth/projectAccess"
 import { getIdempotencyKey, assertIdempotentOrRecord, ConflictError } from "@/lib/requests/idempotency"
 import { logInfo, logWarn } from "@/lib/observability/logger"
 
@@ -29,6 +31,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
     if (!session.orgId) {
       return NextResponse.json({ error: "Not found" }, { status: 404 })
     }
+    const archivedRes = await requireActiveOrg(session)
+    if (archivedRes) return archivedRes
     const role = getUserRole(session.login)
     if (role !== "approver" && role !== "admin") {
       return NextResponse.json({ success: false, error: "Approval not permitted for your role" }, { status: 403 })
@@ -41,6 +45,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
     const resourceOrgId = (existing as { org_id?: string }).org_id ?? (await getRequestOrgId(requestId))
     if (!resourceOrgId || resourceOrgId !== session.orgId) {
       return NextResponse.json({ error: "Not found" }, { status: 404 })
+    }
+    const projectKey = (existing as { project_key?: string }).project_key
+    if (projectKey) {
+      const hasAccess = await userHasProjectKeyAccess(session.login, session.orgId, projectKey)
+      if (!hasAccess) {
+        return NextResponse.json({ error: "Not found" }, { status: 404 })
+      }
     }
 
     const token = await getGitHubAccessToken(req)

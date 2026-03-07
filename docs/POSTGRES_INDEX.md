@@ -4,6 +4,25 @@ Postgres holds a **projection** of request metadata for list and pagination only
 
 **References:** Schema: `migrations/20260301000000_requests_index.sql`, `migrations/20260304100000_requests_index_environment_slug.sql`, `migrations/20260302000000_requests_index_pagination_idx.sql`, `migrations/20260302110000_drop_last_action_at.sql`, `migrations/20260302120000_requests_index_last_activity_sort_idx.sql`. Indexer: `lib/db/indexer.ts`. List: `lib/db/requestsList.ts`. UI: `app/requests/page.tsx`.
 
+**Org tenancy tables** (separate from requests_index): `orgs`, `org_memberships`, `teams`, `team_memberships`, `project_team_access`, `projects`. See [ORGANISATIONS.md](ORGANISATIONS.md) and [SYSTEM_OVERVIEW.md](SYSTEM_OVERVIEW.md).
+
+---
+
+## Org and project tables (authoritative)
+
+Postgres also holds authoritative data for org tenancy and project access. See [ORGANISATIONS.md](ORGANISATIONS.md) and [SYSTEM_OVERVIEW.md](SYSTEM_OVERVIEW.md).
+
+| Table | Purpose |
+|-------|---------|
+| **orgs** | `id`, `slug`, `name`, `created_at`, `updated_at`, `archived_at` (NULL = active) |
+| **org_memberships** | `org_id`, `login`, `role` (viewer, developer, approver, admin) |
+| **teams** | `id`, `org_id`, `slug`, `name` |
+| **team_memberships** | `team_id`, `login` |
+| **project_team_access** | `project_id`, `team_id` |
+| **projects** | `id`, `org_id`, `project_key`, `name`, `repo_full_name`, `default_branch` |
+
+Migrations: `20260320000000_orgs.sql`, `20260320001000_projects.sql`, `20260320004000_teams.sql`, `20260320005000_orgs_archived_at.sql`.
+
 ---
 
 ## Table: `requests_index`

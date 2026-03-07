@@ -36,6 +36,10 @@ import { tests as envTemplatesStoreTests } from "./unit/envTemplatesStore.test"
 import { tests as envTemplatesValidationTests } from "./unit/envTemplatesValidation.test"
 import { tests as envTemplatesAdminRouteTests } from "./api/envTemplatesAdminRoute.test"
 import { tests as validateTemplateIdOrThrowTests } from "./unit/validateTemplateIdOrThrow.test"
+import { tests as projectAccessEnforcementTests } from "./unit/projectAccessEnforcement.test"
+import { tests as projectAccessEnforcementRouteTests } from "./api/projectAccessEnforcementRoute.test"
+import { tests as orgLifecycleTests } from "./unit/orgLifecycle.test"
+import { tests as orgLifecycleRouteTests } from "./api/orgLifecycleRoute.test"
 
 const allSuites = [
   reconcileTests,
@@ -70,6 +74,10 @@ const allSuites = [
   envTemplatesValidationTests,
   envTemplatesAdminRouteTests,
   validateTemplateIdOrThrowTests,
+  projectAccessEnforcementTests,
+  projectAccessEnforcementRouteTests,
+  orgLifecycleTests,
+  orgLifecycleRouteTests,
 ]
 
 let passed = 0

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 
 import { getSessionFromCookies } from "@/lib/auth/session"
+import { requireActiveOrg } from "@/lib/auth/requireActiveOrg"
 import { moduleRegistry, type ModuleField, type ModuleRegistryEntry } from "@/config/module-registry"
 import { ensureAssistantState, isAllowedPatchPath } from "@/lib/assistant/state"
 import { getRequest, updateRequest } from "@/lib/storage/requestsStore"
@@ -15,6 +16,7 @@ import { withCorrelation } from "@/lib/observability/correlation"
 import { logError, logWarn } from "@/lib/observability/logger"
 import { logLifecycleEvent } from "@/lib/logs/lifecycle"
 import { getUserRole } from "@/lib/auth/roles"
+import { userHasProjectKeyAccess } from "@/lib/auth/projectAccess"
 import { getIdempotencyKey, assertIdempotentOrRecord, ConflictError } from "@/lib/requests/idempotency"
 import { acquireLock, releaseLock, LockConflictError, type RequestDocWithLock } from "@/lib/requests/lock"
 import { getCurrentAttemptStrict, persistDispatchAttempt } from "@/lib/requests/runsModel"
@@ -249,6 +251,8 @@ export async function POST(req: NextRequest, context: { params: Promise<{ reques
     if (!session.orgId) {
       return NextResponse.json({ error: "Not found" }, { status: 404 })
     }
+    const archivedRes = await requireActiveOrg(session)
+    if (archivedRes) return archivedRes
 
     let body: { suggestionIds?: string[] }
     try {
@@ -277,6 +281,13 @@ export async function POST(req: NextRequest, context: { params: Promise<{ reques
         const resourceOrgId = (request as { org_id?: string }).org_id ?? (await getRequestOrgId(requestId))
         if (!resourceOrgId || resourceOrgId !== session.orgId) {
           return NextResponse.json({ error: "Not found" }, { status: 404 })
+        }
+        const projectKey = (request as { project_key?: string }).project_key
+        if (projectKey) {
+          const hasAccess = await userHasProjectKeyAccess(session.login, session.orgId!, projectKey)
+          if (!hasAccess) {
+            return NextResponse.json({ error: "Not found" }, { status: 404 })
+          }
         }
         const now = new Date()
         const idemKey = getIdempotencyKey(req) ?? ""

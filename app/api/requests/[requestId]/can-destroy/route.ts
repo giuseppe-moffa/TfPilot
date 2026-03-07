@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server"
 
 import { getSessionFromCookies } from "@/lib/auth/session"
+import { requireActiveOrg } from "@/lib/auth/requireActiveOrg"
 import { getRequest } from "@/lib/storage/requestsStore"
 import { getRequestOrgId } from "@/lib/db/requestsList"
 import { env } from "@/lib/config/env"
 import { getUserRole } from "@/lib/auth/roles"
+import { userHasProjectKeyAccess } from "@/lib/auth/projectAccess"
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ requestId: string }> }) {
   try {
@@ -20,8 +22,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ req
     if (!session.orgId) {
       return NextResponse.json({ canDestroy: false, error: "Not found" }, { status: 404 })
     }
-
-    // Admin role check applies to all destroys (pre-existing requirement)
+    const archivedRes = await requireActiveOrg(session)
+    if (archivedRes) return archivedRes
     const role = getUserRole(session.login)
     if (role !== "admin") {
       return NextResponse.json({ canDestroy: false, reason: "requires_admin_role" })
@@ -34,6 +36,13 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ req
     const resourceOrgId = (request as { org_id?: string }).org_id ?? (await getRequestOrgId(requestId))
     if (!resourceOrgId || resourceOrgId !== session.orgId) {
       return NextResponse.json({ canDestroy: false, error: "Not found" }, { status: 404 })
+    }
+    const projectKey = (request as { project_key?: string }).project_key
+    if (projectKey) {
+      const hasAccess = await userHasProjectKeyAccess(session.login, session.orgId, projectKey)
+      if (!hasAccess) {
+        return NextResponse.json({ canDestroy: false, reason: "no_project_access" })
+      }
     }
 
     const isProd = request.environment_key?.toLowerCase() === "prod"

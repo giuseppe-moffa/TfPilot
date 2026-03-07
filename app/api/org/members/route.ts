@@ -9,6 +9,7 @@
 import { NextRequest, NextResponse } from "next/server"
 
 import { getSessionFromCookies } from "@/lib/auth/session"
+import { requireActiveOrg } from "@/lib/auth/requireActiveOrg"
 import { getUserOrgRole } from "@/lib/auth/orgRoles"
 import {
   getOrgById,
@@ -29,6 +30,8 @@ async function requireOrgAdmin() {
   if (!session.orgId) {
     return { error: NextResponse.json({ error: "Not found" }, { status: 404 }) }
   }
+  const archivedRes = await requireActiveOrg(session)
+  if (archivedRes) return { error: archivedRes }
   const role = await getUserOrgRole(session.login, session.orgId)
   if (role !== "admin") {
     return { error: NextResponse.json({ error: "Not found" }, { status: 404 }) }

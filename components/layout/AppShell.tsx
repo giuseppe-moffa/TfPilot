@@ -21,9 +21,9 @@ import { useTheme } from "@/app/theme-provider"
 
 const SIDEBAR_WIDTH = 260
 
-const navItems = [
+const primaryNavItems = [
   { label: "Environments", href: "/environments" },
-  { label: "Resources", href: "/requests" },
+  { label: "Requests", href: "/requests" },
   {
     label: "Catalogue",
     children: [
@@ -32,7 +32,12 @@ const navItems = [
     ],
   },
   { label: "Insights", href: "/insights" },
-  { label: "Organisations", href: "/settings/org" },
+] as const
+
+const settingsNavItems = [
+  { label: "Members", href: "/settings/org" },
+  { label: "Teams", href: "/settings/teams" },
+  { label: "Platform Orgs", href: "/settings/platform/orgs" },
 ] as const
 
 function getPageTitle(pathname: string): string {
@@ -40,7 +45,9 @@ function getPageTitle(pathname: string): string {
   if (pathname.startsWith("/requests")) return "Resources"
   if (pathname.startsWith("/catalogue")) return "Catalogue"
   if (pathname.startsWith("/insights")) return "Insights"
-  if (pathname.startsWith("/settings/org")) return "Organisation Settings"
+  if (pathname.startsWith("/settings/org")) return "Members"
+  if (pathname.startsWith("/settings/teams")) return "Teams"
+  if (pathname.startsWith("/settings/platform/orgs")) return "Platform Orgs"
   return ""
 }
 
@@ -49,13 +56,23 @@ type UserOrg = { orgId: string; orgSlug: string; orgName: string }
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const router = useRouter()
-  const { user, loading, logout, refresh } = useAuth()
+  const { user, role, orgArchived, loading, logout, refresh } = useAuth()
   const { theme, toggleTheme } = useTheme()
   const pageTitle = getPageTitle(pathname)
 
   const [orgs, setOrgs] = React.useState<UserOrg[]>([])
-  const [catalogueExpanded, setCatalogueExpanded] = React.useState(() =>
-    pathname.startsWith("/catalogue")
+  const [expandedSections, setExpandedSections] = React.useState<Set<string>>(() => {
+    const s = new Set<string>()
+    if (pathname.startsWith("/catalogue")) s.add("Catalogue")
+    return s
+  })
+
+  const isPlatformAdmin = role === "admin"
+  const canAccessDespiteArchived =
+    isPlatformAdmin && pathname.startsWith("/settings/platform/orgs")
+  const showArchivedBlock = orgArchived && !canAccessDespiteArchived
+  const visibleSettingsItems = settingsNavItems.filter(
+    (item) => item.href !== "/settings/platform/orgs" || isPlatformAdmin
   )
 
   React.useEffect(() => {
@@ -70,7 +87,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [user?.login])
 
   React.useEffect(() => {
-    if (pathname.startsWith("/catalogue")) setCatalogueExpanded(true)
+    setExpandedSections((prev) => {
+      const next = new Set(prev)
+      if (pathname.startsWith("/catalogue")) next.add("Catalogue")
+      return next
+    })
   }, [pathname])
 
   const handleOrgChange = async (orgId: string) => {
@@ -108,37 +129,52 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </Link>
         </div>
         {user && (
-          <nav className="flex flex-col">
-            {navItems.map((item) => {
+          <nav className="flex min-h-0 flex-1 flex-col">
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
+              <div className="grid w-full grid-cols-1">
+              {primaryNavItems.map((item) => {
               if ("children" in item) {
-                const catalogueItem = item
-                const isCatalogueActive = pathname.startsWith("/catalogue")
+                const parentItem = item
+                const isParentActive = parentItem.children.some(
+                  (c) => pathname === c.href || pathname.startsWith(c.href + "/")
+                )
+                const isExpanded = expandedSections.has(parentItem.label)
                 return (
-                  <div key={catalogueItem.label}>
+                  <div key={parentItem.label} className="w-full shrink-0">
                     <button
                       type="button"
-                      onClick={() => setCatalogueExpanded((prev) => !prev)}
+                      onClick={() =>
+                        setExpandedSections((prev) => {
+                          const next = new Set(prev)
+                          if (next.has(parentItem.label)) next.delete(parentItem.label)
+                          else next.add(parentItem.label)
+                          return next
+                        })
+                      }
                       className={cn(
                         "flex w-full items-center gap-1 px-5 py-3 text-sm font-medium transition-colors border-l-4 border-transparent text-left cursor-pointer",
                         theme === "light"
-                          ? isCatalogueActive
+                          ? isParentActive
                             ? "border-sky-400 bg-white/15 font-semibold text-sky-400"
                             : "text-slate-300 hover:bg-white/10 hover:text-white"
-                          : isCatalogueActive
+                          : isParentActive
                             ? "border-sky-400 bg-muted font-semibold text-sky-400"
                             : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
                       )}
                     >
-                      <span>{catalogueItem.label}</span>
-                      {catalogueExpanded ? (
+                      <span>{parentItem.label}</span>
+                      {isExpanded ? (
                         <ChevronDown className="ml-auto h-4 w-4 shrink-0" />
                       ) : (
                         <ChevronRight className="ml-auto h-4 w-4 shrink-0" />
                       )}
                     </button>
-                    {catalogueExpanded && (
-                      <div className="border-l-4 border-transparent pl-2">
-                        {catalogueItem.children.map((child) => {
+                    <div
+                      className="grid transition-[grid-template-rows] duration-300 ease-out"
+                      style={{ gridTemplateRows: isExpanded ? "1fr" : "0fr" }}
+                    >
+                      <div className="overflow-hidden min-h-0 border-l-4 border-transparent pl-2">
+                        {parentItem.children.map((child) => {
                           const isChildActive = pathname === child.href || pathname.startsWith(child.href + "/")
                           return (
                             <Link
@@ -160,17 +196,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                           )
                         })}
                       </div>
-                    )}
+                    </div>
                   </div>
                 )
               }
               const isActive = pathname === item.href || pathname.startsWith(item.href + "/")
               return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={cn(
-                    "px-5 py-3 text-sm font-medium transition-colors border-l-4 border-transparent",
+                <div key={item.href} className="w-full shrink-0">
+                  <Link
+                    href={item.href}
+                    className={cn(
+                      "flex w-full items-center px-5 py-3 text-sm font-medium transition-colors border-l-4 border-transparent",
                     theme === "light"
                       ? isActive
                         ? "border-sky-400 bg-white/15 font-semibold text-sky-400"
@@ -182,8 +218,50 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 >
                   {item.label}
                 </Link>
+                </div>
               )
             })}
+            </div>
+            </div>
+            <div
+              className={cn(
+                "shrink-0 border-t py-3",
+                theme === "light" ? "border-white/10" : "border-border"
+              )}
+            >
+              <div
+                className={cn(
+                  "px-5 py-1.5 text-xs font-medium uppercase tracking-wider",
+                  theme === "light" ? "text-slate-400" : "text-muted-foreground"
+                )}
+              >
+                Settings
+              </div>
+              <div className="mt-1 pl-2">
+                {visibleSettingsItems.map((item) => {
+                  const isActive =
+                    pathname === item.href || pathname.startsWith(item.href + "/")
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className={cn(
+                        "flex items-center px-3 py-2 text-sm transition-colors rounded-md",
+                        theme === "light"
+                          ? isActive
+                            ? "font-semibold text-sky-400 bg-white/10"
+                            : "text-slate-300 hover:bg-white/5 hover:text-white"
+                          : isActive
+                            ? "font-semibold text-sky-400 bg-muted"
+                            : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                      )}
+                    >
+                      {item.label}
+                    </Link>
+                  )
+                })}
+              </div>
+            </div>
           </nav>
         )}
       </aside>
@@ -258,7 +336,52 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             )}
           </div>
         </header>
-        <main className="mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col p-8">{children}</main>
+        <main className="mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col p-8">
+          {showArchivedBlock ? (
+            <div className="flex flex-1 flex-col items-center justify-center">
+              <div className="rounded-lg border border-destructive/50 bg-destructive/5 px-6 py-8 text-center max-w-md">
+                <h2 className="text-lg font-semibold text-destructive">Organization archived</h2>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  This organization has been archived. Switch to another organization to continue.
+                </p>
+                {orgs.length > 0 ? (
+                  <div className="mt-4">
+                    <Select value="" onValueChange={handleOrgChange}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Switch organization" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {orgs.map((o) => (
+                          <SelectItem key={o.orgId} value={o.orgId}>
+                            {o.orgName} ({o.orgSlug})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : (
+                  <p className="mt-4 text-sm text-muted-foreground">
+                    You have no other organizations.
+                    {isPlatformAdmin && (
+                      <span className="block mt-2">
+                        <Link
+                          href="/settings/platform/orgs"
+                          className="text-primary hover:underline"
+                        >
+                          Go to Platform Orgs
+                        </Link>{" "}
+                        to restore this organization.
+                      </span>
+                    )}
+                    {!isPlatformAdmin && " Contact an administrator."}
+                  </p>
+                )}
+              </div>
+            </div>
+          ) : (
+            children
+          )}
+        </main>
       </div>
     </div>
   )

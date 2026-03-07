@@ -10,7 +10,7 @@ The Insights page (`/insights`) provides a dashboard of platform metrics and Git
 
 ### 1. Ops metrics (request-based)
 
-Aggregates derived from S3 request documents. Data source: bounded list of requests (cap ~1000); no DB.
+Aggregates derived from Postgres request index + S3. **Org-scoped:** requires `session.orgId`; returns 403 "Organization archived" when org is archived. Data source: bounded list of requests (cap ~1000) for the current org.
 
 | Metric | Description |
 |--------|-------------|
@@ -45,7 +45,7 @@ Metrics recorded at a single call-site: **lib/github/client.ts** `ghResponse()`.
 
 | Endpoint | Auth | Response | Notes |
 |---------|------|----------|------|
-| `GET /api/metrics/insights` | Session required | `{ success: true, metrics: OpsMetricsPayload }` | Ops metrics from S3; cached ~60s |
+| `GET /api/metrics/insights` | Session + org required | `{ success: true, metrics: OpsMetricsPayload }` | Org-scoped ops metrics; cached ~60s; 403 when org archived |
 | `GET /api/metrics/github` | Session required | `GitHubMetricsSnapshot` | In-memory snapshot; no cache |
 
 ---

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 
 import { requireSession } from "@/lib/auth/session"
+import { requireActiveOrg } from "@/lib/auth/requireActiveOrg"
 import { getGitHubAccessToken } from "@/lib/github/auth"
 import { githubRequest } from "@/lib/github/rateAware"
 import { getRateLimitBackoff, setRateLimitBackoff } from "@/lib/github/rateLimitState"
@@ -118,6 +119,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ requ
     if (!session.orgId) {
       return NextResponse.json({ error: "Not found" }, { status: 404 })
     }
+    const archivedRes = await requireActiveOrg(session)
+    if (archivedRes) return archivedRes
     const { requestId } = await params
     const repair = req.nextUrl.searchParams.get("repair") === "1"
     const hydrate = req.nextUrl.searchParams.get("hydrate") === "1"

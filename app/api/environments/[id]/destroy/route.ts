@@ -5,11 +5,13 @@
 
 import { NextRequest, NextResponse } from "next/server"
 import { getSessionFromCookies } from "@/lib/auth/session"
+import { requireActiveOrg } from "@/lib/auth/requireActiveOrg"
 import { getGitHubAccessToken } from "@/lib/github/auth"
 import { gh } from "@/lib/github/client"
 import { githubRequest } from "@/lib/github/rateAware"
 import { env } from "@/lib/config/env"
 import { getUserRole } from "@/lib/auth/roles"
+import { userHasProjectKeyAccess } from "@/lib/auth/projectAccess"
 import { archiveEnvironment, getEnvironmentById } from "@/lib/db/environments"
 import {
   getEnvDestroyPending,
@@ -48,11 +50,12 @@ export async function POST(
   if (!session.orgId) {
     return NextResponse.json({ error: "Not found" }, { status: 404 })
   }
+  const archivedRes = await requireActiveOrg(session)
+  if (archivedRes) return archivedRes
   const role = getUserRole(session.login)
   if (role !== "admin") {
     return NextResponse.json({ error: "Destroy not permitted for your role" }, { status: 403 })
   }
-
   const token = await getGitHubAccessToken(req)
   if (!token) {
     return NextResponse.json({ error: "GitHub not connected" }, { status: 401 })
@@ -63,6 +66,10 @@ export async function POST(
     return NextResponse.json({ error: "Not found" }, { status: 404 })
   }
   if (envRow.org_id !== session.orgId) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 })
+  }
+  const hasAccess = await userHasProjectKeyAccess(session.login, session.orgId, envRow.project_key)
+  if (!hasAccess) {
     return NextResponse.json({ error: "Not found" }, { status: 404 })
   }
 

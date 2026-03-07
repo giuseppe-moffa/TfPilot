@@ -4,6 +4,7 @@
 
 import { NextRequest, NextResponse } from "next/server"
 import { getSessionFromCookies } from "@/lib/auth/session"
+import { requireActiveOrg } from "@/lib/auth/requireActiveOrg"
 import { getGitHubAccessToken } from "@/lib/github/auth"
 import { getEnvironmentById } from "@/lib/db/environments"
 import { getEnvironmentDeployStatus, ENV_DEPLOY_CHECK_FAILED } from "@/lib/environments/getEnvironmentDeployStatus"
@@ -19,6 +20,8 @@ export async function GET(
   if (!session.orgId) {
     return NextResponse.json({ error: "Environment not found" }, { status: 404 })
   }
+  const archivedRes = await requireActiveOrg(session)
+  if (archivedRes) return archivedRes
 
   const { id } = await params
   if (!id) {

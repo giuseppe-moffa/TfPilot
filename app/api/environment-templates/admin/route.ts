@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server"
 
 import { requireAdminByEmail } from "@/lib/auth/admin"
+import { getSessionFromCookies } from "@/lib/auth/session"
+import { requireActiveOrg } from "@/lib/auth/requireActiveOrg"
 import {
   getEnvTemplatesIndex,
   createEnvTemplate,
@@ -15,6 +17,8 @@ export async function GET() {
   if (!session?.orgId) {
     return NextResponse.json({ error: "No org context" }, { status: 403 })
   }
+  const archivedRes = await requireActiveOrg(session)
+  if (archivedRes) return archivedRes
   try {
     const index = await getEnvTemplatesIndex(session.orgId)
     return NextResponse.json(index)
@@ -34,6 +38,8 @@ export async function POST(req: Request) {
   if (!session?.orgId) {
     return NextResponse.json({ error: "No org context" }, { status: 403 })
   }
+  const archivedRes = await requireActiveOrg(session)
+  if (archivedRes) return archivedRes
   try {
     const body = (await req.json()) as {
       label?: string

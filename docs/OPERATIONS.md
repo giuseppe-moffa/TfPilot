@@ -4,6 +4,22 @@ Short playbook for recovery and common operations. No application logic changes 
 
 ---
 
+## Platform admin org management
+
+Platform admins (`getUserRole(login) === "admin"`) manage orgs via `/api/platform/orgs` and `/settings/platform/orgs`:
+
+| Task | Endpoint / Action |
+|------|-------------------|
+| List orgs | `GET /api/platform/orgs?filter=active` (default) \| `archived` \| `all` |
+| Create org | `POST /api/platform/orgs` with `slug`, `name`, `adminLogin` |
+| Org detail | `GET /api/platform/orgs/[orgId]` |
+| Archive org | `POST /api/platform/orgs/[orgId]/archive` (idempotent) |
+| Restore org | `POST /api/platform/orgs/[orgId]/restore` (idempotent) |
+
+Non-platform-admin callers receive **404**. Platform routes bypass `requireActiveOrg` — accessible even when current session org is archived. See [ORGANISATIONS.md](ORGANISATIONS.md), [API.md](API.md).
+
+---
+
 ## Environments (Model 2)
 
 Environments are first-class entities. Each has a bootstrap PR that creates `envs/<environment_key>/<environment_slug>/` in the terraform repo.

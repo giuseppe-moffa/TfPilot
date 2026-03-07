@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { GetObjectCommand, ListObjectsV2Command, S3Client } from "@aws-sdk/client-s3"
 
 import { getSessionFromCookies } from "@/lib/auth/session"
+import { requireActiveOrg } from "@/lib/auth/requireActiveOrg"
 import { getRequest } from "@/lib/storage/requestsStore"
 import { getRequestOrgId } from "@/lib/db/requestsList"
 import { env } from "@/lib/config/env"
@@ -31,6 +32,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ req
   if (!session.orgId) {
     return NextResponse.json({ error: "Not found" }, { status: 404 })
   }
+  const archivedRes = await requireActiveOrg(session)
+  if (archivedRes) return archivedRes
 
   const request = await getRequest(requestId).catch(() => null)
   if (!request) {

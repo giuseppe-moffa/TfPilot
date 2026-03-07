@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 
 import { getSessionFromCookies } from "@/lib/auth/session"
+import { requireActiveOrg } from "@/lib/auth/requireActiveOrg"
+import { getRequestOrgId } from "@/lib/db/requestsList"
 import { ensureAssistantState, validateClarifications, validateSuggestions, computeSuggestionId, computeSuggestionsHash } from "@/lib/assistant/state"
 import { getRequest, updateRequest } from "@/lib/storage/requestsStore"
 
@@ -11,6 +13,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
     if (!session) {
       return NextResponse.json({ success: false, error: "Not authenticated" }, { status: 401 })
     }
+    if (!session.orgId) {
+      return NextResponse.json({ success: false, error: "Not found" }, { status: 404 })
+    }
+    const archivedRes = await requireActiveOrg(session)
+    if (archivedRes) return archivedRes
 
     const body = (await req.json()) as {
       suggestions?: any[]
@@ -19,6 +26,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ req
     }
 
     const baseRequest = ensureAssistantState(await getRequest(requestId))
+    const resourceOrgId = (baseRequest as { org_id?: string }).org_id ?? (await getRequestOrgId(requestId))
+    if (!resourceOrgId || resourceOrgId !== session.orgId) {
+      return NextResponse.json({ success: false, error: "Not found" }, { status: 404 })
+    }
 
     const suggestions = validateSuggestions((body.suggestions ?? []) as any[])
     const clarifications = validateClarifications((body.clarifications ?? []) as any[])
