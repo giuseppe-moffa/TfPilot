@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 
-import { requireAdminByEmail } from "@/lib/auth/admin"
+import { requirePlatformAdmin } from "@/lib/auth/platformAdmin"
 import { getSessionFromCookies } from "@/lib/auth/session"
 import {
   getWorkspaceTemplatesIndex,
@@ -14,8 +14,8 @@ type RouteContext = { params: Promise<{ id: string }> }
  * Returns a single workspace template by id (latest version). Uses new store only.
  */
 export async function GET(_req: Request, context: RouteContext) {
-  const forbidden = await requireAdminByEmail()
-  if (forbidden) return forbidden
+  const result = await requirePlatformAdmin()
+  if ("error" in result) return result.error
   const session = await getSessionFromCookies()
   if (!session?.orgId) {
     return NextResponse.json({ error: "No org context" }, { status: 403 })
@@ -53,8 +53,8 @@ export async function GET(_req: Request, context: RouteContext) {
  * Deprecated: template updates are not supported; templates are read-only from S3.
  */
 export async function PUT() {
-  const forbidden = await requireAdminByEmail()
-  if (forbidden) return forbidden
+  const result = await requirePlatformAdmin()
+  if ("error" in result) return result.error
   return NextResponse.json(
     { error: "Template update is deprecated. Workspace templates are read-only from S3." },
     { status: 410 }
@@ -66,8 +66,8 @@ export async function PUT() {
  * Deprecated: template updates are not supported.
  */
 export async function PATCH() {
-  const forbidden = await requireAdminByEmail()
-  if (forbidden) return forbidden
+  const result = await requirePlatformAdmin()
+  if ("error" in result) return result.error
   return NextResponse.json(
     { error: "Template update is deprecated. Workspace templates are read-only from S3." },
     { status: 410 }
@@ -79,8 +79,8 @@ export async function PATCH() {
  * Deprecated: soft-disable not supported for workspace templates store.
  */
 export async function DELETE() {
-  const forbidden = await requireAdminByEmail()
-  if (forbidden) return forbidden
+  const result = await requirePlatformAdmin()
+  if ("error" in result) return result.error
   return NextResponse.json(
     { error: "Template disable is deprecated. Workspace templates are read-only from S3." },
     { status: 410 }

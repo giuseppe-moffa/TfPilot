@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 
-import { requireAdminByEmail } from "@/lib/auth/admin"
+import { requirePlatformAdmin } from "@/lib/auth/platformAdmin"
 import { getSessionFromCookies } from "@/lib/auth/session"
 import { requireActiveOrg } from "@/lib/auth/requireActiveOrg"
 import { getWorkspaceTemplatesIndex } from "@/lib/workspace-templates-store"
@@ -8,11 +8,11 @@ import { getWorkspaceTemplatesIndex } from "@/lib/workspace-templates-store"
 /**
  * GET /api/workspace-templates/admin
  * Returns workspace template index from S3 (templates/workspaces/index.json).
- * Admin only.
+ * Platform admin only.
  */
 export async function GET() {
-  const forbidden = await requireAdminByEmail()
-  if (forbidden) return forbidden
+  const result = await requirePlatformAdmin()
+  if ("error" in result) return result.error
   const session = await getSessionFromCookies()
   if (!session?.orgId) {
     return NextResponse.json({ error: "No org context" }, { status: 403 })
@@ -25,10 +25,8 @@ export async function GET() {
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err)
     if (msg.includes("index not found") || msg.includes("Seed the templates bucket")) {
-      return NextResponse.json(
-        { error: "Workspace templates index not available. Seed the templates bucket before use." },
-        { status: 503 }
-      )
+      // Return 200 with empty array so admin UI still shows "Import default templates"
+      return NextResponse.json([])
     }
     console.error("[workspace-templates/admin] GET error:", err)
     return NextResponse.json(
@@ -44,8 +42,8 @@ export async function GET() {
  * Use POST /api/workspace-templates/admin/seed to seed templates.
  */
 export async function POST() {
-  const forbidden = await requireAdminByEmail()
-  if (forbidden) return forbidden
+  const result = await requirePlatformAdmin()
+  if ("error" in result) return result.error
   return NextResponse.json(
     {
       error: "Use POST /api/workspace-templates/admin/seed to seed workspace templates.",

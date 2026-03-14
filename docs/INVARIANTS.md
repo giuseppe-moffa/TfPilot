@@ -28,6 +28,14 @@ This document states the **invariants** that the current TfPilot lifecycle engin
 
 ---
 
+## Architectural invariants
+
+- **INV-ARCH-1** A workspace **MUST** represent a single Terraform root and state boundary. All deploy, drift, destroy, and run execution **MUST** be scoped to a single workspace. Scaling **MUST** occur by adding additional workspaces rather than expanding a single workspace root.
+
+- **INV-ARCH-2** All derived stores (for example workspace_runs, change_sets, cost projections, impact projections, analytics views) **MUST** be non-authoritative projections. Each derived store **MUST** have a defined authoritative input, a rebuild path, and a documented freshness model. No derived store **MAY** become the source of truth for lifecycle state.
+
+---
+
 ## Core lifecycle invariants
 
 - **INV-CORE-1** The system **MUST** store run execution state only under `request.runs.plan`, `request.runs.apply`, and `request.runs.destroy`, each with `currentAttempt` (number) and `attempts` (array of attempt records). No other authoritative run state exists.

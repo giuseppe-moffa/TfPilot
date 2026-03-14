@@ -21,6 +21,8 @@ Workflows live in infra repos (e.g. **core-terraform**, **payments-terraform**).
 - **Plan / cleanup:** `group: <repo>-${{ inputs.workspace_key }}-${{ inputs.workspace_slug }}-${{ inputs.request_id }}` — one active plan per request; cancel-in-progress for plan.
 - **Apply / destroy / drift:** `group: <repo>-state-${{ inputs.workspace_key }}-${{ inputs.workspace_slug }}` — **serialized per workspace** to protect state lock.
 
+Concurrency is enforced per workspace because each workspace represents an isolated Terraform state (**Workspace Sharding**: scale by more workspaces, not bigger workspaces).
+
 ---
 
 ## Inputs contract

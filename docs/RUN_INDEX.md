@@ -1,6 +1,6 @@
 # Run index (S3)
 
-O(1) lookup from GitHub workflow run ID to TfPilot request ID for workflow_run webhooks (plan, apply, destroy, cleanup, drift_plan).
+O(1) lookup from GitHub workflow run ID to TfPilot request ID for workflow_run webhooks (plan, apply, destroy, cleanup, drift_plan). Run correlation is scoped per workspace lifecycle because workflows operate on a single Terraform root (**Workspace Sharding**: each workspace is the state, deploy, drift, and destroy boundary). Future observability features will build a **workspace_runs** projection derived from this index.
 
 ## Where it lives
 

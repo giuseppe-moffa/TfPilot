@@ -71,6 +71,12 @@ Metrics recorded at a single call-site: **lib/github/client.ts** `ghResponse()`.
 
 ---
 
+## Future: Workspace deployment analytics
+
+Future versions of Insights will use the **workspace_runs** projection for: deploy frequency per workspace; success/failure ratios; drift frequency; MTTR; workspace activity timelines. Current Insights remain request-based today.
+
+---
+
 ## Related docs
 
 - **docs/SYSTEM_OVERVIEW.md** — Observability and Insights section

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 
-import { requireAdminByEmail } from "@/lib/auth/admin"
+import { requirePlatformAdmin } from "@/lib/auth/platformAdmin"
 import { getSessionFromCookies } from "@/lib/auth/session"
 import {
   getTemplate,
@@ -13,8 +13,8 @@ import {
 type RouteContext = { params: Promise<{ id: string }> }
 
 export async function GET(_req: Request, context: RouteContext) {
-  const forbidden = await requireAdminByEmail()
-  if (forbidden) return forbidden
+  const result = await requirePlatformAdmin()
+  if ("error" in result) return result.error
   const session = await getSessionFromCookies()
   if (!session?.orgId) {
     return NextResponse.json({ error: "No org context" }, { status: 403 })
@@ -37,8 +37,8 @@ export async function GET(_req: Request, context: RouteContext) {
 }
 
 export async function PUT(req: Request, context: RouteContext) {
-  const forbidden = await requireAdminByEmail()
-  if (forbidden) return forbidden
+  const result = await requirePlatformAdmin()
+  if ("error" in result) return result.error
   const session = await getSessionFromCookies()
   if (!session?.orgId) {
     return NextResponse.json({ error: "No org context" }, { status: 403 })
@@ -63,8 +63,8 @@ export async function PUT(req: Request, context: RouteContext) {
 }
 
 export async function DELETE(_req: Request, context: RouteContext) {
-  const forbidden = await requireAdminByEmail()
-  if (forbidden) return forbidden
+  const result = await requirePlatformAdmin()
+  if ("error" in result) return result.error
   const session = await getSessionFromCookies()
   if (!session?.orgId) {
     return NextResponse.json({ error: "No org context" }, { status: 403 })
@@ -88,8 +88,8 @@ export async function DELETE(_req: Request, context: RouteContext) {
 }
 
 export async function PATCH(req: Request, context: RouteContext) {
-  const forbidden = await requireAdminByEmail()
-  if (forbidden) return forbidden
+  const result = await requirePlatformAdmin()
+  if ("error" in result) return result.error
   const session = await getSessionFromCookies()
   if (!session?.orgId) {
     return NextResponse.json({ error: "No org context" }, { status: 403 })

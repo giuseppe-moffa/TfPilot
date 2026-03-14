@@ -12,7 +12,7 @@ TfPilot uses multiple authorization layers:
 2. **Platform admin** — `platform_admins` table. Platform-wide: list/create/archive/restore orgs; view any org detail; bypass archived-org enforcement on platform routes. Check via `isPlatformAdmin(login)`.
 3. **Org admin** — `org_memberships.role === "admin"`. Per-org: manage members, teams, project access. Short-circuits to full project authority.
 4. **Project roles** — `project_user_roles` and `project_team_roles`. Per-project permissions (viewer, planner, operator, deployer, admin). Required for request lifecycle actions. Org admin bypasses.
-5. **Admin-by-email** — `requireAdminByEmail()` checks `TFPILOT_ADMIN_EMAILS`. Used for catalogue/template admin UI and Insights.
+5. **Notification recipients** — `TFPILOT_ADMIN_EMAILS` (optional) is used only for notification email recipients in `lib/notifications/email.ts`. Admin route access (catalogue, templates, Insights) uses **platform admin** only.
 
 ### Dual permission model: RBAC + project access
 
@@ -28,7 +28,7 @@ Both must pass. A developer with project access can create requests; an approver
 | Org role               | `session.login` + org | `org_memberships` | Request lifecycle, workspaces (org-scoped) |
 | Platform admin         | `session.login`   | `platform_admins` table | Platform org management (/api/platform/orgs) |
 | Project role           | org/team + project | `project_user_roles`, `project_team_roles`, org admin | Per-project permissions (plan, approve, apply, destroy) |
-| Admin-by-email        | `session.email`   | `TFPILOT_ADMIN_EMAILS` | Catalogue, request templates, Insights |
+| Platform admin (templates/Insights) | `session.login`   | `platform_admins` table | Workspace/request template admin API, Insights page |
 
 ---
 
@@ -122,9 +122,10 @@ Prod access is gated by project roles (operator/deployer/admin); no separate pro
 | `POST /api/github/update-branch` | `approver` or `admin` | Prod: `TFPILOT_PROD_ALLOWED_USERS` |
 | `POST /api/requests/:id/destroy` | `admin` only        | Prod: `TFPILOT_DESTROY_PROD_ALLOWED_USERS` |
 | `GET /api/requests/:id/can-destroy` | `admin` only   | Prod: `TFPILOT_DESTROY_PROD_ALLOWED_USERS` |
-| `/api/request-templates/admin/**` | `requireAdminByEmail` | 404 for non-admins |
+| `/api/request-templates/admin/**` | Platform admin only | 404 for non-admins |
+| `/api/workspace-templates/admin/**` | Platform admin only | 404 for non-admins |
 | `/api/platform/orgs/**` | Platform admin only | 404 for non-admins (same as org-not-found) |
-| `/insights` page           | Server: `TFPILOT_ADMIN_EMAILS` | `notFound()` for non-admins |
+| `/insights` page           | Server: `isPlatformAdmin(login)` | `notFound()` for non-admins |
 
 ---
 
@@ -156,7 +157,7 @@ When `request.workspace_key === "prod"` (case-insensitive):
 
 - **`GET /api/auth/me`** — Returns `{ authenticated, user, role }`. Used by UI for `isAdmin` checks (e.g. destroy button visibility).
 - **Request detail page** — Uses `meData?.role === "admin"` to show/hide destroy controls.
-- **Insights / Catalogue** — Server-side gated by `TFPILOT_ADMIN_EMAILS`; non-admins get 404.
+- **Insights / Catalogue (admin)** — Server-side gated by platform admin (`isPlatformAdmin(login)`); non-admins get 404.
 
 ---
 
@@ -165,7 +166,7 @@ When `request.workspace_key === "prod"` (case-insensitive):
 | Component           | Path / file                                  |
 |---------------------|-----------------------------------------------|
 | Role resolution     | `lib/auth/roles.ts` — `getUserRole(login)`    |
-| Admin-by-email      | `lib/auth/admin.ts` — `requireAdminByEmail()` |
+| Platform admin (DB)  | `lib/db/platformAdmins.ts` — `isPlatformAdmin(login)`; route guard: `lib/auth/platformAdmin.ts` — `requirePlatformAdmin()` |
 | Session             | `lib/auth/session.ts` — `getSessionFromCookies()` |
 | Auth me endpoint    | `app/api/auth/me/route.ts`                    |
 | Env config          | `lib/config/env.ts`                           |

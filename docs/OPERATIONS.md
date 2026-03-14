@@ -22,7 +22,7 @@ Non-platform-admin callers receive **404**. Platform routes bypass `requireActiv
 
 ## Workspaces (Model 2)
 
-Workspaces are first-class entities. Each has a bootstrap PR that creates `envs/<workspace_key>/<workspace_slug>/` in the terraform repo. The `envs/` prefix is historical repository naming; each directory represents a Terraform root for a workspace.
+Workspaces are first-class entities and the core infrastructure boundary (**Workspace Sharding**). Each has a bootstrap PR that creates `envs/<workspace_key>/<workspace_slug>/` in the terraform repo. The `envs/` prefix is historical repository naming; each directory represents a Terraform root for a workspace. Workspaces represent Terraform state boundaries; destroy operations always apply to a single workspace root. Scale by adding more workspaces — not bigger workspaces.
 
 | Task | Endpoint / Action |
 |------|-------------------|

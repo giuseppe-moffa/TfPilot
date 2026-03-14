@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 
-import { requireAdminByEmail } from "@/lib/auth/admin"
+import { requirePlatformAdmin } from "@/lib/auth/platformAdmin"
 import { getSessionFromCookies } from "@/lib/auth/session"
 import { requireActiveOrg } from "@/lib/auth/requireActiveOrg"
 import {
@@ -10,8 +10,8 @@ import {
 } from "@/lib/templates-store"
 
 export async function GET() {
-  const forbidden = await requireAdminByEmail()
-  if (forbidden) return forbidden
+  const result = await requirePlatformAdmin()
+  if ("error" in result) return result.error
   const session = await getSessionFromCookies()
   if (!session?.orgId) {
     return NextResponse.json({ error: "No org context" }, { status: 403 })
@@ -31,8 +31,8 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const forbidden = await requireAdminByEmail()
-  if (forbidden) return forbidden
+  const result = await requirePlatformAdmin()
+  if ("error" in result) return result.error
   const session = await getSessionFromCookies()
   if (!session?.orgId) {
     return NextResponse.json({ error: "No org context" }, { status: 403 })

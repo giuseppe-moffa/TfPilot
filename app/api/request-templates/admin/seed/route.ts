@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 
-import { requireAdminByEmail } from "@/lib/auth/admin"
+import { requirePlatformAdmin } from "@/lib/auth/platformAdmin"
 import { getSessionFromCookies } from "@/lib/auth/session"
 import { getTemplate, createTemplateWithId } from "@/lib/templates-store"
 import { DEFAULT_SEED_TEMPLATES } from "@/lib/templates-store-seed-defaults"
@@ -11,8 +11,8 @@ import { DEFAULT_SEED_TEMPLATES } from "@/lib/templates-store-seed-defaults"
  * Admin-only. Idempotent: skips any template that already exists (same id).
  */
 export async function POST() {
-  const forbidden = await requireAdminByEmail()
-  if (forbidden) return forbidden
+  const result = await requirePlatformAdmin()
+  if ("error" in result) return result.error
   const session = await getSessionFromCookies()
   if (!session?.orgId) {
     return NextResponse.json({ error: "No org context" }, { status: 403 })

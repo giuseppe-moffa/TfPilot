@@ -74,6 +74,12 @@ Migrations: `20260320000000_orgs.sql`, `20260320001000_projects.sql`, `202603200
 
 ---
 
+## Projection discipline
+
+The `requests_index` table is the baseline example of TfPilot projection discipline: derived from S3 request documents; rebuildable; non-authoritative for lifecycle; optimized for list/pagination only. Future derived stores (e.g. workspace_runs, change_sets, workspace-level analytics or intelligence views) should follow the same rule: derived, rebuildable, non-authoritative.
+
+---
+
 ## Drift detection and missing S3 doc (list)
 
 - **Drift:** For each row returned by the list, the API fetches the S3 document. It computes `s3_doc_hash = computeDocHash(doc)` and compares to the row’s `doc_hash`. If they differ, the response includes on that request: `index_drift: true`, `index_doc_hash`, `s3_doc_hash`.

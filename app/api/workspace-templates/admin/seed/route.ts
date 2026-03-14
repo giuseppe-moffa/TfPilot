@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 
-import { requireAdminByEmail } from "@/lib/auth/admin"
+import { requirePlatformAdmin } from "@/lib/auth/platformAdmin"
 import { getSessionFromCookies } from "@/lib/auth/session"
 import type { WorkspaceTemplateDocument } from "@/lib/workspace-templates-store"
 import {
@@ -49,11 +49,11 @@ const DEFAULT_WORKSPACE_TEMPLATES: WorkspaceTemplateDocument[] = [
 /**
  * POST /api/workspace-templates/admin/seed
  * One-time bootstrap: writes default workspace templates to S3 (templates/workspaces/).
- * Idempotent: 409 if index already exists.
+ * Idempotent: 409 if index already exists. Platform admin only.
  */
 export async function POST() {
-  const forbidden = await requireAdminByEmail()
-  if (forbidden) return forbidden
+  const result = await requirePlatformAdmin()
+  if ("error" in result) return result.error
   const session = await getSessionFromCookies()
   if (!session?.orgId) {
     return NextResponse.json({ error: "No org context" }, { status: 403 })

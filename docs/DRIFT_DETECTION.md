@@ -15,6 +15,8 @@ TfPilot supports two drift flows:
 | **Workspace drift** | Whole workspace root (`envs/<key>/<slug>/`) | Manual from workspace page | On-demand drift check per workspace |
 | **Request-level drift** | Per-request (optional) | Scheduled (`drift-check.yml`) | Nightly drift checks for dev requests |
 
+Drift detection runs per workspace Terraform root. Workspaces act as the drift boundary for the platform (see **Workspace Sharding** in [SYSTEM_OVERVIEW.md](SYSTEM_OVERVIEW.md): scale by more workspaces, not bigger workspaces).
+
 ---
 
 ## Workspace drift (TfPilot UI)

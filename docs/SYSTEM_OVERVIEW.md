@@ -88,6 +88,173 @@ When `session.orgId` points to an **archived org**, org-scoped APIs return **403
 
 ---
 
+## Workspace Sharding (architecture principle)
+
+A workspace is the core infrastructure boundary in TfPilot. TfPilot scales infrastructure by **adding more workspaces**, not by increasing the size of a workspace.
+
+Each workspace represents:
+
+- Terraform root
+- Terraform state boundary
+- deploy boundary
+- drift boundary
+- destroy boundary
+- ownership boundary
+
+**Example scaling pattern:**
+
+```
+network-prod
+  ↓
+cluster-prod
+  ↓
+payments-service-prod
+  ↓
+payments-db-prod
+```
+
+**Benefits:** smaller Terraform states; faster plans; isolated drift; safer destroy; parallel deployments; clear ownership boundaries.
+
+Terraform runs, drift detection, deploy operations, and destroy operations are always scoped to a single workspace.
+
+**Scaling rule:** TfPilot scales by **more workspaces — not bigger workspaces**. Large workspaces should be split into smaller infrastructure units when responsibility grows.
+
+---
+
+## Platform Primitives (Next Phase)
+
+The following primitives are **planned** architecture commitments. They extend the existing design (facts-only lifecycle, S3 request doc authoritative, Postgres projection only, Terraform execution in GitHub Actions, workspace = state boundary, scale via Workspace Sharding) without altering current behavior.
+
+### Workspace Runs Projection
+
+**Purpose:**
+
+- fast workspace-level observability and analytics
+- deployment history
+- workspace activity views
+- MTTR / failure-rate analysis
+
+**Rules:** projection only; never authoritative; rebuildable from S3 request docs + run index + GitHub events; must not become lifecycle truth.
+
+**Example schema concept:** `workspace_runs` — workspace_id, request_id, run_id, kind, status, conclusion, created_at, completed_at.
+
+### Variable Sets
+
+**Purpose:** reusable config across org/project/workspace; secret injection; deterministic config resolution.
+
+**Scopes:** org; project; workspace.
+
+**Precedence:** org < project < workspace.
+
+**Rules:** secrets masked; secrets not written to request docs; final resolved values injected into templates/workflows; Terraform execution still only in GitHub workflows.
+
+### Policy Evaluation Stage
+
+**Conceptual lifecycle:** request → plan → policy evaluation → approval → merge → apply.
+
+**Rules:** evaluates Terraform plan output; does not mutate lifecycle truth; failures can block approval/apply; results can be recorded in audit/events; still not a lifecycle source of truth.
+
+### Cost Governance
+
+**Purpose:** evaluate Infracost / cost outputs from plans; support guardrails such as thresholds and approval requirements.
+
+**Rules:** evaluates plan-derived cost output; not a lifecycle source of truth; may block approval/apply through policy outcomes.
+
+**Example capabilities:** block if monthly cost increase > threshold; require extra approval above cost threshold.
+
+### Workspace Templates (enhanced)
+
+TfPilot **already has Workspace Templates**. Do not call these "Environment Templates"; in TfPilot a workspace is already the environment unit. Future work is to make them more powerful through composition.
+
+- **Workspace Templates** are the equivalent of what some platforms call environment templates; the workspace is the infrastructure boundary, so one workspace template ≈ one full environment unit.
+- **Planned enhancement:** richer template composition (e.g. backend-service, data-pipeline, ai-service templates composing ECS, ALB, RDS, Redis, IAM, monitoring), not a new template category.
+- Workspace template ≈ full environment unit in TfPilot because workspace = Terraform root, state boundary, and deploy/drift/destroy boundary.
+
+#### Workspace Template Composition
+
+Future versions of Workspace Templates may support **template composition with controlled subcomponents**. A workspace template may include reusable infrastructure building blocks.
+
+**Example components:** network-base, service-base, postgres-base, monitoring-base. Template authors can control how components are exposed using rules.
+
+**Example controls:** required; fixed; hidden; user-configurable.
+
+**Example template:** `backend-service-template` — includes: ecs-service (configurable), alb (fixed), iam (fixed), monitoring (required, hidden), rds (optional).
+
+**Purpose:** enforce platform standards; hide unsafe configuration; allow safe customization. Workspace Templates become **opinionated infrastructure products** rather than simple Terraform scaffolding.
+
+**Compatibility:** Workspace Templates remain compatible with existing architecture: templates generate Terraform; Terraform executes in GitHub workflows; lifecycle remains request-driven.
+
+### Change Sets (future capability)
+
+Change Sets are a **future** abstraction that may group the full decision and execution package for an infrastructure change. A Change Set may include: the originating request; the generated Terraform diff; policy and cost outcomes; impact analysis; execution attempts; rollback reference.
+
+**Rules:** Change Sets are a future control-plane abstraction, not a new source of lifecycle truth. Request documents in S3 remain authoritative. Change Sets may be implemented as a projection or derived object first. Rollback metadata must be deterministic and tied to the exact approved/applied unit of change. **Rollback Anchors** (e.g. `previous_merge_sha`, `previous_apply_run_id`, `terraform_state_snapshot_ref`) would give deterministic rollback without inventing new state.
+
+This allows TfPilot to evolve from request execution into infrastructure change management without weakening existing invariants.
+
+### Platform metadata layer (future capability)
+
+**Workspace metadata as a first-class control-plane primitive** — not just tags; a real platform-owned metadata layer. One authoritative metadata model per workspace. It does not hold request lifecycle; it holds metadata that unlocks impact and operations.
+
+**Single table (concept):** `workspace_metadata`
+
+- workspace_id
+- owner_team
+- service
+- lifecycle_stage
+- business_criticality
+- system_tier
+- cloud_account_id
+
+**Dependencies:** Storing dependencies as raw IDs (e.g. `dependencies[]` on workspace_metadata) is fine for now. The recommended evolution is a separate table **workspace_dependencies** (workspace_id, depends_on_workspace_id): supports graph queries, easier indexing, cleaner graph visualizations, works with Postgres joins.
+
+**Why it is the highest leverage move:** Without it, impact-aware changes, ownership routing, cost attribution, dependency graph, change sets, risk scoring, and platform dashboards stay fragmented. With it, they all attach to the same object: the workspace.
+
+**Why it fits TfPilot:** The architecture already centers on the workspace as the Terraform root and state boundary. Making workspace metadata first-class is the natural next layer, not a bolt-on. It is where a Terraform platform becomes an **infrastructure intelligence platform** — answering: who owns this? what service is this for? how critical is it? what does it depend on? what will this change affect?
+
+**Why it is relatively low effort:** One metadata model; simple CRUD/UI; attach to workspace pages; reuse everywhere later. Compared with policy engines or orchestration, this is small, but many future features depend on it. **If you add only one major primitive next, make it workspace metadata first-class** — after that, much of the roadmap gets easier and more coherent.
+
+### Deployment decision record (future capability)
+
+A **unified approval object** above policy, cost, and impact — not just “PR approved, plan passed, policy passed,” but a real **deployment decision record**. Before apply, TfPilot would produce one object that answers: what is changing; who approved it; what policy said; what cost said; what impact said; what risk level it has; whether it is safe to apply.
+
+**Conceptual shape:** `deployment_decision` — request_id, workspace_id, policy_result, cost_result, impact_result, approved_by, approval_reason, risk_level, created_at.
+
+**Why it matters:** Most platforms stop at plan → policy → approval → apply. The real control-plane question is **why was this allowed to deploy?** That is what enterprise platforms need. TfPilot could show e.g. “Decision: approved. Reason: policy passed; cost increase under threshold; no tier-1 downstream blast radius; approved by platform owner.” — stronger than “PR merged, apply succeeded.”
+
+**Fit:** This sits above the existing architecture. The building blocks are already in place or planned: facts-only lifecycle and attempt model; projection discipline for derived objects; impact-aware changes; change sets and rollback intelligence; workspace metadata tying ownership and dependencies to the workspace. The deployment decision record would not replace them; it would sit above them.
+
+**Unlocks:** explainable approvals; safer prod deploys; audit-quality decision history; better incident review; cleaner change sets; future auto-approval / auto-block rules. Most tools are run-centric, policy-centric, or PR-centric; very few are **decision-centric**. That is the leap. With workspace metadata, impact-aware changes, change sets, and a deployment decision record, TfPilot becomes a real **infrastructure change-control system**, not just a Terraform platform.
+
+---
+
+## Projection Discipline (architecture principle)
+
+TfPilot may add more derived stores over time, including `workspace_runs`, cost projections, impact projections, change sets, and analytics views.
+
+These stores are useful for dashboards, observability, and platform intelligence, but they must remain **projections**.
+
+**Rules:**
+
+- every projection must have a clearly identified authoritative source
+- every projection must have a rebuild path
+- every projection must document freshness / staleness expectations
+- no projection may become a hidden source of lifecycle truth
+- UI and operators must be able to understand which view is authoritative
+
+**For every new projection, document:**
+
+- authoritative input
+- projection fields
+- rebuild method
+- freshness model
+- whether it may block actions
+- what it must never override
+
+TfPilot scales safely when **facts remain primary, projections remain derived, and UI remains downstream of both**.
+
+---
+
 ## Platform admin system
 
 **API:** `GET/POST /api/platform/orgs`, `GET /api/platform/orgs/[orgId]`, `POST /api/platform/orgs/[orgId]/archive`, `POST /api/platform/orgs/[orgId]/restore`. Platform-admin only (404 for non-admins).
