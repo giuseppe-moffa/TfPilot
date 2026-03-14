@@ -47,10 +47,10 @@ TfPilot supports two drift flows:
 ### Workspace drift index (S3)
 
 - **Purpose:** Map drift run ID → workspace for "last drift" display
-- **Prefix:** `webhooks/github/env-drift/`
-- **Keys:** `run-<runId>.json`, `by-env/<workspaceId>.json`
-- **Pruning:** 30 days TTL (`ENV_DRIFT_PRUNING_TTL_DAYS`)
-- **Code:** `lib/github/envDriftRunIndex.ts`
+- **Prefix:** `webhooks/github/workspace-drift/`
+- **Keys:** `run-<runId>.json`, `by-workspace/<workspaceId>.json`
+- **Pruning:** 30 days TTL (`WORKSPACE_DRIFT_PRUNING_TTL_DAYS`)
+- **Code:** `lib/github/workspaceDriftRunIndex.ts`
 
 ---
 
@@ -139,8 +139,8 @@ A request is eligible when:
 | Drift latest | `app/api/environments/[id]/drift-latest/route.ts` |
 | Drift eligible | `app/api/requests/drift-eligible/route.ts` |
 | Drift result | `app/api/requests/[requestId]/drift-result/route.ts` |
-| Env drift index | `lib/github/envDriftRunIndex.ts` |
-| Resolve run ID | `lib/github/resolveEnvDriftRunId.ts` |
+| Workspace drift index | `lib/github/workspaceDriftRunIndex.ts` |
+| Resolve run ID | `lib/github/resolveWorkspaceDriftRunId.ts` |
 | Dispatch inputs | `lib/github/dispatchDriftPlan.ts` |
 
 ---

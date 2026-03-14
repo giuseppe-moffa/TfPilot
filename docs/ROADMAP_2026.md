@@ -1,349 +1,281 @@
+
 # TfPilot Platform Roadmap
 
-**Author:** Internal\
-**Purpose:** Strategic roadmap for evolving TfPilot from an internal
-Terraform orchestration platform into a full Internal Developer Platform
-(IDP).
+Author: Internal
+Purpose: Strategic roadmap for evolving TfPilot into a full Internal Developer Platform (IDP)
 
-------------------------------------------------------------------------
+---
 
 # Current State
 
-TfPilot already provides a strong **control-plane architecture**:
+TfPilot already provides a strong control-plane architecture:
 
--   GitHub PR--driven infrastructure execution
--   Terraform runs only in GitHub Actions
--   S3 canonical request documents
--   Postgres projection/index layer
--   Deterministic lifecycle derived from facts
--   Multi-org architecture
--   RBAC + project access controls
--   Environment lifecycle management
--   Request lifecycle engine
--   Drift detection foundation
--   \~350 automated tests
--   Deterministic sync / reconciliation model
+- PR-native Terraform execution
+- Terraform runs only in GitHub Actions
+- S3 canonical request documents
+- Postgres projection/index layer
+- Deterministic lifecycle engine
+- Workspace-first architecture
+- RBAC + project access controls
+- Drift detection foundation
+- ~350 automated tests
+- Webhook-driven run correlation
+- Lifecycle invariants enforced by tests
 
-**Architecture maturity:** \~9/10\
-**Platform feature maturity:** \~7.5/10
+Architecture maturity: ~9.4/10  
+Platform feature maturity: ~8/10
 
-------------------------------------------------------------------------
-
-# Core Architecture Principles
-
-TfPilot follows several strong platform invariants:
-
--   Terraform execution occurs **only in GitHub Actions**
--   Infrastructure lifecycle state is **derived from facts**
--   **S3 is canonical state**
--   **Postgres is projection only**
--   **Operations must be deterministic**
--   **Control plane and execution plane are separated**
-
-This architecture resembles platforms like Spacelift more than Terraform
-Cloud.
-
-------------------------------------------------------------------------
+---
 
 # Strategic Goal
 
-Transform TfPilot into a **self‑service internal developer platform**
-where developers can provision infrastructure safely and independently.
+Transform TfPilot into a complete internal developer platform comparable to env0 / Spacelift.
 
-Target maturity: **8.8--9 / 10 platform maturity**.
+Target maturity: **9.8 / 10**
 
-------------------------------------------------------------------------
+---
 
 # Major Platform Feature Gaps
 
-  Feature                                 Status
-  --------------------------------------- ---------
-  Audit Activity Stream                   Planned
-  Policy Engine                           Missing
-  Cost Governance                         Missing
-  Drift Automation                        Partial
-  Stack Orchestration                     Missing
-  Enterprise SSO                          Missing
-  Self‑Service Infrastructure Catalogue   Partial
+| Feature | Status |
+|--------|--------|
+| Variable Sets / Secrets | Missing |
+| Policy Engine | Missing |
+| Workspace Run History | Partial |
+| Cost Governance | Missing |
+| Drift Automation | Partial |
+| Stack Orchestration | Missing |
+| Enterprise SSO | Missing |
+| Infrastructure Catalogue | Partial |
 
-------------------------------------------------------------------------
+---
 
-# Feature Roadmap
+# Updated Feature Roadmap
 
-## Phase 1 --- Audit Activity Stream
+## Phase 1 — Variable Sets / Secrets
 
-Purpose: platform observability, traceability, compliance.
+Purpose: reusable configuration across workspaces.
 
-### Features
+Scopes:
 
--   Append‑only audit log
--   Org‑scoped activity feed
--   Actor attribution
--   Mutation event tracking
+- Organization variables
+- Project variables
+- Workspace variables
 
-### Example events
+Examples:
 
--   org_created
--   org_archived
--   team_created
--   team_member_added
--   project_access_granted
--   request_created
--   request_applied
--   environment_deploy_pr_opened
+- AWS_ACCOUNT_ID
+- TF_VAR_region
+- datadog_api_key
+- github_token
 
-### Storage
+Features:
 
-Postgres table:
+- secret masking
+- variable precedence (org < project < workspace)
+- inject variables into GitHub workflows
+- UI management
+- secure secret storage
 
-    audit_events
+Effort: **2–4 days**
 
-Append‑only model.
+Impact: **Very high**
 
-### Effort
+---
 
-**2--3 days**
+## Phase 2 — Policy / Governance Engine
 
-### Cost
+Add infrastructure guardrails before deploy/apply.
 
-**£0**
+Technology: Open Policy Agent (OPA)
 
-------------------------------------------------------------------------
+Example policies:
 
-# Phase 2 --- Cost Governance
+- deny public S3 buckets
+- enforce required tags
+- restrict regions
+- require encryption
 
-Integrate **Infracost**.
+Integration points:
 
-### Features
+- plan
+- apply
+- workspace deploy
 
--   Terraform plan cost estimation
--   Cost thresholds
--   Policy guardrails
+UI:
 
-Example rule:
+- policy results visible in PR
+- compliance panel on workspace page
 
-    deny if monthly_cost > $1000
+Effort: **3–5 days**
 
-### Effort
+Impact: **Enterprise readiness**
 
-**1--2 days**
+---
 
-### Cost
+## Phase 3 — Workspace Run History
 
-\~£0--£10/month
+Expose full run history per workspace.
 
-------------------------------------------------------------------------
+Runs recorded:
 
-# Phase 3 --- Drift Automation
+- preview
+- deploy
+- destroy
+- drift
+- request runs
 
-Fully automate infrastructure drift detection.
+Workspace page shows:
 
-### Workflow
+- run timeline
+- run logs
+- plan outputs
+- resource summaries
 
-    scheduler
-        ↓
-    list environments
-        ↓
-    terraform plan -refresh-only
-        ↓
-    detect drift
-        ↓
-    update platform state
+Storage:
 
-### Implementation
+runs/<workspace_id>/<run_id>/
 
--   GitHub scheduled workflows
--   Drift result ingestion
+Effort: **2–3 days**
 
-### Effort
+Impact: **Major UX improvement**
 
-**3--4 days**
+---
 
-### Cost
+## Phase 4 — Cost Governance
 
-\~£5--£20/month (GitHub Actions)
+Integrate Infracost.
 
-------------------------------------------------------------------------
+Features:
 
-# Phase 4 --- Policy Engine
-
-Add infrastructure guardrails using **OPA (Open Policy Agent)**.
-
-### Example policies
-
--   enforce encryption
--   require tags
--   restrict regions
--   require approval for production
-
-Example rule:
-
-    deny if resource.public == true
-
-### Effort
-
-**3--5 days**
-
-### Cost
-
-£0 (open source)
-
-------------------------------------------------------------------------
-
-# Phase 5 --- Stack Orchestration
-
-Support multi‑stack infrastructure dependency graphs.
+- plan cost diff
+- monthly cost estimate
+- workspace cost visibility
+- cost threshold policies
 
 Example:
 
-    network
-       ↓
-    cluster
-       ↓
-    services
+deny if monthly_cost > $1000
 
-### Features
+UI:
 
--   dependency DAG
--   ordered apply
--   stack lifecycle management
+- cost before
+- cost after
+- cost delta
 
-### Effort
+Effort: **1–2 days**
 
-**5--7 days**
+---
 
-### Cost
+## Phase 5 — Drift Automation
 
-£0
+Automate drift detection across all workspaces.
 
-------------------------------------------------------------------------
+Workflow:
 
-# Phase 6 --- Enterprise SSO
+scheduler  
+→ list workspaces  
+→ terraform plan -refresh-only  
+→ detect drift  
+→ update platform state
 
-Add enterprise authentication integrations.
+Implementation:
 
-Options:
+GitHub scheduled workflows.
 
--   SAML
--   OIDC
--   SCIM provisioning
+Effort: **3–4 days**
 
-Providers:
+---
 
--   WorkOS
--   Auth0
--   Okta
--   Azure AD
+## Phase 6 — Infrastructure Catalogue
 
-### Effort
-
-**2--4 days**
-
-### Cost
-
-£0--£30/month (depending on provider)
-
-------------------------------------------------------------------------
-
-# High Impact Feature --- Self‑Service Infrastructure Catalogue
-
-This is the **single feature that most increases platform maturity
-perception.**
-
-Developers provision infrastructure via **products**, not Terraform
-modules.
+Developers provision infrastructure via products instead of Terraform modules.
 
 Example catalogue:
 
-    Postgres Database
-    Redis Cache
-    S3 Storage
-    ECS Service
-    Kubernetes Namespace
+- Postgres database
+- Redis cache
+- S3 storage
+- ECS service
+- Kubernetes namespace
 
-Behind the scenes:
+Implementation:
 
-    catalogue item → Terraform module
+catalogue item → workspace template → Terraform module
 
-### Benefits
+Effort: **~1 week**
 
--   Developer self‑service
--   Guardrails via policy
--   Consistent infrastructure standards
+Impact: **Major UX improvement**
 
-### Implementation
+---
 
--   module schema → form generator
--   catalogue UI
--   template versioning
--   guardrail integration
+## Phase 7 — Stack Orchestration
 
-### Effort
+Support multi-stack dependency graphs.
 
-\~1 week
+Example:
 
-------------------------------------------------------------------------
+network  
+→ cluster  
+→ services
+
+Features:
+
+- dependency DAG
+- ordered applies
+- stack lifecycle management
+
+Effort: **5–7 days**
+
+---
+
+## Phase 8 — Enterprise SSO
+
+Enterprise authentication integrations.
+
+Providers:
+
+- Okta
+- Auth0
+- Azure AD
+- WorkOS
+
+Features:
+
+- SAML
+- OIDC
+- SCIM provisioning
+
+Effort: **2–4 days**
+
+---
 
 # Recommended Development Order
 
-1.  Audit Activity Stream
-2.  Cost Governance
-3.  Drift Automation
-4.  Policy Engine
-5.  Catalogue UX improvements
-6.  Stack Orchestration
-7.  Enterprise SSO
+1. Variable Sets / Secrets
+2. Policy Engine
+3. Workspace Run History
+4. Cost Governance
+5. Drift Automation
+6. Infrastructure Catalogue improvements
+7. Stack orchestration
+8. Enterprise SSO
 
-------------------------------------------------------------------------
+---
 
-# Estimated Effort Summary
+# Estimated Effort
 
-  Feature                  Time
-  ------------------------ -----------
-  Audit Stream             2--3 days
-  Cost Governance          1--2 days
-  Drift Automation         3--4 days
-  Policy Engine            3--5 days
-  Catalogue Improvements   \~1 week
-  Stack Orchestration      5--7 days
-  Enterprise SSO           2--4 days
+| Feature | Time |
+|--------|------|
+Variable Sets | 2–4 days |
+Policy Engine | 3–5 days |
+Workspace Run History | 2–3 days |
+Cost Governance | 1–2 days |
+Drift Automation | 3–4 days |
+Catalogue Improvements | ~1 week |
+Stack Orchestration | 5–7 days |
+Enterprise SSO | 2–4 days |
 
 Total estimated effort:
 
-**\~2--3 weeks of focused development** (solo with Cursor).
-
-------------------------------------------------------------------------
-
-# Expected Platform Maturity After Roadmap
-
-  Platform                  Maturity
-  ------------------------- ------------
-  Terraform Cloud           10
-  Spacelift                 9.5
-  env0                      9
-  TfPilot (after roadmap)   **8.8--9**
-
-------------------------------------------------------------------------
-
-# Long Term Optional Enhancements
-
-Future features not required for initial maturity:
-
--   Compliance export / SIEM integration
--   Real‑time audit stream
--   Platform analytics dashboards
--   Multi‑VCS support
--   Cross‑org platform admin audit
-
-------------------------------------------------------------------------
-
-# Conclusion
-
-TfPilot already has a **strong control plane architecture**.
-
-The remaining work focuses primarily on **feature layers**, not core
-infrastructure.
-
-By implementing the roadmap above, TfPilot can evolve into a **fully
-capable internal developer platform** while maintaining its
-deterministic architecture.
+~3–4 weeks of focused development.

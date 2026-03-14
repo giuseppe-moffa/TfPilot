@@ -312,22 +312,22 @@ async function createBranchCommitPrAndPlan(
       title: `Update request ${request.id}: ${request.module} (rev ${request.revision ?? "?"})`,
       head: branchName,
       base: target.base,
-      body: `Updated configuration for ${request.project_key}/${request.environment_key}\n\nModule: ${request.module}\nRequest ID: ${request.id}\nRevision: ${request.revision ?? "?"}`,
+      body: `Updated configuration for ${request.project_key}/${request.workspace_key ?? request.environment_key}\n\nModule: ${request.module}\nRequest ID: ${request.id}\nRevision: ${request.revision ?? "?"}`,
     }),
   })
   const prJson = (await prRes.json()) as { number?: number; html_url?: string; head?: { sha?: string } }
   if (!prJson.number || !prJson.html_url) throw new Error("Failed to open PR")
 
-  const envKey = request.environment_key
-  const envSlug = request.environment_slug ?? ""
+  const workspaceKey = request.workspace_key ?? request.environment_key
+  const workspaceSlug = request.workspace_slug ?? request.environment_slug ?? ""
   await gh(token, `/repos/${target.owner}/${target.repo}/actions/workflows/${PLAN_WORKFLOW}/dispatches`, {
     method: "POST",
     body: JSON.stringify({
       ref: branchName,
       inputs: {
         request_id: request.id,
-        environment_key: envKey,
-        environment_slug: envSlug,
+        environment_key: workspaceKey,
+        environment_slug: workspaceSlug,
       },
     }),
   })
@@ -533,15 +533,15 @@ export async function POST(req: NextRequest) {
     const revisionNext = revisionPrev + 1
 
     const moduleType = getModuleType(current.module, regEntry.category)
-    const envKey = current.environment_key
-    const envSlug = current.environment_slug ?? ""
-    if (!envKey || envSlug === undefined) {
-      return NextResponse.json({ success: false, error: "Request missing environment_key or environment_slug" }, { status: 400 })
+    const workspaceKey = current.workspace_key ?? current.environment_key
+    const workspaceSlug = current.workspace_slug ?? current.environment_slug ?? ""
+    if (!workspaceKey || workspaceSlug === undefined) {
+      return NextResponse.json({ success: false, error: "Request missing workspace_key or workspace_slug" }, { status: 400 })
     }
     const targetOwner = current.targetOwner
     const targetRepo = current.targetRepo
     const targetBase = current.targetBase
-    const targetEnvPath = current.targetEnvPath ?? `envs/${envKey}/${envSlug}`
+    const targetEnvPath = current.targetEnvPath ?? `envs/${workspaceKey}/${workspaceSlug}`
 
     if (!targetOwner || !targetRepo || !targetBase || !targetEnvPath) {
       return NextResponse.json(
@@ -553,7 +553,7 @@ export async function POST(req: NextRequest) {
     const finalConfig = buildModuleConfig(regEntry, mergedInputs, {
       requestId: current.id,
       project_key: current.project_key,
-      environment_key: current.environment_key,
+      environment_key: current.workspace_key ?? current.environment_key,
     })
 
     appendRequestIdToNames(finalConfig, current.id)
@@ -571,13 +571,13 @@ export async function POST(req: NextRequest) {
 
     validatePolicy(finalConfig)
 
-    const targetFile = computeRequestTfPath(envKey, envSlug, current.module, current.id)
-    const { content } = generateModel2RequestFile(envKey, envSlug, { ...current, config: finalConfig })
+    const targetFile = computeRequestTfPath(workspaceKey, workspaceSlug, current.module, current.id)
+    const { content } = generateModel2RequestFile(workspaceKey, workspaceSlug, { ...current, config: finalConfig })
 
     const branchName = `update/${current.id}/rev-${revisionNext}`
     const ghResult = await createBranchCommitPrAndPlan(
       token,
-      { ...current, revision: revisionNext, environment_key: envKey },
+      { ...current, revision: revisionNext, workspace_key: workspaceKey, workspace_slug: workspaceSlug },
       [{ path: targetFile, content }],
       { owner: targetOwner, repo: targetRepo, base: targetBase },
       branchName

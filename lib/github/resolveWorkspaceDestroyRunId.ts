@@ -1,13 +1,14 @@
 /**
- * Resolve drift-plan v2 workflow runId after workflow_dispatch.
- * Lists runs and returns the earliest run created after dispatch.
+ * Resolve workspace destroy workflow runId after workflow_dispatch.
+ * Skips runs already claimed by a request (request destroy) via run index.
  */
 
 import { gh } from "@/lib/github/client"
+import { getRequestIdByRunId } from "@/lib/requests/runIndex"
 
 const CREATED_AT_TOLERANCE_MS = 5_000
 
-export type ResolveEnvDriftRunIdParams = {
+export type ResolveWorkspaceDestroyRunIdParams = {
   token: string
   owner: string
   repo: string
@@ -16,7 +17,7 @@ export type ResolveEnvDriftRunIdParams = {
   dispatchTime: Date
 }
 
-export type ResolveEnvDriftRunIdResult = { runId: number; url: string } | null
+export type ResolveWorkspaceDestroyRunIdResult = { runId: number; url: string } | null
 
 type WorkflowRunRow = {
   id: number
@@ -25,9 +26,9 @@ type WorkflowRunRow = {
   html_url?: string
 }
 
-export async function resolveEnvDriftRunId(
-  params: ResolveEnvDriftRunIdParams
-): Promise<ResolveEnvDriftRunIdResult> {
+export async function resolveWorkspaceDestroyRunId(
+  params: ResolveWorkspaceDestroyRunIdParams
+): Promise<ResolveWorkspaceDestroyRunIdResult> {
   const { token, owner, repo, workflowFile, branch, dispatchTime } = params
 
   const path = `/repos/${owner}/${repo}/actions/workflows/${workflowFile}/runs?branch=${encodeURIComponent(
@@ -53,9 +54,14 @@ export async function resolveEnvDriftRunId(
       return ta - tb
     })
 
-  const run = candidates[0]
-  if (!run) return null
+  for (const run of candidates) {
+    // Skip runs claimed by a request (those are request destroy runs)
+    const existingRequestId = await getRequestIdByRunId("destroy", run.id)
+    if (existingRequestId != null) continue
 
-  const url = run.html_url ?? `https://github.com/${owner}/${repo}/actions/runs/${run.id}`
-  return { runId: run.id, url }
+    const url = run.html_url ?? `https://github.com/${owner}/${repo}/actions/runs/${run.id}`
+    return { runId: run.id, url }
+  }
+
+  return null
 }

@@ -18,14 +18,14 @@ import {
 import { getProjectByKey } from "@/lib/db/projects"
 import { archiveWorkspace, getWorkspaceById, type Workspace } from "@/lib/db/workspaces"
 import {
-  getEnvDestroyPending,
-  putEnvDestroyRunIndex,
-  putEnvDestroyPending,
-  deleteEnvDestroyPending,
+  getWorkspaceDestroyPending,
+  putWorkspaceDestroyRunIndex,
+  putWorkspaceDestroyPending,
+  deleteWorkspaceDestroyPending,
   isPendingStaleByTTL,
-} from "@/lib/github/envDestroyRunIndex"
-import { resolveEnvDestroyRunId } from "@/lib/github/resolveEnvDestroyRunId"
-import { buildEnvDestroyInputs } from "@/lib/github/dispatchEnvDestroy"
+} from "@/lib/github/workspaceDestroyRunIndex"
+import { resolveWorkspaceDestroyRunId } from "@/lib/github/resolveWorkspaceDestroyRunId"
+import { buildWorkspaceDestroyInputs } from "@/lib/github/dispatchWorkspaceDestroy"
 import { logInfo, logWarn } from "@/lib/observability/logger"
 import { incrementEnvMetric } from "@/lib/observability/metrics"
 import { writeAuditEvent, auditWriteDeps } from "@/lib/audit/write"
@@ -121,7 +121,7 @@ export function makeWorkspaceDestroyPOST(deps: WorkspaceDestroyRouteDeps) {
     return NextResponse.json({ error: "Invalid repo_full_name" }, { status: 400 })
   }
 
-  const pending = await getEnvDestroyPending(workspaceId)
+  const pending = await getWorkspaceDestroyPending(workspaceId)
   if (pending) {
     const fetchRepo = pending.repo || wsRow.repo_full_name
     const [fetchOwner, fetchRepoName] = fetchRepo.split("/")
@@ -130,7 +130,7 @@ export function makeWorkspaceDestroyPOST(deps: WorkspaceDestroyRouteDeps) {
       try {
         const runJson = await githubRequest<{ status?: string; conclusion?: string }>({
           token,
-          key: `gh:run:env-destroy-check:${fetchOwner}:${fetchRepoName}:${pending.run_id}`,
+          key: `gh:run:workspace-destroy-check:${fetchOwner}:${fetchRepoName}:${pending.run_id}`,
           ttlMs: 0,
           bypassCache: true,
           path: `/repos/${fetchOwner}/${fetchRepoName}/actions/runs/${pending.run_id}`,
@@ -147,7 +147,7 @@ export function makeWorkspaceDestroyPOST(deps: WorkspaceDestroyRouteDeps) {
         }
         if (status === "completed" && conclusion === "success") {
           await archiveWorkspace(workspaceId)
-          await deleteEnvDestroyPending(workspaceId)
+          await deleteWorkspaceDestroyPending(workspaceId)
           logInfo("workspace.archive", { workspace_id: workspaceId, run_id: pending.run_id, source: "reconcile" })
           incrementEnvMetric("env.destroy.archive", { env_id: workspaceId, run_id: pending.run_id })
           return NextResponse.json({
@@ -156,14 +156,14 @@ export function makeWorkspaceDestroyPOST(deps: WorkspaceDestroyRouteDeps) {
             alreadyArchived: false,
           })
         }
-        await deleteEnvDestroyPending(workspaceId)
+        await deleteWorkspaceDestroyPending(workspaceId)
         logInfo("workspace.destroy.reconcile.recovered", { workspace_id: workspaceId, run_id: pending.run_id, pending_found: true })
         incrementEnvMetric("env.destroy.reconcile.recovered", { env_id: workspaceId })
       } catch (err: unknown) {
         const status = (err as { status?: number })?.status
         if (status === 404 || status === 410) {
           if (isPendingStaleByTTL(pending)) {
-            await deleteEnvDestroyPending(workspaceId)
+            await deleteWorkspaceDestroyPending(workspaceId)
             logInfo("workspace.destroy.reconcile.stale", { workspace_id: workspaceId, run_id: pending.run_id, pending_found: true })
             incrementEnvMetric("env.destroy.reconcile.stale", { env_id: workspaceId })
           } else {
@@ -173,12 +173,12 @@ export function makeWorkspaceDestroyPOST(deps: WorkspaceDestroyRouteDeps) {
             )
           }
         } else {
-          await deleteEnvDestroyPending(workspaceId)
+          await deleteWorkspaceDestroyPending(workspaceId)
         }
       }
       } else {
       if (isPendingStaleByTTL(pending)) {
-        await deleteEnvDestroyPending(workspaceId)
+        await deleteWorkspaceDestroyPending(workspaceId)
         logInfo("workspace.destroy.reconcile.stale", { workspace_id: workspaceId, run_id: pending.run_id, pending_found: true })
         incrementEnvMetric("env.destroy.reconcile.stale", { env_id: workspaceId })
       } else {
@@ -196,7 +196,7 @@ export function makeWorkspaceDestroyPOST(deps: WorkspaceDestroyRouteDeps) {
     method: "POST",
     body: JSON.stringify({
       ref: branch,
-      inputs: buildEnvDestroyInputs({
+      inputs: buildWorkspaceDestroyInputs({
         environment_key: wsRow.workspace_key,
         environment_slug: wsRow.workspace_slug,
         environment_id: workspaceId,
@@ -214,7 +214,7 @@ export function makeWorkspaceDestroyPOST(deps: WorkspaceDestroyRouteDeps) {
       await new Promise((r) => setTimeout(r, BACKOFF_MS[Math.min(attempt - 1, BACKOFF_MS.length - 1)]))
     }
     try {
-      const result = await resolveEnvDestroyRunId({
+      const result = await resolveWorkspaceDestroyRunId({
         token,
         owner: repo.owner,
         repo: repo.repo,
@@ -248,8 +248,8 @@ export function makeWorkspaceDestroyPOST(deps: WorkspaceDestroyRouteDeps) {
     )
   }
 
-  await putEnvDestroyRunIndex(runId, workspaceId)
-  await putEnvDestroyPending(workspaceId, runId, wsRow.repo_full_name)
+  await putWorkspaceDestroyRunIndex(runId, workspaceId)
+  await putWorkspaceDestroyPending(workspaceId, runId, wsRow.repo_full_name)
 
   logInfo("workspace.destroy.dispatch", {
     workspace_id: workspaceId,

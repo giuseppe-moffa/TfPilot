@@ -1,13 +1,11 @@
 /**
  * S3 index for workspace destroy runs: runId <-> workspace_id.
- * - run-<runId>.json: { runId, environment_id } — webhook correlates destroy completion to workspace
- * - pending-<workspaceId>.json: { runId, dispatchedAt } — check if workspace destroy in progress
+ * - run-<runId>.json: { runId, workspace_id } — webhook correlates destroy completion to workspace
+ * - pending-<workspaceId>.json: { run_id, repo, created_at } — check if workspace destroy in progress
  *
  * FACTS-ONLY ETHOS: These indexes are correlation caches, never authoritative. They are
  * derivable (from GitHub run status + inputs) and repairable (index miss → fetch run, derive,
  * or manual archive). Authoritative state: Postgres archived_at, GitHub run status.
- *
- * S3 key paths intentionally unchanged for backward compat with existing index objects.
  */
 
 import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3"
@@ -15,14 +13,14 @@ import { env } from "@/lib/config/env"
 
 const s3 = new S3Client({ region: env.TFPILOT_DEFAULT_REGION })
 const BUCKET = env.TFPILOT_REQUESTS_BUCKET
-const PREFIX = "webhooks/github/env-destroy/"
+const PREFIX = "webhooks/github/workspace-destroy/"
 
 function runKey(runId: number): string {
   return `${PREFIX}run-${runId}.json`
 }
 
-function pendingKey(environmentId: string): string {
-  return `${PREFIX}pending-${environmentId}.json`
+function pendingKey(workspaceId: string): string {
+  return `${PREFIX}pending-${workspaceId}.json`
 }
 
 async function streamToString(stream: unknown): Promise<string> {
@@ -39,11 +37,11 @@ async function streamToString(stream: unknown): Promise<string> {
   })
 }
 
-export async function putEnvDestroyRunIndex(
+export async function putWorkspaceDestroyRunIndex(
   runId: number,
-  environmentId: string
+  workspaceId: string
 ): Promise<void> {
-  const body = JSON.stringify({ runId, environment_id: environmentId })
+  const body = JSON.stringify({ runId, workspace_id: workspaceId })
   await s3.send(
     new PutObjectCommand({
       Bucket: BUCKET,
@@ -55,7 +53,7 @@ export async function putEnvDestroyRunIndex(
   )
 }
 
-export async function getEnvironmentIdByEnvDestroyRunId(
+export async function getWorkspaceIdByDestroyRunId(
   runId: number
 ): Promise<string | null> {
   try {
@@ -63,9 +61,9 @@ export async function getEnvironmentIdByEnvDestroyRunId(
       new GetObjectCommand({ Bucket: BUCKET, Key: runKey(runId) })
     )
     const body = await streamToString(res.Body)
-    const parsed = JSON.parse(body) as { runId?: number; environment_id?: string }
-    if (parsed?.environment_id && parsed.runId === runId) {
-      return parsed.environment_id
+    const parsed = JSON.parse(body) as { runId?: number; workspace_id?: string }
+    if (parsed?.workspace_id && parsed.runId === runId) {
+      return parsed.workspace_id
     }
     return null
   } catch {
@@ -73,7 +71,7 @@ export async function getEnvironmentIdByEnvDestroyRunId(
   }
 }
 
-export type EnvDestroyPending = {
+export type WorkspaceDestroyPending = {
   run_id: number
   repo: string
   created_at: string
@@ -81,13 +79,13 @@ export type EnvDestroyPending = {
 
 const PENDING_TTL_MS = 2 * 60 * 60 * 1000 // 2 hours
 
-export function isPendingStaleByTTL(pending: EnvDestroyPending): boolean {
+export function isPendingStaleByTTL(pending: WorkspaceDestroyPending): boolean {
   const created = Date.parse(pending.created_at)
   return !Number.isNaN(created) && Date.now() - created > PENDING_TTL_MS
 }
 
-export async function putEnvDestroyPending(
-  environmentId: string,
+export async function putWorkspaceDestroyPending(
+  workspaceId: string,
   runId: number,
   repo: string
 ): Promise<void> {
@@ -96,7 +94,7 @@ export async function putEnvDestroyPending(
   await s3.send(
     new PutObjectCommand({
       Bucket: BUCKET,
-      Key: pendingKey(environmentId),
+      Key: pendingKey(workspaceId),
       Body: body,
       ContentType: "application/json",
       ServerSideEncryption: "AES256",
@@ -104,12 +102,12 @@ export async function putEnvDestroyPending(
   )
 }
 
-export async function getEnvDestroyPending(
-  environmentId: string
-): Promise<EnvDestroyPending | null> {
+export async function getWorkspaceDestroyPending(
+  workspaceId: string
+): Promise<WorkspaceDestroyPending | null> {
   try {
     const res = await s3.send(
-      new GetObjectCommand({ Bucket: BUCKET, Key: pendingKey(environmentId) })
+      new GetObjectCommand({ Bucket: BUCKET, Key: pendingKey(workspaceId) })
     )
     const body = await streamToString(res.Body)
     const parsed = JSON.parse(body) as {
@@ -134,22 +132,14 @@ export async function getEnvDestroyPending(
   }
 }
 
-export async function deleteEnvDestroyPending(
-  environmentId: string
+export async function deleteWorkspaceDestroyPending(
+  workspaceId: string
 ): Promise<void> {
   try {
     await s3.send(
-      new DeleteObjectCommand({ Bucket: BUCKET, Key: pendingKey(environmentId) })
+      new DeleteObjectCommand({ Bucket: BUCKET, Key: pendingKey(workspaceId) })
     )
   } catch {
     // Ignore; object may not exist
   }
 }
-
-/** Workspace-named aliases */
-export const putWorkspaceDestroyRunIndex = putEnvDestroyRunIndex
-export const getWorkspaceIdByDestroyRunId = getEnvironmentIdByEnvDestroyRunId
-export const putWorkspaceDestroyPending = putEnvDestroyPending
-export const getWorkspaceDestroyPending = getEnvDestroyPending
-export const deleteWorkspaceDestroyPending = deleteEnvDestroyPending
-export type WorkspaceDestroyPending = EnvDestroyPending

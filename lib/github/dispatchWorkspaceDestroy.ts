@@ -1,10 +1,10 @@
 /**
  * Helpers for workspace destroy dispatch (destroy_scope="environment").
- * Accepts workspace_key/workspace_slug/workspace_id (with environment_* fallback).
+ * Accepts workspace_key/workspace_slug/workspace_id (with environment_* fallback for compat).
  * Workflow input keys remain environment_key/environment_slug/environment_id (external contract).
  */
 
-export function buildEnvDestroyInputs(ws: {
+export function buildWorkspaceDestroyInputs(ws: {
   workspace_key?: string
   workspace_slug?: string
   workspace_id?: string

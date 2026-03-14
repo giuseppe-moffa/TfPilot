@@ -10,7 +10,7 @@ import { getGitHubAccessToken } from "@/lib/github/auth"
 import { gh } from "@/lib/github/client"
 import { env } from "@/lib/config/env"
 import { getWorkspaceById } from "@/lib/db/workspaces"
-import { getEnvironmentIdByEnvDriftRunId } from "@/lib/github/envDriftRunIndex"
+import { getWorkspaceIdByDriftRunId } from "@/lib/github/workspaceDriftRunIndex"
 
 function parseRepoFullName(repo_full_name: string): { owner: string; repo: string } | null {
   const parts = repo_full_name.split("/")
@@ -69,7 +69,7 @@ export async function GET(
   const runs = data.workflow_runs ?? []
 
   for (const run of runs) {
-    const indexedId = await getEnvironmentIdByEnvDriftRunId(run.id)
+    const indexedId = await getWorkspaceIdByDriftRunId(run.id)
     if (indexedId === workspaceId) {
       return NextResponse.json({
         drift: {

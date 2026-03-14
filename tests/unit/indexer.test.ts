@@ -246,8 +246,8 @@ export const tests = [
     name: "projectRequestToIndexValues: optional fields null when missing",
     fn: () => {
       const req = minimalRequest({
-        environment_key: undefined,
-        environment_slug: undefined,
+        workspace_key: undefined,
+        workspace_slug: undefined,
         module: undefined,
         pr: undefined,
         mergedSha: undefined,
@@ -256,8 +256,8 @@ export const tests = [
         config: undefined,
       })
       const values = projectRequestToIndexValues(req)
-      assert(values[5] === null, "environment_key null")
-      assert(values[6] === null, "environment_slug null")
+      assert(values[5] === null, "workspace_key null")
+      assert(values[6] === null, "workspace_slug null")
       assert(values[7] === null, "module_key null")
       assert(values[8] === null, "actor null")
       assert(values[9] === null, "pr_number null")
@@ -273,7 +273,7 @@ export const tests = [
       const req = minimalRequest({
         targetOwner: "o",
         targetRepo: "r",
-        environment_key: "dev",
+        workspace_key: "dev",
         module: "m",
       })
       const v1 = projectRequestToIndexValues(req)

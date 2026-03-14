@@ -30,7 +30,7 @@ Common inputs (names may vary by repo):
 | Input | Description |
 |-------|-------------|
 | `request_id` | TfPilot request ID (required for plan, apply, destroy, cleanup). |
-| `environment_key` / `environment_slug` | v2: workspace identity (dev|prod key, slug). TfPilot passes these from workspace_key/workspace_slug when dispatching. |
+| `environment_key` / `environment_slug` | v2: workspace identity (dev/prod key, slug). TfPilot passes these from workspace_key/workspace_slug when dispatching. Input names are historical (represent workspace identity); renaming would require updating all infra repos. |
 | `ref` / branch | Branch to run on (e.g. `request/<requestId>` for plan; default branch for destroy). |
 | `dry_run` | Optional; some workflows support it. |
 

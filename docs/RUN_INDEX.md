@@ -61,38 +61,38 @@ GitHub’s `workflow_dispatch` API does **not** return the new run’s `runId`; 
 
 ## Workspace destroy index (separate, facts-only)
 
-For workspace destroy (destroy_scope="environment"), correlation is stored under `webhooks/github/env-destroy/`:
+For workspace destroy (destroy_scope="environment"), correlation is stored under `webhooks/github/workspace-destroy/`:
 - `run-<runId>.json` — runId → workspace_id (webhook fast path)
 - `pending-<workspaceId>.json` — `{ run_id, repo, created_at }`; used for reconcile before dispatch. TTL 2h when run not found.
 
-**Facts-only:** These indexes are correlation caches, never authoritative. Correlation is derivable (workflow inputs carry workspace identity; webhook uses index first, then payload on miss). See **lib/github/envDestroyRunIndex.ts** and **docs/OPERATIONS.md** (Workspace destroy).
+**Facts-only:** These indexes are correlation caches, never authoritative. Correlation is derivable (workflow inputs carry workspace identity; webhook uses index first, then payload on miss). See **lib/github/workspaceDestroyRunIndex.ts** and **docs/OPERATIONS.md** (Workspace destroy).
 
 ## Workspace drift index (separate, facts-only)
 
-For drift plan v2 (workspace-scoped drift detection), correlation is stored under `webhooks/github/env-drift/`:
+For drift plan v2 (workspace-scoped drift detection), correlation is stored under `webhooks/github/workspace-drift/`:
 - `run-<runId>.json` — `{ runId, workspace_id, createdAt }` — runId → workspace_id
-- `by-env/<workspaceId>.json` — `{ runs: [{ runId, createdAt }] }` — used for pruning
+- `by-workspace/<workspaceId>.json` — `{ runs: [{ runId, createdAt }] }` — used for pruning
 
-Used by `GET /api/workspaces/:id/drift-latest` to find the last drift run for a workspace. Written when TfPilot dispatches drift_plan and resolves the runId. See **lib/github/envDriftRunIndex.ts**.
+Used by `GET /api/workspaces/:id/drift-latest` to find the last drift run for a workspace. Written when TfPilot dispatches drift_plan and resolves the runId. See **lib/github/workspaceDriftRunIndex.ts**.
 
 ### Pruning policy (TTL 30 days)
 
 - **Automatic:** On each `putEnvDriftRunIndex`, we prune entries for that workspace older than 30 days. Pruning is **best-effort** and **fail-open** — it never blocks the main write. If pruning fails, the index write still succeeds.
 - **Scope:** Per-workspace. Entries for a workspace older than 30 days are deleted when a new drift run for that workspace is indexed.
-- **Retention:** 30 days. See `ENV_DRIFT_PRUNING_TTL_DAYS` in `lib/github/envDriftRunIndex.ts`.
+- **Retention:** 30 days. See `WORKSPACE_DRIFT_PRUNING_TTL_DAYS` in `lib/github/workspaceDriftRunIndex.ts`.
 
 ### Manual cleanup (optional)
 
 If the index grows unexpectedly (e.g. pruning was disabled or failed repeatedly), you can manually clean up:
 
-1. **List objects** under `webhooks/github/env-drift/`:
+1. **List objects** under `webhooks/github/workspace-drift/`:
    ```bash
-   aws s3 ls s3://TFPILOT_REQUESTS_BUCKET/webhooks/github/env-drift/ --recursive
+   aws s3 ls s3://TFPILOT_REQUESTS_BUCKET/webhooks/github/workspace-drift/ --recursive
    ```
 
 2. **Delete objects** older than 30 days. The `run-<runId>.json` files contain `createdAt` (ISO string). You can write a script to:
    - List all `run-*.json` under the prefix
    - For each, fetch and parse; if `createdAt` < now - 30 days, delete
-   - Optionally delete `by-env/*.json` and let the next drift write recreate it (or delete only stale entries)
+   - Optionally delete `by-workspace/*.json` and let the next drift write recreate it (or delete only stale entries)
 
-3. **Bulk expire** via S3 lifecycle (optional): Add a lifecycle rule on `webhooks/github/env-drift/` to expire objects after 35 days (slightly longer than app TTL for safety). This is additive to in-app pruning.
+3. **Bulk expire** via S3 lifecycle (optional): Add a lifecycle rule on `webhooks/github/workspace-drift/` to expire objects after 35 days (slightly longer than app TTL for safety). This is additive to in-app pruning.

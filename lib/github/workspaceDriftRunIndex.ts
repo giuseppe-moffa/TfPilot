@@ -5,7 +5,6 @@
  *
  * Pruning: TTL 30 days. On each write, best-effort prune older entries for that workspace.
  * Fail-open: pruning never blocks the main write.
- * S3 key paths intentionally unchanged for backward compat with existing index objects.
  */
 
 import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3"
@@ -13,15 +12,15 @@ import { env } from "@/lib/config/env"
 
 const s3 = new S3Client({ region: env.TFPILOT_DEFAULT_REGION })
 const BUCKET = env.TFPILOT_REQUESTS_BUCKET
-const PREFIX = "webhooks/github/env-drift/"
+const PREFIX = "webhooks/github/workspace-drift/"
 const PRUNING_TTL_DAYS = 30
 
 function runKey(runId: number): string {
   return `${PREFIX}run-${runId}.json`
 }
 
-function byEnvKey(environmentId: string): string {
-  return `${PREFIX}by-env/${environmentId}.json`
+function byWorkspaceKey(workspaceId: string): string {
+  return `${PREFIX}by-workspace/${workspaceId}.json`
 }
 
 async function streamToString(stream: unknown): Promise<string> {
@@ -38,15 +37,15 @@ async function streamToString(stream: unknown): Promise<string> {
   })
 }
 
-type ByEnvEntry = { runId: number; createdAt: string }
+type ByWorkspaceEntry = { runId: number; createdAt: string }
 
-export async function putEnvDriftRunIndex(
+export async function putWorkspaceDriftRunIndex(
   runId: number,
-  environmentId: string
+  workspaceId: string
 ): Promise<void> {
   const now = new Date()
   const createdAt = now.toISOString()
-  const body = JSON.stringify({ runId, environment_id: environmentId, createdAt })
+  const body = JSON.stringify({ runId, workspace_id: workspaceId, createdAt })
   await s3.send(
     new PutObjectCommand({
       Bucket: BUCKET,
@@ -57,15 +56,15 @@ export async function putEnvDriftRunIndex(
     })
   )
 
-  // Update by-env index and prune old entries (best-effort)
+  // Update by-workspace index and prune old entries (best-effort)
   try {
-    let runs: ByEnvEntry[] = []
+    let runs: ByWorkspaceEntry[] = []
     try {
       const res = await s3.send(
-        new GetObjectCommand({ Bucket: BUCKET, Key: byEnvKey(environmentId) })
+        new GetObjectCommand({ Bucket: BUCKET, Key: byWorkspaceKey(workspaceId) })
       )
       const b = await streamToString(res.Body)
-      const parsed = JSON.parse(b) as { runs?: ByEnvEntry[] }
+      const parsed = JSON.parse(b) as { runs?: ByWorkspaceEntry[] }
       runs = Array.isArray(parsed?.runs) ? parsed.runs : []
     } catch {
       runs = []
@@ -88,7 +87,7 @@ export async function putEnvDriftRunIndex(
     await s3.send(
       new PutObjectCommand({
         Bucket: BUCKET,
-        Key: byEnvKey(environmentId),
+        Key: byWorkspaceKey(workspaceId),
         Body: JSON.stringify({ runs: keep }),
         ContentType: "application/json",
         ServerSideEncryption: "AES256",
@@ -99,7 +98,7 @@ export async function putEnvDriftRunIndex(
   }
 }
 
-export async function getEnvironmentIdByEnvDriftRunId(
+export async function getWorkspaceIdByDriftRunId(
   runId: number
 ): Promise<string | null> {
   try {
@@ -107,9 +106,9 @@ export async function getEnvironmentIdByEnvDriftRunId(
       new GetObjectCommand({ Bucket: BUCKET, Key: runKey(runId) })
     )
     const body = await streamToString(res.Body)
-    const parsed = JSON.parse(body) as { runId?: number; environment_id?: string }
-    if (parsed?.environment_id && parsed.runId === runId) {
-      return parsed.environment_id
+    const parsed = JSON.parse(body) as { runId?: number; workspace_id?: string }
+    if (parsed?.workspace_id && parsed.runId === runId) {
+      return parsed.workspace_id
     }
     return null
   } catch {
@@ -118,9 +117,4 @@ export async function getEnvironmentIdByEnvDriftRunId(
 }
 
 /** TTL in days for drift index pruning. Export for docs/tests. */
-export const ENV_DRIFT_PRUNING_TTL_DAYS = PRUNING_TTL_DAYS
-
-/** Workspace-named aliases */
-export const putWorkspaceDriftRunIndex = putEnvDriftRunIndex
-export const getWorkspaceIdByDriftRunId = getEnvironmentIdByEnvDriftRunId
 export const WORKSPACE_DRIFT_PRUNING_TTL_DAYS = PRUNING_TTL_DAYS

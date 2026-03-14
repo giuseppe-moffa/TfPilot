@@ -10,7 +10,7 @@ function assert(condition: boolean, message: string): void {
 }
 
 import { buildDriftPlanInputs, expectedDriftPlanJsonPath } from "@/lib/github/dispatchDriftPlan"
-import { ENV_DRIFT_PRUNING_TTL_DAYS } from "@/lib/github/envDriftRunIndex"
+import { WORKSPACE_DRIFT_PRUNING_TTL_DAYS } from "@/lib/github/workspaceDriftRunIndex"
 
 export const tests = [
   {
@@ -62,9 +62,9 @@ export const tests = [
     },
   },
   {
-    name: "ENV_DRIFT_PRUNING_TTL_DAYS: pruning TTL is 30 days",
+    name: "WORKSPACE_DRIFT_PRUNING_TTL_DAYS: pruning TTL is 30 days",
     fn: () => {
-      assert(ENV_DRIFT_PRUNING_TTL_DAYS === 30, "pruning TTL 30 days")
+      assert(WORKSPACE_DRIFT_PRUNING_TTL_DAYS === 30, "pruning TTL 30 days")
     },
   },
 ]

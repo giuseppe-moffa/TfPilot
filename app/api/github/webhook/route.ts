@@ -21,9 +21,9 @@ import { maybeEmitCompletionEvent } from "@/lib/logs/lifecycle"
 import type { RunsState } from "@/lib/requests/runsModel"
 import { getRequestIdByDestroyRunId, updateRequest } from "@/lib/storage/requestsStore"
 import {
-  getEnvironmentIdByEnvDestroyRunId,
-  deleteEnvDestroyPending,
-} from "@/lib/github/envDestroyRunIndex"
+  getWorkspaceIdByDestroyRunId,
+  deleteWorkspaceDestroyPending,
+} from "@/lib/github/workspaceDestroyRunIndex"
 import { archiveWorkspace } from "@/lib/db/workspaces"
 import { logInfo } from "@/lib/observability/logger"
 import { incrementEnvMetric } from "@/lib/observability/metrics"
@@ -184,18 +184,18 @@ export function makeWebhookPOST(deps: WebhookRouteDeps) {
       // Environment destroy (destroy_scope=environment): no request. Correlate via index or inputs.
       if (kind === "destroy" && wr?.status === "completed" && wr?.id != null) {
         const envId =
-          (await getEnvironmentIdByEnvDestroyRunId(wr.id)) ??
+          (await getWorkspaceIdByDestroyRunId(wr.id)) ??
           (wr as { inputs?: { environment_id?: string } }).inputs?.environment_id
         if (envId) {
           if (wr.conclusion === "success") {
             const archived = await archiveWorkspace(envId)
             if (archived) {
-              await deleteEnvDestroyPending(envId).catch(() => {})
+              await deleteWorkspaceDestroyPending(envId).catch(() => {})
               logInfo("env.archive", { env_id: envId, run_id: wr.id, source: "webhook" })
               incrementEnvMetric("env.destroy.archive", { env_id: envId, run_id: wr.id })
             }
           } else {
-            await deleteEnvDestroyPending(envId).catch(() => {})
+            await deleteWorkspaceDestroyPending(envId).catch(() => {})
           }
         }
       }

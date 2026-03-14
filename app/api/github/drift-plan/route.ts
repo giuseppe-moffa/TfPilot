@@ -10,8 +10,8 @@ import { gh } from "@/lib/github/client"
 import { env } from "@/lib/config/env"
 import { getWorkspaceById } from "@/lib/db/workspaces"
 import { buildDriftPlanInputs } from "@/lib/github/dispatchDriftPlan"
-import { putEnvDriftRunIndex } from "@/lib/github/envDriftRunIndex"
-import { resolveEnvDriftRunId } from "@/lib/github/resolveEnvDriftRunId"
+import { putWorkspaceDriftRunIndex } from "@/lib/github/workspaceDriftRunIndex"
+import { resolveWorkspaceDriftRunId } from "@/lib/github/resolveWorkspaceDriftRunId"
 import { logInfo, logWarn } from "@/lib/observability/logger"
 
 const RESOLVE_ATTEMPTS = 12
@@ -77,7 +77,7 @@ export async function POST(req: NextRequest) {
       await new Promise((r) => setTimeout(r, BACKOFF_MS[Math.min(attempt - 1, BACKOFF_MS.length - 1)]))
     }
     try {
-      const result = await resolveEnvDriftRunId({
+      const result = await resolveWorkspaceDriftRunId({
         token,
         owner: repo.owner,
         repo: repo.repo,
@@ -92,7 +92,7 @@ export async function POST(req: NextRequest) {
       }
     } catch (err) {
       if (attempt === RESOLVE_ATTEMPTS - 1) {
-        logWarn("env_drift.resolve_failed", {
+        logWarn("workspace_drift.resolve_failed", {
           workspaceId,
           attempt: attempt + 1,
           err: String(err),
@@ -102,7 +102,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (runId != null) {
-    await putEnvDriftRunIndex(runId, workspaceId).catch(() => {})
+    await putWorkspaceDriftRunIndex(runId, workspaceId).catch(() => {})
     logInfo("workspace.drift.dispatch", {
       workspace_id: workspaceId,
       run_id: runId,

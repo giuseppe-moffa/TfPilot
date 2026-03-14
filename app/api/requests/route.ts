@@ -368,13 +368,13 @@ function buildModuleConfig(entry: ModuleRegistryEntry, rawConfig: Record<string,
 
 async function generateModel2TerraformFiles(
   token: string,
-  environment_key: string,
-  environment_slug: string,
+  workspaceKey: string,
+  workspaceSlug: string,
   request: StoredRequest,
   owner: string,
   repo: string
 ) {
-  const { path, content } = generateModel2RequestFile(environment_key, environment_slug, {
+  const { path, content } = generateModel2RequestFile(workspaceKey, workspaceSlug, {
     id: request.id,
     module: request.module,
     config: request.config,

@@ -1,14 +1,13 @@
 /**
- * Resolve env destroy workflow runId after workflow_dispatch.
- * Skips runs already claimed by a request (request destroy) via run index.
+ * Resolve drift-plan v2 workflow runId after workflow_dispatch.
+ * Lists runs and returns the earliest run created after dispatch.
  */
 
 import { gh } from "@/lib/github/client"
-import { getRequestIdByRunId } from "@/lib/requests/runIndex"
 
 const CREATED_AT_TOLERANCE_MS = 5_000
 
-export type ResolveEnvDestroyRunIdParams = {
+export type ResolveWorkspaceDriftRunIdParams = {
   token: string
   owner: string
   repo: string
@@ -17,7 +16,7 @@ export type ResolveEnvDestroyRunIdParams = {
   dispatchTime: Date
 }
 
-export type ResolveEnvDestroyRunIdResult = { runId: number; url: string } | null
+export type ResolveWorkspaceDriftRunIdResult = { runId: number; url: string } | null
 
 type WorkflowRunRow = {
   id: number
@@ -26,9 +25,9 @@ type WorkflowRunRow = {
   html_url?: string
 }
 
-export async function resolveEnvDestroyRunId(
-  params: ResolveEnvDestroyRunIdParams
-): Promise<ResolveEnvDestroyRunIdResult> {
+export async function resolveWorkspaceDriftRunId(
+  params: ResolveWorkspaceDriftRunIdParams
+): Promise<ResolveWorkspaceDriftRunIdResult> {
   const { token, owner, repo, workflowFile, branch, dispatchTime } = params
 
   const path = `/repos/${owner}/${repo}/actions/workflows/${workflowFile}/runs?branch=${encodeURIComponent(
@@ -54,14 +53,9 @@ export async function resolveEnvDestroyRunId(
       return ta - tb
     })
 
-  for (const run of candidates) {
-    // Skip runs claimed by a request (those are request destroy runs)
-    const existingRequestId = await getRequestIdByRunId("destroy", run.id)
-    if (existingRequestId != null) continue
+  const run = candidates[0]
+  if (!run) return null
 
-    const url = run.html_url ?? `https://github.com/${owner}/${repo}/actions/runs/${run.id}`
-    return { runId: run.id, url }
-  }
-
-  return null
+  const url = run.html_url ?? `https://github.com/${owner}/${repo}/actions/runs/${run.id}`
+  return { runId: run.id, url }
 }

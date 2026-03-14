@@ -45,7 +45,7 @@
 | **lib/db/requestsList.ts** | `listRequestIndexRowsByEnvironment` is a deprecated alias for `listRequestIndexRowsByWorkspace`. No remaining TS callers; only test comment and docs. | **Remove now:** Delete alias; update doc references to `listRequestIndexRowsByWorkspace`. |
 | **lib/db/indexer.ts** | `RequestDocForIndex` has deprecated `environment_key`, `environment_slug`, `environment_id`; projection uses `workspace_key` / `workspace_slug` with fallback from env names. | **Keep for now:** Request S3 docs and workflow payloads may still contain env names; remove deprecated fields once all writers use workspace_* only. |
 | **app/api/environments/** | GET/POST list/create, GET by id, POST deploy, POST destroy. All delegate to workspace DB and (for deploy) envSkeleton → workspaceSkeleton. | **Deprecate then remove:** Return 410 with clear message and point to `/api/workspaces` and project-scoped workspace URLs; after clients migrate, delete. |
-| **lib/github/envDestroyRunIndex.ts**, **lib/github/envDriftRunIndex.ts** | S3 run-index keys and types still named “env”. Behavior is workspace-scoped. | **Later:** Rename to workspace (e.g. `workspaceDestroyRunIndex`) when doing a broader naming pass. |
+| **lib/github/workspaceDestroyRunIndex.ts**, **lib/github/workspaceDriftRunIndex.ts** | S3 run-index keys and types still named “env”. Behavior is workspace-scoped. | **Later:** Rename to workspace (e.g. `workspaceDestroyRunIndex`) when doing a broader naming pass. |
 
 ---
 

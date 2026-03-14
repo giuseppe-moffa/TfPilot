@@ -10,8 +10,8 @@ function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(`Assertion failed: ${message}`)
 }
 
-import { buildEnvDestroyInputs } from "@/lib/github/dispatchEnvDestroy"
-import { isPendingStaleByTTL, type EnvDestroyPending } from "@/lib/github/envDestroyRunIndex"
+import { buildWorkspaceDestroyInputs } from "@/lib/github/dispatchWorkspaceDestroy"
+import { isPendingStaleByTTL, type WorkspaceDestroyPending } from "@/lib/github/workspaceDestroyRunIndex"
 
 function parseRepoFullName(repo_full_name: string): { owner: string; repo: string } | null {
   const parts = repo_full_name.split("/")
@@ -21,9 +21,9 @@ function parseRepoFullName(repo_full_name: string): { owner: string; repo: strin
 
 export const tests = [
   {
-    name: "buildEnvDestroyInputs: correct payload shape",
+    name: "buildWorkspaceDestroyInputs: correct payload shape",
     fn: () => {
-      const inputs = buildEnvDestroyInputs({
+      const inputs = buildWorkspaceDestroyInputs({
         environment_key: "dev",
         environment_slug: "ai-agent",
       })
@@ -34,9 +34,9 @@ export const tests = [
     },
   },
   {
-    name: "buildEnvDestroyInputs: includes environment_id when provided",
+    name: "buildWorkspaceDestroyInputs: includes environment_id when provided",
     fn: () => {
-      const inputs = buildEnvDestroyInputs({
+      const inputs = buildWorkspaceDestroyInputs({
         environment_key: "dev",
         environment_slug: "test",
         environment_id: "env_abc123",
@@ -47,7 +47,7 @@ export const tests = [
   {
     name: "Model 2 invariant: dispatch payload must not include 'environment' key",
     fn: () => {
-      const inputs = buildEnvDestroyInputs({
+      const inputs = buildWorkspaceDestroyInputs({
         environment_key: "dev",
         environment_slug: "x",
         environment_id: "env_1",
@@ -93,7 +93,7 @@ export const tests = [
   {
     name: "isPendingStaleByTTL: 3h ago is stale",
     fn: () => {
-      const pending: EnvDestroyPending = {
+      const pending: WorkspaceDestroyPending = {
         run_id: 123,
         repo: "owner/repo",
         created_at: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
@@ -104,7 +104,7 @@ export const tests = [
   {
     name: "isPendingStaleByTTL: 1h ago is not stale",
     fn: () => {
-      const pending: EnvDestroyPending = {
+      const pending: WorkspaceDestroyPending = {
         run_id: 123,
         repo: "owner/repo",
         created_at: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
@@ -113,9 +113,9 @@ export const tests = [
     },
   },
   {
-    name: "EnvDestroyPending shape: run_id, repo, created_at",
+    name: "WorkspaceDestroyPending shape: run_id, repo, created_at",
     fn: () => {
-      const pending: EnvDestroyPending = { run_id: 1, repo: "a/b", created_at: "2025-01-01T00:00:00Z" }
+      const pending: WorkspaceDestroyPending = { run_id: 1, repo: "a/b", created_at: "2025-01-01T00:00:00Z" }
       assert(pending.run_id === 1 && pending.repo === "a/b" && pending.created_at === "2025-01-01T00:00:00Z", "shape")
     },
   },

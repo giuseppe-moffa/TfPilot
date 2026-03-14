@@ -76,7 +76,7 @@ Environments are first-class entities. Each has a bootstrap PR that creates `env
 4. Monitor the workflow. On success, the webhook automatically sets `archived_at`.
 5. The repo folder `envs/<key>/<slug>/` may remain as an empty shell; Terraform state is destroyed. No direct git folder deletion.
 
-**Facts-only ethos:** S3 indexes (`webhooks/github/env-destroy/`) are correlation caches, never authoritative. Correlation is derivable from the workflow dispatch (workflow inputs carry workspace identity; webhook uses index first, then payload on miss). Authoritative state: Postgres `archived_at`, GitHub run status. Indexes are repairable — if lost, webhook can still archive when payload includes inputs.
+**Facts-only ethos:** S3 indexes (`webhooks/github/workspace-destroy/`) are correlation caches, never authoritative. Correlation is derivable from the workflow dispatch (workflow inputs carry workspace identity; webhook uses index first, then payload on miss). Authoritative state: Postgres `archived_at`, GitHub run status. Indexes are repairable — if lost, webhook can still archive when payload includes inputs.
 
 **Failure modes:**
 - **Run ID not resolved** — Dispatch succeeded but listing didn't find the run within ~24s. Check GitHub Actions manually; archive will still occur when webhook fires on completion.

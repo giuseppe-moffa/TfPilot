@@ -198,8 +198,8 @@ export const tests = [
             method: "POST",
             body: JSON.stringify({
               project_key: "core",
-              environment_key: "dev",
-              environment_slug: "test",
+              workspace_key: "dev",
+              workspace_slug: "test",
               module: "s3-bucket",
               config: { name: "x" },
             }),
