@@ -88,8 +88,8 @@ export async function GET(req: NextRequest) {
     // Filter for eligible dev requests (use derived status for consistency)
     const eligible = allRequests.filter((request: any) => {
       const status = deriveLifecycleStatus(request)
-      // Must be dev environment
-      if (request.environment_key?.toLowerCase() !== "dev") {
+      // Must be dev workspace
+      if (request.workspace_key?.toLowerCase() !== "dev") {
         return false
       }
 
@@ -125,12 +125,11 @@ export async function GET(req: NextRequest) {
     })
 
     // Return minimal metadata for workflow dispatch
-    // Only expose what's necessary - request ID, project, and environment
-    // targetOwner/targetRepo are only needed for workflow dispatch, but we can minimize exposure
+    // Only expose what's necessary - request ID, project, and workspace
     const result = eligible.map((request: any) => ({
       id: request.id,
       project: request.project_key,
-      environment: request.environment_key,
+      workspace_key: request.workspace_key,
       // Only include targetOwner/targetRepo if they exist (needed for workflow dispatch)
       ...(request.targetOwner && { targetOwner: request.targetOwner }),
       ...(request.targetRepo && { targetRepo: request.targetRepo }),

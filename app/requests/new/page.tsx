@@ -16,7 +16,6 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
-const DEFAULT_ENVIRONMENT_KEYS = ["dev", "prod"]
 import { getRequestTemplate, type RequestTemplate } from "@/config/request-templates"
 import { normalizeName, validateBaseResourceName, validateResourceName } from "@/lib/validation/resourceName"
 import { getNewRequestGate } from "@/lib/new-request-gate"
@@ -114,11 +113,11 @@ function NewRequestPageContent() {
   const searchParams = useSearchParams()
   const [project, setProject] = React.useState("")
   const [environment, setEnvironment] = React.useState("")
-  const [selectedEnvironmentId, setSelectedEnvironmentId] = React.useState("")
-  const [apiEnvironments, setApiEnvironments] = React.useState<
-    Array<{ environment_id: string; project_key: string; environment_key: string; environment_slug: string }>
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = React.useState("")
+  const [workspaces, setWorkspaces] = React.useState<
+    Array<{ workspace_id: string; project_key: string; workspace_key: string; workspace_slug: string }>
   >([])
-  const [loadingEnvironments, setLoadingEnvironments] = React.useState(false)
+  const [loadingWorkspaces, setLoadingWorkspaces] = React.useState(false)
   const [moduleName, setModuleName] = React.useState("")
   const [modules, setModules] = React.useState<ModuleSchema[]>([])
   const [loadingModules, setLoadingModules] = React.useState(false)
@@ -137,7 +136,7 @@ function NewRequestPageContent() {
   const [activeField, setActiveField] = React.useState<string | null>(null)
   const [selectedTemplateId, setSelectedTemplateId] = React.useState<string | null>(null)
   const hasAppliedTemplateFromQuery = React.useRef(false)
-  const [pendingEnvIdFromQuery, setPendingEnvIdFromQuery] = React.useState<string | null>(null)
+  const [pendingWorkspaceIdFromQuery, setPendingWorkspaceIdFromQuery] = React.useState<string | null>(null)
 
   const [templateSearchQuery, setTemplateSearchQuery] = React.useState("")
   const [envStep, setEnvStep] = React.useState<1 | 2 | 3>(1)
@@ -204,51 +203,51 @@ function NewRequestPageContent() {
 
   React.useEffect(() => {
     if (!project) {
-      setApiEnvironments([])
-      setSelectedEnvironmentId("")
+      setWorkspaces([])
+      setSelectedWorkspaceId("")
       return
     }
     let cancelled = false
-    setLoadingEnvironments(true)
-    fetch(`/api/environments?project_key=${encodeURIComponent(project)}`)
-      .then((res) => (res.ok ? res.json() : { environments: [] }))
-      .then((data: { environments?: Array<{ environment_id: string; project_key: string; environment_key: string; environment_slug: string }> }) => {
+    setLoadingWorkspaces(true)
+    fetch(`/api/workspaces?project_key=${encodeURIComponent(project)}`)
+      .then((res) => (res.ok ? res.json() : { workspaces: [] }))
+      .then((data: { workspaces?: Array<{ workspace_id: string; project_key: string; workspace_key: string; workspace_slug: string }> }) => {
         if (cancelled) return
-        const list = data?.environments ?? []
-        setApiEnvironments(list)
-        if (list.length === 1) setSelectedEnvironmentId(list[0].environment_id)
-        else setSelectedEnvironmentId("")
+        const list = data?.workspaces ?? []
+        setWorkspaces(list)
+        if (list.length === 1) setSelectedWorkspaceId(list[0].workspace_id)
+        else setSelectedWorkspaceId("")
       })
-      .catch(() => { if (!cancelled) setApiEnvironments([]) })
-      .finally(() => { if (!cancelled) setLoadingEnvironments(false) })
+      .catch(() => { if (!cancelled) setWorkspaces([]) })
+      .finally(() => { if (!cancelled) setLoadingWorkspaces(false) })
     return () => { cancelled = true }
   }, [project])
 
   React.useEffect(() => {
-    if (selectedEnvironmentId && apiEnvironments.length > 0) {
-      const env = apiEnvironments.find((e) => e.environment_id === selectedEnvironmentId)
-      if (env) setEnvironment(env.environment_key)
-    } else if (!selectedEnvironmentId) {
+    if (selectedWorkspaceId && workspaces.length > 0) {
+      const ws = workspaces.find((w) => w.workspace_id === selectedWorkspaceId)
+      if (ws) setEnvironment(ws.workspace_key)
+    } else if (!selectedWorkspaceId) {
       setEnvironment("")
     }
-  }, [selectedEnvironmentId, apiEnvironments])
+  }, [selectedWorkspaceId, workspaces])
 
-  // Fetch deploy status when environment is selected (for gating Create Request)
+  // Fetch deploy status when workspace is selected (for gating Create Request)
   React.useEffect(() => {
-    if (!selectedEnvironmentId) {
+    if (!selectedWorkspaceId) {
       setDeployStatus(null)
       return
     }
     let cancelled = false
-    fetch(`/api/environments/${selectedEnvironmentId}`)
+    fetch(`/api/workspaces/${selectedWorkspaceId}`)
       .then((res) => (res.ok ? res.json() : {}))
       .then((data: { deployed?: boolean; deployPrOpen?: boolean | null; error?: string }) => {
         if (cancelled) return
         setDeployStatus({ deployed: data.deployed, deployPrOpen: data.deployPrOpen, error: data.error })
       })
-      .catch(() => { if (!cancelled) setDeployStatus({ error: "ENV_DEPLOY_CHECK_FAILED" }) })
+      .catch(() => { if (!cancelled) setDeployStatus({ error: "WORKSPACE_DEPLOY_CHECK_FAILED" }) })
     return () => { cancelled = true }
-  }, [selectedEnvironmentId])
+  }, [selectedWorkspaceId])
 
   React.useEffect(() => {
     if (envProjectOptions.length === 0) return
@@ -265,38 +264,38 @@ function NewRequestPageContent() {
     if (typeof window !== "undefined") localStorage.setItem("tfpilot-last-env-project", project)
   }, [])
 
-  // When opening with ?environmentId=, pre-select project and environment (e.g. from env detail "New Request")
-  const hasAppliedEnvIdFromQuery = React.useRef(false)
+  // When opening with ?workspaceId=, pre-select project and workspace (e.g. from workspace detail "New Request")
+  const hasAppliedWorkspaceIdFromQuery = React.useRef(false)
   React.useEffect(() => {
-    const envId = searchParams.get("environmentId")
-    if (!envId || hasAppliedEnvIdFromQuery.current) return
-    hasAppliedEnvIdFromQuery.current = true
+    const workspaceId = searchParams.get("workspaceId")
+    if (!workspaceId || hasAppliedWorkspaceIdFromQuery.current) return
+    hasAppliedWorkspaceIdFromQuery.current = true
     let cancelled = false
-    fetch(`/api/environments/${envId}`)
+    fetch(`/api/workspaces/${workspaceId}`)
       .then((res) => (res.ok ? res.json() : null))
-      .then((data: { environment?: { project_key: string; environment_id: string } } | null) => {
-        if (cancelled || !data?.environment) return
-        const env = data.environment
-        setProject(env.project_key)
-        setPendingEnvIdFromQuery(env.environment_id)
+      .then((data: { workspace?: { project_key: string; workspace_id: string } } | null) => {
+        if (cancelled || !data?.workspace) return
+        const ws = data.workspace
+        setProject(ws.project_key)
+        setPendingWorkspaceIdFromQuery(ws.workspace_id)
         setEnvStep(2)
       })
-      .catch(() => { hasAppliedEnvIdFromQuery.current = false })
+      .catch(() => { hasAppliedWorkspaceIdFromQuery.current = false })
     return () => { cancelled = true }
   }, [searchParams])
 
-  // Apply pending env selection once apiEnvironments is loaded for the project
+  // Apply pending workspace selection once workspaces are loaded for the project
   React.useEffect(() => {
-    if (!pendingEnvIdFromQuery || apiEnvironments.length === 0 || loadingEnvironments) return
-    const found = apiEnvironments.some((e) => e.environment_id === pendingEnvIdFromQuery)
+    if (!pendingWorkspaceIdFromQuery || workspaces.length === 0 || loadingWorkspaces) return
+    const found = workspaces.some((w) => w.workspace_id === pendingWorkspaceIdFromQuery)
     if (!found) return
-    setSelectedEnvironmentId(pendingEnvIdFromQuery)
-    setPendingEnvIdFromQuery(null)
+    setSelectedWorkspaceId(pendingWorkspaceIdFromQuery)
+    setPendingWorkspaceIdFromQuery(null)
     const next = new URLSearchParams(searchParams)
-    next.delete("environmentId")
+    next.delete("workspaceId")
     const qs = next.toString()
     router.replace(qs ? `/requests/new?${qs}` : "/requests/new", { scroll: false })
-  }, [pendingEnvIdFromQuery, apiEnvironments, loadingEnvironments, router, searchParams])
+  }, [pendingWorkspaceIdFromQuery, workspaces, loadingWorkspaces, router, searchParams])
 
   // When opening from catalogue "Create request" with ?templateId=, jump to step 2 with template selected
   React.useEffect(() => {
@@ -313,7 +312,7 @@ function NewRequestPageContent() {
     setModuleName(t.moduleKey ?? "")
     const showProjectSelector = t.allowCustomProjectEnv === true || !templateProject
     if (showProjectSelector) {
-      setEnvironment(DEFAULT_ENVIRONMENT_KEYS[0] ?? "")
+      setEnvironment("")
       setFormValues({})
     } else {
       setEnvironment(t.environment)
@@ -323,10 +322,10 @@ function NewRequestPageContent() {
   }, [searchParams, loadingTemplates, requestTemplates, envSelectedProject, setEnvSelectedProjectAndPersist, router])
 
   const newRequestGate = React.useMemo(() => {
-    if (!selectedEnvironmentId) return { allowed: false, message: "Select an environment" }
+    if (!selectedWorkspaceId) return { allowed: false, message: "Select a workspace" }
     if (deployStatus === null) return { allowed: false, message: "Checking deploy status…" }
     return getNewRequestGate(deployStatus)
-  }, [selectedEnvironmentId, deployStatus])
+  }, [selectedWorkspaceId, deployStatus])
 
   const filteredEnvTemplates = React.useMemo(() => {
     const q = templateSearchQuery.trim().toLowerCase()
@@ -546,8 +545,8 @@ function NewRequestPageContent() {
       setError("Module is required.")
       return
     }
-    if (!selectedEnvironmentId) {
-      setError("Select an Environment (create one at /environments if none exist).")
+    if (!selectedWorkspaceId) {
+      setError("Select a workspace (create one at /catalogue/workspaces if none exist).")
       return
     }
     
@@ -568,7 +567,7 @@ function NewRequestPageContent() {
     createDialogTimerRef.current = window.setTimeout(() => setShowCreateDialog(true), 400)
     try {
       const payload: Record<string, unknown> = {
-        environment_id: selectedEnvironmentId,
+        workspace_id: selectedWorkspaceId,
         module: moduleName,
         config: cfg,
       }
@@ -821,7 +820,7 @@ function NewRequestPageContent() {
                           setModuleName(t.moduleKey ?? "")
                           const showProjectSelector = t.allowCustomProjectEnv === true || !templateProject
                           if (showProjectSelector) {
-                            setEnvironment(DEFAULT_ENVIRONMENT_KEYS[0] ?? "")
+                            setEnvironment("")
                             setFormValues({})
                           } else {
                             setEnvironment(t.environment)
@@ -857,7 +856,7 @@ function NewRequestPageContent() {
             </>
             ) : envStep === 2 ? (
             <>
-                <div className="text-base font-semibold">Environment details</div>
+                <div className="text-base font-semibold">Workspace details</div>
                 {(() => {
                   const t = selectedTemplateId ? getRequestTemplate(requestTemplates, selectedTemplateId) : null
                   if (!t) {
@@ -911,8 +910,8 @@ function NewRequestPageContent() {
                                 value={project}
                                 onValueChange={(v) => {
                                   setProject(v)
-                                  setEnvironment(DEFAULT_ENVIRONMENT_KEYS[0] ?? "")
-                                  setSelectedEnvironmentId("")
+                                  setEnvironment("")
+                                  setSelectedWorkspaceId("")
                                 }}
                               >
                                 <SelectTrigger className="w-full">
@@ -928,38 +927,38 @@ function NewRequestPageContent() {
                               </Select>
                             </div>
                             <div className="space-y-2">
-                              <Label className="text-sm font-medium">Environment *</Label>
+                              <Label className="text-sm font-medium">Workspace *</Label>
                               <Select
-                                value={selectedEnvironmentId}
-                                onValueChange={setSelectedEnvironmentId}
-                                disabled={!project || loadingEnvironments}
+                                value={selectedWorkspaceId}
+                                onValueChange={setSelectedWorkspaceId}
+                                disabled={!project || loadingWorkspaces}
                               >
                                 <SelectTrigger className="w-full">
                                   <SelectValue
                                     placeholder={
                                       !project
                                         ? "Select project first"
-                                        : loadingEnvironments
+                                        : loadingWorkspaces
                                           ? "Loading..."
-                                          : apiEnvironments.length === 0
-                                            ? "No environments — create one at /environments"
-                                            : "Select environment"
+                                          : workspaces.length === 0
+                                            ? "No workspaces — create one at /catalogue/workspaces"
+                                            : "Select a workspace"
                                     }
                                   />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  {apiEnvironments.map((env) => (
-                                    <SelectItem key={env.environment_id} value={env.environment_id}>
-                                      {env.environment_key} / {env.environment_slug}
+                                  {workspaces.map((ws) => (
+                                    <SelectItem key={ws.workspace_id} value={ws.workspace_id}>
+                                      {ws.workspace_key} / {ws.workspace_slug}
                                     </SelectItem>
                                   ))}
                                 </SelectContent>
                               </Select>
-                              {project && apiEnvironments.length === 0 && !loadingEnvironments ? (
+                              {project && workspaces.length === 0 && !loadingWorkspaces ? (
                                 <p className="text-xs text-muted-foreground">
-                                  <Link href="/environments" className="underline">Create an environment</Link> first.
+                                  <Link href="/catalogue/workspaces" className="underline">Create a workspace</Link> first.
                                 </p>
-                              ) : selectedEnvironmentId && !newRequestGate.allowed && newRequestGate.message ? (
+                              ) : selectedWorkspaceId && !newRequestGate.allowed && newRequestGate.message ? (
                                 <p className="text-xs text-amber-600 dark:text-amber-500" role="alert">
                                   {newRequestGate.message}
                                 </p>
@@ -1012,7 +1011,7 @@ function NewRequestPageContent() {
                                 onValueChange={(v) => {
                                   setProject(v)
                                   setEnvSelectedProjectAndPersist(v)
-                                  setSelectedEnvironmentId("")
+                                  setSelectedWorkspaceId("")
                                 }}
                               >
                                 <SelectTrigger className="w-full">
@@ -1028,40 +1027,40 @@ function NewRequestPageContent() {
                               </Select>
                             </div>
                             <div className="space-y-2">
-                              <Label className="text-sm font-medium">Environment *</Label>
+                              <Label className="text-sm font-medium">Workspace *</Label>
                               <Select
-                                value={selectedEnvironmentId}
-                                onValueChange={setSelectedEnvironmentId}
-                                disabled={!project || loadingEnvironments}
+                                value={selectedWorkspaceId}
+                                onValueChange={setSelectedWorkspaceId}
+                                disabled={!project || loadingWorkspaces}
                               >
                                 <SelectTrigger className="w-full">
                                   <SelectValue
                                     placeholder={
                                       !project
                                         ? "Select project first"
-                                        : loadingEnvironments
+                                        : loadingWorkspaces
                                           ? "Loading..."
-                                          : apiEnvironments.length === 0
-                                            ? "No environments — create one at /environments"
-                                            : `Select ${t.environment || "environment"}`
+                                          : workspaces.length === 0
+                                            ? "No workspaces — create one at /catalogue/workspaces"
+                                            : `Select ${t.environment || "workspace"}`
                                     }
                                   />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  {apiEnvironments
-                                    .filter((e) => !t.environment || e.environment_key === t.environment)
-                                    .map((env) => (
-                                      <SelectItem key={env.environment_id} value={env.environment_id}>
-                                        {env.environment_key} / {env.environment_slug}
+                                  {workspaces
+                                    .filter((w) => !t.environment || w.workspace_key === t.environment)
+                                    .map((ws) => (
+                                      <SelectItem key={ws.workspace_id} value={ws.workspace_id}>
+                                        {ws.workspace_key} / {ws.workspace_slug}
                                       </SelectItem>
                                     ))}
                                 </SelectContent>
                               </Select>
-                              {project && apiEnvironments.length === 0 && !loadingEnvironments ? (
+                              {project && workspaces.length === 0 && !loadingWorkspaces ? (
                                 <p className="text-xs text-muted-foreground">
-                                  <Link href="/environments" className="underline">Create an environment</Link> first.
+                                  <Link href="/catalogue/workspaces" className="underline">Create a workspace</Link> first.
                                 </p>
-                              ) : selectedEnvironmentId && !newRequestGate.allowed && newRequestGate.message ? (
+                              ) : selectedWorkspaceId && !newRequestGate.allowed && newRequestGate.message ? (
                                 <p className="text-xs text-amber-600 dark:text-amber-500" role="alert">
                                   {newRequestGate.message}
                                 </p>
@@ -1086,7 +1085,7 @@ function NewRequestPageContent() {
                           disabled={
                             !nameValid ||
                             !project ||
-                            !selectedEnvironmentId ||
+                            !selectedWorkspaceId ||
                             !newRequestGate.allowed ||
                             (showProjectSelector ? (!t.moduleKey && !moduleName) : false)
                           }
@@ -1095,8 +1094,8 @@ function NewRequestPageContent() {
                             if (t) {
                               const trimmedName = environmentName.trim()
                               const shortId = randomShortId()
-                              const env = apiEnvironments.find((e) => e.environment_id === selectedEnvironmentId)
-                              const envPart = env ? env.environment_key : ""
+                              const ws = workspaces.find((w) => w.workspace_id === selectedWorkspaceId)
+                              const envPart = ws ? ws.workspace_key : ""
                               const fullName = [project, envPart, trimmedName, shortId]
                                 .filter(Boolean)
                                 .join("-")
@@ -1161,7 +1160,7 @@ function NewRequestPageContent() {
                     <Input value={project} readOnly disabled className="bg-muted" />
                   </div>
                   <div className="space-y-2">
-                    <Label className="text-sm font-medium">Environment</Label>
+                    <Label className="text-sm font-medium">Workspace</Label>
                     <Input value={environment} readOnly disabled className="bg-muted" />
                   </div>
                   <div className="space-y-2">
@@ -1233,7 +1232,7 @@ function NewRequestPageContent() {
                     disabled={
                       loadingSubmit ||
                       !project ||
-                      !selectedEnvironmentId ||
+                      !selectedWorkspaceId ||
                       !moduleName ||
                       isNameInvalid ||
                       !newRequestGate.allowed

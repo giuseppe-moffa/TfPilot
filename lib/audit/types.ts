@@ -23,14 +23,12 @@ export const AUDIT_EVENT_TYPES = [
   "request_approved",
   "request_apply_dispatched",
   "request_destroy_dispatched",
-  "environment_destroy_requested",
-  "environment_deploy_pr_opened",
   "workspace_destroy_requested",
   "workspace_deploy_pr_opened",
 ] as const
 export type AuditEventType = (typeof AUDIT_EVENT_TYPES)[number]
 
-export const AUDIT_ENTITY_TYPES = ["org", "team", "project", "request", "environment", "workspace"] as const
+export const AUDIT_ENTITY_TYPES = ["org", "team", "project", "request", "workspace"] as const
 export type AuditEntityType = (typeof AUDIT_ENTITY_TYPES)[number]
 
 /** MVP-friendly metadata shape. Small JSON-like object for event context. Keep minimal (e.g. slug, name); avoid overstuffing. May widen when more event metadata arrives. */

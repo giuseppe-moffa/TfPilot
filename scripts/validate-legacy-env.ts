@@ -1,12 +1,13 @@
 /**
- * Prevent regressions: no legacy env patterns in app/ and lib/.
+ * Prevent regressions: app/ and lib/ must be workspace-only (no legacy environment_*).
  * Run: npm run validate:legacy-env
  *
  * Forbidden in app/ and lib/:
- * - envs/${environment} (single-segment path; use envs/${key}/${slug})
- * - request.environment (use request.environment_key)
+ * - envs/${environment} (use envs/${workspace_key}/${workspace_slug})
+ * - request.environment (use request.workspace_key)
  * - request.project (use request.project_key)
- * - environment_key ?? request.environment (legacy fallback)
+ * - .environment_id, .environment_key, .environment_slug (use workspace_*)
+ * - environment_key ?? ... fallbacks (use workspace_key only)
  */
 
 import * as fs from "fs"
@@ -36,10 +37,13 @@ function collectFiles(dir: string, ext: string[]): string[] {
 }
 
 const CHECKS: Array<{ pattern: RegExp; msg: string }> = [
-  { pattern: /envs\/\$\{\s*environment\s*\}/, msg: "Legacy envs/${environment} path (use environment_key/environment_slug)" },
-  { pattern: /request\.environment(?!_|_id|Key|Slug)/, msg: "Legacy request.environment (use request.environment_key)" },
+  { pattern: /envs\/\$\{\s*environment\s*\}/, msg: "Legacy envs/${environment} path (use workspace_key/workspace_slug)" },
+  { pattern: /request\.environment(?!_|_id|Key|Slug)/, msg: "Legacy request.environment (use request.workspace_key)" },
   { pattern: /request\.project(?!_|Key)/, msg: "Legacy request.project (use request.project_key)" },
-  { pattern: /\.environment_key\s*\?\?\s*[^(]*\.environment\b/, msg: "Legacy fallback environment_key ?? .environment" },
+  { pattern: /\.environment_key\s*\?\?\s*[^(]*\.environment\b/, msg: "Legacy fallback (use workspace_key only)" },
+  { pattern: /\.environment_id\b/, msg: "Legacy .environment_id (use .workspace_id)" },
+  { pattern: /\.environment_key\b/, msg: "Legacy .environment_key (use .workspace_key)" },
+  { pattern: /\.environment_slug\b/, msg: "Legacy .environment_slug (use .workspace_slug)" },
 ]
 
 function main() {
@@ -51,8 +55,8 @@ function main() {
     const lines = content.split("\n")
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i]
-      // Skip envs check if line already uses environment_key/slug
-      if (CHECKS[0].pattern.test(line) && /environment_(key|slug)/.test(line)) continue
+      // Skip envs check if line already uses workspace_key/slug
+      if (CHECKS[0].pattern.test(line) && /workspace_(key|slug)/.test(line)) continue
       for (const { pattern, msg } of CHECKS) {
         if (pattern.test(line)) {
           errors.push({

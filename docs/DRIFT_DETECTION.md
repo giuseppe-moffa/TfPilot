@@ -38,7 +38,7 @@ TfPilot supports two drift flows:
 ### Workflow
 
 - **File:** `drift_plan.yml` (or `GITHUB_DRIFT_PLAN_WORKFLOW_FILE`)
-- **Inputs:** `environment_key`, `environment_slug` (passed from workspace_key/workspace_slug)
+- **Inputs:** `workspace_key`, `workspace_slug`
 - **Ref:** Default branch (e.g. `main`)
 - **Steps:** Checkout → AWS OIDC → `terraform init` → `terraform plan -detailed-exitcode`
 - **Artifacts:** `drift-logs-v2` (plan.txt), `drift-plan-json-v2` (plan.json)
@@ -67,7 +67,7 @@ Some infra repos run a scheduled workflow that:
 
 A request is eligible when:
 
-- **Environment:** `environment_key === "dev"` only
+- **Workspace:** `workspace_key === "dev"` only
 - **Status:** Applied (or current apply attempt success)
 - **Not destroyed** (status ≠ destroyed/destroying)
 - **Not active** (no plan/apply in progress or queued)
@@ -112,12 +112,12 @@ A request is eligible when:
   2. Filter by project (e.g. `core`, `payments`)
   3. Dispatch drift plan for each eligible request
 - **Secrets:** `TFPILOT_API_URL`, `TFPILOT_WEBHOOK_SECRET`, `GITHUB_TOKEN`
-- **Note:** Workflow inputs (`request_id`, `environment`) depend on repo. Model 2 repos use `environment_key` + `environment_slug` in `drift_plan.yml`.
+- **Note:** Workflow inputs depend on repo. TfPilot sends `workspace_key`, `workspace_slug` to `drift_plan.yml`. See [GITHUB_WORKFLOWS.md](GITHUB_WORKFLOWS.md).
 
 ### drift_plan.yml
 
 - **Trigger:** `workflow_dispatch` (from TfPilot or drift-check)
-- **Model 2 (env-scoped):** Inputs `environment_key`, `environment_slug`. Runs plan at `envs/<key>/<slug>/`.
+- **Model 2 (workspace-scoped):** Inputs `workspace_key`, `workspace_slug`. Runs plan at `envs/<key>/<slug>/` (historical path).
 - **Legacy (request-scoped):** Some repos may use `request_id`, `environment`; workflow would scope to a single request's module.
 
 ---
@@ -136,7 +136,7 @@ A request is eligible when:
 | Component | Path |
 |-----------|------|
 | Drift plan dispatch | `app/api/github/drift-plan/route.ts` |
-| Drift latest | `app/api/environments/[id]/drift-latest/route.ts` |
+| Drift latest | `app/api/workspaces/[id]/drift-latest/route.ts` |
 | Drift eligible | `app/api/requests/drift-eligible/route.ts` |
 | Drift result | `app/api/requests/[requestId]/drift-result/route.ts` |
 | Workspace drift index | `lib/github/workspaceDriftRunIndex.ts` |

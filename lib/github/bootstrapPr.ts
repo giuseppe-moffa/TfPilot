@@ -15,8 +15,6 @@ export type BootstrapTarget = {
 
 export type BootstrapResult = {
   workspace: { workspace_id: string; workspace_key: string; workspace_slug: string }
-  /** @deprecated Use workspace */
-  environment: { environment_id: string; environment_key: string; environment_slug: string }
   prNumber: number
   prUrl: string
   branchName: string
@@ -46,7 +44,7 @@ function backendTfContent(): string {
 `
 }
 
-function providersTfContent(project_key: string, environment_key: string): string {
+function providersTfContent(project_key: string, workspace_key: string): string {
   return `provider "aws" {
   region = var.aws_region
 
@@ -54,7 +52,7 @@ function providersTfContent(project_key: string, environment_key: string): strin
     tags = {
       ManagedBy   = "tfpilot"
       Project     = "${project_key}"
-      Environment = "${environment_key}"
+      Environment = "${workspace_key}"
     }
   }
 }
@@ -97,17 +95,11 @@ export async function createBootstrapPr(
     project_key: string
     workspace_key: string
     workspace_slug: string
-    /** @deprecated Use workspace_id */
-    environment_id?: string
-    /** @deprecated Use workspace_key */
-    environment_key?: string
-    /** @deprecated Use workspace_slug */
-    environment_slug?: string
   }
 ): Promise<BootstrapResult> {
-  const wsId = params.workspace_id ?? params.environment_id ?? ""
-  const wsKey = params.workspace_key ?? params.environment_key ?? ""
-  const wsSlug = params.workspace_slug ?? params.environment_slug ?? ""
+  const wsId = params.workspace_id
+  const wsKey = params.workspace_key
+  const wsSlug = params.workspace_slug
   const envRoot = computeWorkspaceRoot(wsKey, wsSlug)
   const backendPath = `${envRoot}/backend.tf`
   const alreadyExists = await checkPathExists(token, target.owner, target.repo, backendPath, target.base)
@@ -115,7 +107,6 @@ export async function createBootstrapPr(
     const wsObj = { workspace_id: wsId, workspace_key: wsKey, workspace_slug: wsSlug }
     return {
       workspace: wsObj,
-      environment: { environment_id: wsId, environment_key: wsKey, environment_slug: wsSlug },
       prNumber: 0,
       prUrl: "",
       branchName: "",
@@ -210,7 +201,6 @@ export async function createBootstrapPr(
   const wsObj = { workspace_id: wsId, workspace_key: wsKey, workspace_slug: wsSlug }
   return {
     workspace: wsObj,
-    environment: { environment_id: wsId, environment_key: wsKey, environment_slug: wsSlug },
     prNumber: prJson.number,
     prUrl: prJson.html_url,
     branchName,

@@ -54,11 +54,11 @@ export function renderRequestTfContent(request: RequestForRender): string {
 
 /** Generates the single file to write for Model 2. Pure, no I/O. */
 export function generateModel2RequestFile(
-  environment_key: string,
-  environment_slug: string,
+  workspace_key: string,
+  workspace_slug: string,
   request: RequestForRender
 ): { path: string; content: string } {
-  const path = computeRequestTfPath(environment_key, environment_slug, request.module, request.id)
+  const path = computeRequestTfPath(workspace_key, workspace_slug, request.module, request.id)
   const content = renderRequestTfContent(request)
   return { path, content }
 }

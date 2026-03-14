@@ -1,7 +1,7 @@
 /**
  * Invariant tests: Drift plan (Chunk 12 + Chunk 13).
- * - Dispatch payload: ONLY environment_key, environment_slug (no legacy "environment")
- * - ENV_ROOT plan.json path expectation
+ * - Dispatch payload: workspace_key, workspace_slug only
+ * - Workspace root plan.json path expectation (envs/ prefix is historical)
  * - Empty drift response shape when no drift has ever been run
  */
 
@@ -14,43 +14,46 @@ import { WORKSPACE_DRIFT_PRUNING_TTL_DAYS } from "@/lib/github/workspaceDriftRun
 
 export const tests = [
   {
-    name: "buildDriftPlanInputs: payload includes only environment_key and environment_slug",
+    name: "buildDriftPlanInputs: payload includes only workspace_key and workspace_slug",
     fn: () => {
       const inputs = buildDriftPlanInputs({
-        environment_key: "dev",
-        environment_slug: "ai-agent",
+        workspace_key: "dev",
+        workspace_slug: "ai-agent",
       })
-      assert(inputs.environment_key === "dev", "environment_key")
-      assert(inputs.environment_slug === "ai-agent", "environment_slug")
+      assert(inputs.workspace_key === "dev", "workspace_key")
+      assert(inputs.workspace_slug === "ai-agent", "workspace_slug")
       assert(Object.keys(inputs).length === 2, "exactly two keys")
     },
   },
   {
-    name: "buildDriftPlanInputs: must NOT include legacy 'environment' key",
+    name: "buildDriftPlanInputs: must NOT include request_id or environment_* keys",
     fn: () => {
       const inputs = buildDriftPlanInputs({
-        environment_key: "prod",
-        environment_slug: "payments",
+        workspace_key: "prod",
+        workspace_slug: "payments",
       })
-      assert(!("environment" in inputs), "inputs must not have legacy 'environment' key")
+      assert(!("request_id" in inputs), "no request_id")
+      assert(!("environment_id" in inputs), "no environment_id in inputs")
+      assert(!("environment_key" in inputs), "no environment_key in inputs")
+      assert(!("environment_slug" in inputs), "no environment_slug in inputs")
     },
   },
   {
-    name: "buildDriftPlanInputs: must NOT include request_id or other extra keys",
+    name: "buildDriftPlanInputs: must NOT include extra keys",
     fn: () => {
       const inputs = buildDriftPlanInputs({
-        environment_key: "dev",
-        environment_slug: "x",
+        workspace_key: "dev",
+        workspace_slug: "x",
       })
       assert(!("request_id" in inputs), "no request_id")
       assert(!("environment_id" in inputs), "no environment_id in inputs")
     },
   },
   {
-    name: "expectedDriftPlanJsonPath: uses ENV_ROOT format envs/<key>/<slug>/plan.json",
+    name: "expectedDriftPlanJsonPath: uses workspace root format envs/<key>/<slug>/plan.json",
     fn: () => {
       const path = expectedDriftPlanJsonPath("dev", "ai-agent")
-      assert(path === "envs/dev/ai-agent/plan.json", "ENV_ROOT plan.json path")
+      assert(path === "envs/dev/ai-agent/plan.json", "workspace root plan.json path")
     },
   },
   {

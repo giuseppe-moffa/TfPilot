@@ -311,7 +311,7 @@ function validateEnum(fields: Record<string, ModuleField>, cfg: Record<string, u
   }
 }
 
-function normalizeByFields(entry: ModuleRegistryEntry, rawConfig: Record<string, unknown>, ctx: { requestId: string; project_key: string; environment_key: string }) {
+function normalizeByFields(entry: ModuleRegistryEntry, rawConfig: Record<string, unknown>, ctx: { requestId: string; project_key: string; workspace_key: string }) {
   const fields = buildFieldMap(entry)
   const allowed = new Set(Object.keys(fields))
 
@@ -358,7 +358,7 @@ function normalizeByFields(entry: ModuleRegistryEntry, rawConfig: Record<string,
   return finalConfig
 }
 
-function buildModuleConfig(entry: ModuleRegistryEntry, rawConfig: Record<string, unknown>, ctx: { requestId: string; project_key: string; environment_key: string }) {
+function buildModuleConfig(entry: ModuleRegistryEntry, rawConfig: Record<string, unknown>, ctx: { requestId: string; project_key: string; workspace_key: string }) {
   if (!entry.fields || entry.fields.length === 0) {
     throw new Error(`Module ${entry.type} missing fields schema (schema contract v2 required)`)
   }
@@ -476,8 +476,8 @@ async function createBranchCommitPrAndPlan(
       ref: branchName,
       inputs: {
         request_id: request.id,
-        environment_key: request.workspace_key,
-        environment_slug: request.workspace_slug,
+        workspace_key: request.workspace_key,
+        workspace_slug: request.workspace_slug,
       },
     }),
   })
@@ -709,7 +709,7 @@ export function makeRequestsPOST(deps: RequestsPOSTDeps) {
     newRequest.config = buildModuleConfig(regEntry, newRequest.config, {
       requestId: newRequest.id,
       project_key: newRequest.project_key,
-      environment_key: newRequest.workspace_key,
+      workspace_key: newRequest.workspace_key,
     })
 
     appendRequestIdToNames(newRequest.config, requestId)

@@ -61,7 +61,7 @@ GitHub’s `workflow_dispatch` API does **not** return the new run’s `runId`; 
 
 ## Workspace destroy index (separate, facts-only)
 
-For workspace destroy (destroy_scope="environment"), correlation is stored under `webhooks/github/workspace-destroy/`:
+For workspace destroy (destroy_scope="workspace"), correlation is stored under `webhooks/github/workspace-destroy/`:
 - `run-<runId>.json` — runId → workspace_id (webhook fast path)
 - `pending-<workspaceId>.json` — `{ run_id, repo, created_at }`; used for reconcile before dispatch. TTL 2h when run not found.
 
@@ -77,7 +77,7 @@ Used by `GET /api/workspaces/:id/drift-latest` to find the last drift run for a 
 
 ### Pruning policy (TTL 30 days)
 
-- **Automatic:** On each `putEnvDriftRunIndex`, we prune entries for that workspace older than 30 days. Pruning is **best-effort** and **fail-open** — it never blocks the main write. If pruning fails, the index write still succeeds.
+- **Automatic:** On each drift index write for a workspace, we prune entries for that workspace older than 30 days. Pruning is **best-effort** and **fail-open** — it never blocks the main write. If pruning fails, the index write still succeeds.
 - **Scope:** Per-workspace. Entries for a workspace older than 30 days are deleted when a new drift run for that workspace is indexed.
 - **Retention:** 30 days. See `WORKSPACE_DRIFT_PRUNING_TTL_DAYS` in `lib/github/workspaceDriftRunIndex.ts`.
 

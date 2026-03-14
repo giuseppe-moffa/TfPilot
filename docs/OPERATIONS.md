@@ -20,30 +20,30 @@ Non-platform-admin callers receive **404**. Platform routes bypass `requireActiv
 
 ---
 
-## Environments (Model 2)
+## Workspaces (Model 2)
 
-Environments are first-class entities. Each has a bootstrap PR that creates `envs/<environment_key>/<environment_slug>/` in the terraform repo.
+Workspaces are first-class entities. Each has a bootstrap PR that creates `envs/<workspace_key>/<workspace_slug>/` in the terraform repo. The `envs/` prefix is historical repository naming; each directory represents a Terraform root for a workspace.
 
 | Task | Endpoint / Action |
 |------|-------------------|
-| List environments | `GET /api/environments?project_key=core` (optional filter) |
-| Create environment | `POST /api/environments` with `project_key`, `environment_key`, `environment_slug` |
-| Get single environment | `GET /api/environments/:id` |
+| List workspaces | `GET /api/workspaces?project_key=core` (optional filter) |
+| Create workspace | `POST /api/workspaces` with `project_key`, `workspace_key`, `workspace_slug` |
+| Get single workspace | `GET /api/workspaces/:id` |
 
 **Bootstrap flow:** POST create persists the row, then opens a PR that adds:
 - `envs/<key>/<slug>/backend.tf` (generic `backend "s3" {}`; key injected via workflow)
 - `envs/<key>/<slug>/providers.tf`, `versions.tf`
 - `envs/<key>/<slug>/tfpilot/base.tf`, `tfpilot/requests/.gitkeep`
 
-**Idempotency:** If `backend.tf` already exists at the env root on the base branch, the create returns `already_bootstrapped: true` and does not open a duplicate PR.
+**Idempotency:** If `backend.tf` already exists at the workspace root on the base branch, the create returns `already_bootstrapped: true` and does not open a duplicate PR.
 
 **Failure modes:**
-- **409 Conflict** — Environment with same (project_key, environment_key, environment_slug) already exists. Response includes `environment_id` of existing.
-- **404** — No infra repo for project_key + environment_key. Check `config/infra-repos.ts`.
+- **409 Conflict** — Workspace with same (project_key, workspace_key, workspace_slug) already exists. Response includes `workspace_id` of existing.
+- **404** — No infra repo for project_key + workspace_key. Check `config/infra-repos.ts`.
 - **503** — Database not configured or unavailable.
 - **GitHub errors** — Bootstrap PR creation fails (permissions, branch protection, rate limit). Check GitHub token and repo access.
 
-**Readiness:** Environment is "selectable" for requests only after the bootstrap PR is merged. Do not store a status column; infer from PR merge facts or repo path existence.
+**Readiness:** Workspace is "selectable" for requests only after the bootstrap PR is merged. Do not store a status column; infer from PR merge facts or repo path existence.
 
 ---
 
@@ -55,7 +55,7 @@ Environments are first-class entities. Each has a bootstrap PR that creates `env
 
 **Flow:**
 1. If pending exists: reconcile (fetch run status). In-progress/queued → 409. Completed success → archive, clear pending, return 200. Completed failure → clear pending, allow re-dispatch. Run not found + TTL expired (2h) → clear pending, allow re-dispatch.
-2. Dispatches `destroy` workflow with `destroy_scope="environment"` (no `request_id`).
+2. Dispatches `destroy` workflow with `destroy_scope="workspace"` (no `request_id`).
 3. On workflow success, webhook archives the workspace (sets `archived_at`).
 4. Archived workspaces are excluded from request creation.
 
@@ -67,7 +67,7 @@ Environments are first-class entities. Each has a bootstrap PR that creates `env
 - **409** — Another workspace destroy in progress.
 - **403** — Insufficient role (admin required).
 
-**Concurrency:** The workflow uses `concurrency` per `(environment_key, environment_slug)` (workspace identity). Only one destroy runs at a time per workspace. The app refuses (409) if a pending destroy run is still in progress. Pending records include `run_id`, `repo`, `created_at`; TTL 2h for stale cleanup when run not found.
+**Concurrency:** The workflow uses `concurrency` per `(workspace_key, workspace_slug)`. Only one destroy runs at a time per workspace. The app refuses (409) if a pending destroy run is still in progress. Pending records include `run_id`, `repo`, `created_at`; TTL 2h for stale cleanup when run not found.
 
 **Runbook:**
 1. Ensure no active requests target the workspace (or they will fail when workspace is archived).
@@ -103,7 +103,7 @@ The requests list is served from Postgres `requests_index`. The index is write-t
 
 - **Health endpoint:** `GET /api/health/db` returns `{ ok: true }` when the DB is reachable, or `{ ok: false, error: "..." }` with status 503 when not configured or unreachable.
 - **Local:** Ensure `DATABASE_URL` is set in `.env.local`, then `curl -s http://localhost:3000/api/health/db`.
-- **Migrations:** Run `npm run db:migrate` to apply pending migrations (see `migrations/`). Requires `DATABASE_URL` or `PGHOST`/`PGUSER`/etc. After adding `environment_slug` to `requests_index`: run `npm run db:rebuild-index` to backfill existing rows.
+- **Migrations:** Run `npm run db:migrate` to apply pending migrations (see `migrations/`). Requires `DATABASE_URL` or `PGHOST`/`PGUSER`/etc. After adding `workspace_slug` to `requests_index`: run `npm run db:rebuild-index` to backfill existing rows.
 
 ---
 

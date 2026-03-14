@@ -94,16 +94,16 @@ export async function POST(req: NextRequest) {
       throw lockErr
     }
 
-    const pEnvKey = request.workspace_key ?? request.environment_key
-    const pEnvSlug = request.workspace_slug ?? request.environment_slug ?? ""
+    const workspaceKey = request.workspace_key
+    const workspaceSlug = request.workspace_slug ?? ""
     await gh(token, `/repos/${request.targetOwner}/${request.targetRepo}/actions/workflows/${env.GITHUB_PLAN_WORKFLOW_FILE}/dispatches`, {
       method: "POST",
       body: JSON.stringify({
         ref: request.branchName,
         inputs: {
           request_id: request.id,
-          environment_key: pEnvKey,
-          environment_slug: pEnvSlug,
+          workspace_key: workspaceKey,
+          workspace_slug: workspaceSlug,
         },
       }),
     })

@@ -29,8 +29,6 @@ function formatActivityLabel(type: string): string {
   const labels: Record<string, string> = {
     workspace_deployed: "Deployed",
     workspace_deploy_pr_open: "Deploy PR opened",
-    environment_deployed: "Deployed",
-    environment_deploy_pr_open: "Deploy PR opened",
     request_created: "Request created",
     plan_succeeded: "Plan succeeded",
     plan_failed: "Plan failed",

@@ -2,7 +2,7 @@
  * Invariant tests: zero-legacy mode.
  * - Request doc shape: env_id/key/slug required; no legacy project/environment.
  * - No code references request.environment or envs/${environment}.
- * - Dispatch payload schemas use only env inputs (environment_key, environment_slug).
+ * - Dispatch payload schemas use only workspace inputs (workspace_key, workspace_slug, request_id).
  */
 
 function assert(condition: boolean, message: string): void {
@@ -15,8 +15,8 @@ const REQUIRED_REQUEST_WORKSPACE_FIELDS = ["project_key", "workspace_key", "work
 /** Legacy fields that must not appear in new request docs. */
 const FORBIDDEN_LEGACY_FIELDS = ["project", "environment"] as const
 
-/** Workflow dispatch input names (environment_key, environment_slug, request_id). */
-const DISPATCH_INPUTS = ["environment_key", "environment_slug", "request_id"] as const
+/** Workflow dispatch input names (workspace_key, workspace_slug, request_id). */
+const DISPATCH_INPUTS = ["workspace_key", "workspace_slug", "request_id"] as const
 
 export const tests = [
   {
@@ -37,12 +37,12 @@ export const tests = [
     },
   },
   {
-    name: "zeroLegacy: formatEnvDisplay accepts (key, slug) only (2 args)",
+    name: "zeroLegacy: formatWorkspaceDisplay accepts (workspace_key, workspace_slug) (2 args)",
     fn: async () => {
-      const { formatEnvDisplay } = await import("@/lib/format/envDisplay")
-      const result = formatEnvDisplay("dev", "ai-agent")
+      const { formatWorkspaceDisplay } = await import("@/lib/format/workspaceDisplay")
+      const result = formatWorkspaceDisplay("dev", "ai-agent")
       assert(result === "dev / ai-agent", "format works")
-      assert(formatEnvDisplay.length === 2 || formatEnvDisplay("dev", "ai-agent") !== "", "2-arg signature")
+      assert(formatWorkspaceDisplay.length === 2 || formatWorkspaceDisplay("dev", "ai-agent") !== "", "2-arg signature")
     },
   },
   {

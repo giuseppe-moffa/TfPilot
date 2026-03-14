@@ -31,7 +31,6 @@ const SETTINGS_ITEMS = [
 
 function getPageTitle(pathname: string): string {
   if (pathname.startsWith("/projects")) return "Projects"
-  if (pathname.startsWith("/environments")) return "Environments"
   if (pathname.startsWith("/requests")) return "Resources"
   if (pathname.startsWith("/catalogue")) return "Catalogue"
   if (pathname.startsWith("/insights")) return "Insights"

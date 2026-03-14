@@ -1,21 +1,21 @@
 /**
  * Model 2 request path utilities.
  * Staged for Phase 3 cutover — not used by request routes until atomic flip.
- * Output: envs/<environment_key>/<environment_slug>/tfpilot/requests/<module>_req_<request_id>.tf
+ * Output: envs/<workspace_key>/<workspace_slug>/tfpilot/requests/<module>_req_<request_id>.tf
  * Module must be slug-safe [a-z0-9-].
  */
 
 /** Canonical module source depth for Model 2. From tfpilot/requests/ up to repo root, then modules/<module>. */
 export const MODULE_SOURCE_PREFIX = "../../../modules/"
 
-/** Returns envs/<key>/<slug>/tfpilot/requests/<module>_req_<request_id>.tf per delta §6.1. */
+/** Returns envs/<key>/<slug>/tfpilot/requests/<module>_req_<request_id>.tf (envs/ is historical path). */
 export function computeRequestTfPath(
-  environment_key: string,
-  environment_slug: string,
+  workspace_key: string,
+  workspace_slug: string,
   module: string,
   requestId: string
 ): string {
-  const envRoot = `envs/${environment_key}/${environment_slug}`
+  const envRoot = `envs/${workspace_key}/${workspace_slug}`
   return `${envRoot}/tfpilot/requests/${module}_req_${requestId}.tf`
 }
 

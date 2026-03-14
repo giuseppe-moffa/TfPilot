@@ -10,7 +10,7 @@ import {
   REQUIRED_TAG_KEYS,
 } from "../lib/requests/tags"
 
-const request = { id: "req-1", project_key: "p1", environment_key: "dev" }
+const request = { id: "req-1", project_key: "p1", workspace_key: "dev" }
 const requestWithTemplate = { ...request, templateId: "dev-compute" }
 const createdBy = "test-user"
 

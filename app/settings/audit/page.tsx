@@ -25,7 +25,7 @@ type AuditEvent = {
   created_at: string
   metadata: Record<string, unknown> | null
   request_id: string | null
-  environment_id: string | null
+  workspace_id: string | null
   project_key: string | null
 }
 
@@ -47,8 +47,8 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
   request_approved: "Request approved",
   request_apply_dispatched: "Request apply dispatched",
   request_destroy_dispatched: "Request destroy dispatched",
-  environment_destroy_requested: "Environment destroy requested",
-  environment_deploy_pr_opened: "Environment deploy PR opened",
+  workspace_destroy_requested: "Workspace destroy requested",
+  workspace_deploy_pr_opened: "Workspace deploy PR opened",
 }
 
 function formatEventType(type: string): string {

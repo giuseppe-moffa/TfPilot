@@ -47,10 +47,7 @@ export default function WorkspaceTemplatesPage() {
       }
       if (res.status === 503) {
         const data = await res.json().catch(() => ({}))
-        if (
-          data?.error === "WORKSPACE_TEMPLATES_NOT_INITIALIZED" ||
-          data?.error === "ENV_TEMPLATES_NOT_INITIALIZED"
-        ) {
+        if (data?.error === "WORKSPACE_TEMPLATES_NOT_INITIALIZED") {
           setNotInitialized(true)
           setTemplates([])
         } else {

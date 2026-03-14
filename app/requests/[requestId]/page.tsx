@@ -47,7 +47,7 @@ import {
   type ActionProgressStep,
 } from "@/components/action-progress-dialog"
 import { StatusIndicator } from "@/components/status/StatusIndicator"
-import { formatEnvDisplay } from "@/lib/format/envDisplay"
+import { formatWorkspaceDisplay } from "@/lib/format/workspaceDisplay"
 
 type FieldMeta = {
   name: string
@@ -1425,7 +1425,7 @@ function RequestDetailPage() {
               <StatusIndicator status={canonicalStatus} />
             </div>
             <p className="text-sm text-muted-foreground mt-1 flex flex-wrap items-center gap-1">
-              {request.project_key} · {formatEnvDisplay(request.environment_key, request.environment_slug)} · <span className="inline-flex items-center gap-1"><ModuleTag module={request.module ?? ""} /></span>
+              {request.project_key} · {formatWorkspaceDisplay(request.workspace_key ?? "", request.workspace_slug ?? "")} · <span className="inline-flex items-center gap-1"><ModuleTag module={request.module ?? ""} /></span>
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
@@ -1491,8 +1491,8 @@ function RequestDetailPage() {
                   <p className="font-normal capitalize mt-0.5">{request.project_key}</p>
                 </div>
                 <div>
-                  <p className="text-muted-foreground text-xs">Environment</p>
-                  <p className="font-normal mt-0.5">{formatEnvDisplay(request.environment_key, request.environment_slug)}</p>
+                  <p className="text-muted-foreground text-xs">Workspace</p>
+                  <p className="font-normal mt-0.5">{formatWorkspaceDisplay(request.workspace_key ?? "", request.workspace_slug ?? "")}</p>
                 </div>
                 <div>
                   <p className="text-muted-foreground text-xs">Resource Name</p>

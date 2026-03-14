@@ -22,7 +22,7 @@ export type ModuleRegistryEntry = {
   type: string
   category?: string
   description?: string
-  compute?: (config: Record<string, unknown>, ctx: { requestId: string; project_key: string; environment_key: string }) => Record<string, unknown>
+  compute?: (config: Record<string, unknown>, ctx: { requestId: string; project_key: string; workspace_key: string }) => Record<string, unknown>
   fields: ModuleField[]
 }
 
@@ -37,13 +37,13 @@ export const moduleRegistry: ModuleRegistryEntry[] = [
       return {
         ...config,
         project: ctx.project_key,
-        environment: ctx.environment_key,
+        environment: ctx.workspace_key,
         request_id: ctx.requestId,
         tags: {
           ManagedBy: "tfpilot",
           TfPilotRequestId: ctx.requestId,
           Project: ctx.project_key,
-          Environment: ctx.environment_key,
+          Environment: ctx.workspace_key,
           ...userTags,
         },
       }
@@ -163,13 +163,13 @@ export const moduleRegistry: ModuleRegistryEntry[] = [
       return {
         ...config,
         project: ctx.project_key,
-        environment: ctx.environment_key,
+        environment: ctx.workspace_key,
         request_id: ctx.requestId,
         tags: {
           ManagedBy: "tfpilot",
           TfPilotRequestId: ctx.requestId,
           Project: ctx.project_key,
-          Environment: ctx.environment_key,
+          Environment: ctx.workspace_key,
           ...userTags,
         },
       }
@@ -258,13 +258,13 @@ export const moduleRegistry: ModuleRegistryEntry[] = [
       return {
         ...config,
         project: ctx.project_key,
-        environment: ctx.environment_key,
+        environment: ctx.workspace_key,
         request_id: ctx.requestId,
         tags: {
           ManagedBy: "tfpilot",
           TfPilotRequestId: ctx.requestId,
           Project: ctx.project_key,
-          Environment: ctx.environment_key,
+          Environment: ctx.workspace_key,
           ...userTags,
         },
       }
@@ -298,13 +298,13 @@ export const moduleRegistry: ModuleRegistryEntry[] = [
       return {
         ...config,
         project: ctx.project_key,
-        environment: ctx.environment_key,
+        environment: ctx.workspace_key,
         request_id: ctx.requestId,
         tags: {
           ManagedBy: "tfpilot",
           TfPilotRequestId: ctx.requestId,
           Project: ctx.project_key,
-          Environment: ctx.environment_key,
+          Environment: ctx.workspace_key,
           ...userTags,
         },
       }
@@ -327,13 +327,13 @@ export const moduleRegistry: ModuleRegistryEntry[] = [
       return {
         ...config,
         project: ctx.project_key,
-        environment: ctx.environment_key,
+        environment: ctx.workspace_key,
         request_id: ctx.requestId,
         tags: {
           ManagedBy: "tfpilot",
           TfPilotRequestId: ctx.requestId,
           Project: ctx.project_key,
-          Environment: ctx.environment_key,
+          Environment: ctx.workspace_key,
           ...userTags,
         },
       }

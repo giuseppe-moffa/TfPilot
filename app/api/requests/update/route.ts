@@ -181,7 +181,7 @@ function validateEnum(fields: Record<string, ModuleField>, cfg: Record<string, u
   }
 }
 
-function buildModuleConfig(entry: ModuleRegistryEntry, rawConfig: Record<string, unknown>, ctx: { requestId: string; project_key: string; environment_key: string }) {
+function buildModuleConfig(entry: ModuleRegistryEntry, rawConfig: Record<string, unknown>, ctx: { requestId: string; project_key: string; workspace_key: string }) {
   if (!entry.fields || entry.fields.length === 0) {
     throw new Error(`Module ${entry.type} missing fields schema (schema contract v2 required)`)
   }
@@ -312,22 +312,22 @@ async function createBranchCommitPrAndPlan(
       title: `Update request ${request.id}: ${request.module} (rev ${request.revision ?? "?"})`,
       head: branchName,
       base: target.base,
-      body: `Updated configuration for ${request.project_key}/${request.workspace_key ?? request.environment_key}\n\nModule: ${request.module}\nRequest ID: ${request.id}\nRevision: ${request.revision ?? "?"}`,
+      body: `Updated configuration for ${request.project_key}/${request.workspace_key}\n\nModule: ${request.module}\nRequest ID: ${request.id}\nRevision: ${request.revision ?? "?"}`,
     }),
   })
   const prJson = (await prRes.json()) as { number?: number; html_url?: string; head?: { sha?: string } }
   if (!prJson.number || !prJson.html_url) throw new Error("Failed to open PR")
 
-  const workspaceKey = request.workspace_key ?? request.environment_key
-  const workspaceSlug = request.workspace_slug ?? request.environment_slug ?? ""
+  const workspaceKey = request.workspace_key
+  const workspaceSlug = request.workspace_slug ?? ""
   await gh(token, `/repos/${target.owner}/${target.repo}/actions/workflows/${PLAN_WORKFLOW}/dispatches`, {
     method: "POST",
     body: JSON.stringify({
       ref: branchName,
       inputs: {
         request_id: request.id,
-        environment_key: workspaceKey,
-        environment_slug: workspaceSlug,
+        workspace_key: workspaceKey,
+        workspace_slug: workspaceSlug,
       },
     }),
   })
@@ -533,8 +533,8 @@ export async function POST(req: NextRequest) {
     const revisionNext = revisionPrev + 1
 
     const moduleType = getModuleType(current.module, regEntry.category)
-    const workspaceKey = current.workspace_key ?? current.environment_key
-    const workspaceSlug = current.workspace_slug ?? current.environment_slug ?? ""
+    const workspaceKey = current.workspace_key
+    const workspaceSlug = current.workspace_slug ?? ""
     if (!workspaceKey || workspaceSlug === undefined) {
       return NextResponse.json({ success: false, error: "Request missing workspace_key or workspace_slug" }, { status: 400 })
     }
@@ -553,7 +553,7 @@ export async function POST(req: NextRequest) {
     const finalConfig = buildModuleConfig(regEntry, mergedInputs, {
       requestId: current.id,
       project_key: current.project_key,
-      environment_key: current.workspace_key ?? current.environment_key,
+      workspace_key: current.workspace_key ?? "dev",
     })
 
     appendRequestIdToNames(finalConfig, current.id)

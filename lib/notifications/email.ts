@@ -61,7 +61,7 @@ export function formatRequestNotification(
     "",
     `Request ID: ${request.id}`,
     `Project: ${request.project_key}`,
-    `Environment: ${request.environment_key}`,
+    `Workspace: ${request.workspace_key}`,
     `Module: ${request.module}`,
     `Actor: ${actor}`,
     request.targetOwner && request.targetRepo

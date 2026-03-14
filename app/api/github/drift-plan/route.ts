@@ -61,8 +61,8 @@ export async function POST(req: NextRequest) {
     body: JSON.stringify({
       ref: branch,
       inputs: buildDriftPlanInputs({
-        environment_key: wsRow.workspace_key,
-        environment_slug: wsRow.workspace_slug,
+        workspace_key: wsRow.workspace_key,
+        workspace_slug: wsRow.workspace_slug,
       }),
     }),
   })

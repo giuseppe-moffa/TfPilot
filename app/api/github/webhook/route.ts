@@ -181,21 +181,21 @@ export function makeWebhookPOST(deps: WebhookRouteDeps) {
     }
 
     if (!correlated.requestId) {
-      // Environment destroy (destroy_scope=environment): no request. Correlate via index or inputs.
+      // Workspace destroy (destroy_scope=workspace): no request. Correlate via index or inputs.
       if (kind === "destroy" && wr?.status === "completed" && wr?.id != null) {
-        const envId =
+        const workspaceId =
           (await getWorkspaceIdByDestroyRunId(wr.id)) ??
-          (wr as { inputs?: { environment_id?: string } }).inputs?.environment_id
-        if (envId) {
+          (wr as { inputs?: { workspace_id?: string } }).inputs?.workspace_id
+        if (workspaceId) {
           if (wr.conclusion === "success") {
-            const archived = await archiveWorkspace(envId)
+            const archived = await archiveWorkspace(workspaceId)
             if (archived) {
-              await deleteWorkspaceDestroyPending(envId).catch(() => {})
-              logInfo("env.archive", { env_id: envId, run_id: wr.id, source: "webhook" })
-              incrementEnvMetric("env.destroy.archive", { env_id: envId, run_id: wr.id })
+              await deleteWorkspaceDestroyPending(workspaceId).catch(() => {})
+              logInfo("workspace.archive", { workspace_id: workspaceId, run_id: wr.id, source: "webhook" })
+              incrementEnvMetric("env.destroy.archive", { env_id: workspaceId, run_id: wr.id })
             }
           } else {
-            await deleteWorkspaceDestroyPending(envId).catch(() => {})
+            await deleteWorkspaceDestroyPending(workspaceId).catch(() => {})
           }
         }
       }

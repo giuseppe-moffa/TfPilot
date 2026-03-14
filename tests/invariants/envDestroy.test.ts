@@ -1,7 +1,7 @@
 /**
- * Invariant tests: Environment destroy (Chunk 7 + Chunk 8).
- * - Dispatch payload shape
- * - archiveEnvironment behavior
+ * Invariant tests: Workspace destroy (Chunk 7 + Chunk 8).
+ * - Dispatch payload shape: workspace_id, workspace_key, workspace_slug
+ * - archiveWorkspace behavior
  * - parseRepoFullName
  * - pending TTL, shape, correlation
  */
@@ -24,35 +24,39 @@ export const tests = [
     name: "buildWorkspaceDestroyInputs: correct payload shape",
     fn: () => {
       const inputs = buildWorkspaceDestroyInputs({
-        environment_key: "dev",
-        environment_slug: "ai-agent",
+        workspace_id: "ws_123",
+        workspace_key: "dev",
+        workspace_slug: "ai-agent",
       })
-      assert(inputs.environment_key === "dev", "environment_key")
-      assert(inputs.environment_slug === "ai-agent", "environment_slug")
-      assert(inputs.destroy_scope === "environment", "destroy_scope")
-      assert(!("request_id" in inputs), "no request_id for environment scope")
+      assert(inputs.workspace_id === "ws_123", "workspace_id")
+      assert(inputs.workspace_key === "dev", "workspace_key")
+      assert(inputs.workspace_slug === "ai-agent", "workspace_slug")
+      assert(inputs.destroy_scope === "workspace", "destroy_scope")
+      assert(!("request_id" in inputs), "no request_id for workspace scope")
     },
   },
   {
-    name: "buildWorkspaceDestroyInputs: includes environment_id when provided",
+    name: "buildWorkspaceDestroyInputs: includes workspace_id when provided",
     fn: () => {
       const inputs = buildWorkspaceDestroyInputs({
-        environment_key: "dev",
-        environment_slug: "test",
-        environment_id: "env_abc123",
+        workspace_id: "ws_abc123",
+        workspace_key: "dev",
+        workspace_slug: "test",
       })
-      assert(inputs.environment_id === "env_abc123", "environment_id for webhook correlation")
+      assert(inputs.workspace_id === "ws_abc123", "workspace_id for webhook correlation")
     },
   },
   {
-    name: "Model 2 invariant: dispatch payload must not include 'environment' key",
+    name: "buildWorkspaceDestroyInputs: payload must not include environment_* keys",
     fn: () => {
       const inputs = buildWorkspaceDestroyInputs({
-        environment_key: "dev",
-        environment_slug: "x",
-        environment_id: "env_1",
+        workspace_id: "ws_1",
+        workspace_key: "dev",
+        workspace_slug: "x",
       })
-      assert(!("environment" in inputs), "inputs must not have legacy 'environment' key")
+      assert(!("environment_id" in inputs), "no environment_id")
+      assert(!("environment_key" in inputs), "no environment_key")
+      assert(!("environment_slug" in inputs), "no environment_slug")
     },
   },
   {
@@ -120,17 +124,17 @@ export const tests = [
     },
   },
   {
-    name: "webhook envId correlation: index then inputs",
+    name: "webhook workspace_id correlation: index then inputs",
     fn: () => {
-      const fromIndex = "env_from_index"
-      const fromInputs = "env_from_inputs"
-      const wr = { inputs: { environment_id: fromInputs } }
-      const inputsEnvId = (wr as { inputs?: { environment_id?: string } }).inputs?.environment_id
-      const a = fromIndex ?? inputsEnvId
+      const fromIndex = "ws_from_index"
+      const fromInputs = "ws_from_inputs"
+      const wr = { inputs: { workspace_id: fromInputs } }
+      const inputsWorkspaceId = (wr as { inputs?: { workspace_id?: string } }).inputs?.workspace_id
+      const a = fromIndex ?? inputsWorkspaceId
       const indexMiss: string | null = null
-      const b = indexMiss ?? inputsEnvId
-      assert(a === "env_from_index", "index takes precedence")
-      assert(b === "env_from_inputs", "inputs fallback when index null")
+      const b = indexMiss ?? inputsWorkspaceId
+      assert(a === "ws_from_index", "index takes precedence")
+      assert(b === "ws_from_inputs", "inputs fallback when index null")
     },
   },
 ]

@@ -16,23 +16,26 @@ Workflows live in infra repos (e.g. **core-terraform**, **payments-terraform**).
 
 ---
 
-## Concurrency (current)
+## Concurrency (workspace inputs)
 
-- **Plan / cleanup:** `group: <repo>-${{ inputs.environment_key }}-${{ inputs.environment_slug }}-${{ inputs.request_id }}` — one active plan per request; cancel-in-progress for plan.
-- **Apply / destroy / drift:** `group: <repo>-state-${{ inputs.environment_key }}-${{ inputs.environment_slug }}` — **serialized per workspace** to protect state lock.
+- **Plan / cleanup:** `group: <repo>-${{ inputs.workspace_key }}-${{ inputs.workspace_slug }}-${{ inputs.request_id }}` — one active plan per request; cancel-in-progress for plan.
+- **Apply / destroy / drift:** `group: <repo>-state-${{ inputs.workspace_key }}-${{ inputs.workspace_slug }}` — **serialized per workspace** to protect state lock.
 
 ---
 
 ## Inputs contract
 
-Common inputs (names may vary by repo):
+TfPilot sends **workspace-only** input names. Infra workflows must use these names.
 
 | Input | Description |
 |-------|-------------|
 | `request_id` | TfPilot request ID (required for plan, apply, destroy, cleanup). |
-| `environment_key` / `environment_slug` | v2: workspace identity (dev/prod key, slug). TfPilot passes these from workspace_key/workspace_slug when dispatching. Input names are historical (represent workspace identity); renaming would require updating all infra repos. |
+| `workspace_id` | Workspace ID (for destroy full-scope; used by webhook for correlation). |
+| `workspace_key` | Workspace key (e.g. `dev`, `prod`). |
+| `workspace_slug` | Workspace slug (e.g. `ai-agent`). |
 | `ref` / branch | Branch to run on (e.g. `request/<requestId>` for plan; default branch for destroy). |
 | `dry_run` | Optional; some workflows support it. |
+| `destroy_scope` | Destroy only: `module` = single request; `workspace` = full workspace destroy. |
 
 TfPilot passes these on dispatch. Run index is written for plan, apply, destroy (and drift_plan when runId is available) so webhooks can correlate by runId.
 
@@ -56,43 +59,44 @@ TfPilot passes these on dispatch. Run index is written for plan, apply, destroy 
 
 Workflow files `plan.yml`, `apply.yml`, `destroy.yml`, `drift_plan.yml`, `cleanup.yml` are used by the app.
 
-### v2 inputs
+### v2 inputs (workspace-only)
 
 | Input | Required | Description |
 |-------|----------|-------------|
 | `request_id` | plan: yes; apply: no; destroy: yes if scope=module | TfPilot request ID |
-| `environment_key` | yes | Workspace key (e.g. `dev`, `prod`). Passed from TfPilot workspace_key. |
-| `environment_slug` | yes | Workspace slug (e.g. `ai-agent`). Passed from TfPilot workspace_slug. |
-| `destroy_scope` | destroy only | `module` = target single module; `environment` = full destroy (no -target) |
+| `workspace_id` | destroy (full scope) | Workspace ID for webhook correlation |
+| `workspace_key` | yes | Workspace key (e.g. `dev`, `prod`) |
+| `workspace_slug` | yes | Workspace slug (e.g. `ai-agent`) |
+| `destroy_scope` | destroy only | `module` = target single module; `workspace` = full workspace destroy (no -target) |
 | `ref` | no | Git ref to checkout (default: main) |
 | `dry_run` | no | Skip terraform destroy if true |
 
-### v2 workspace root (in workflow: ENV_ROOT)
+### v2 workspace root (in workflow)
 
-- In workflow: `ENV_ROOT = envs/${environment_key}/${environment_slug}/` (workspace root).
-- `working-directory` uses `${{ env.ENV_ROOT }}`.
+- Workspace root path: `envs/${workspace_key}/${workspace_slug}/` (historical path convention; variable names in workflow should use `workspace_key` / `workspace_slug`).
+- `working-directory` uses this path (e.g. `env.ENV_ROOT` or equivalent).
 - All artifact paths and Infracost plan path use the workspace root.
 
 ### v2 backend init
 
-- `bucket` = `tfpilot-tfstate-<repo>-${environment_key}` (e.g. core, payments)
-- `key` = `${environment_slug}/terraform.tfstate`
-- `dynamodb_table` = `tfpilot-tfstate-lock-<repo>-${environment_key}`
+- `bucket` = `tfpilot-tfstate-<repo>-${workspace_key}`
+- `key` = `${workspace_slug}/terraform.tfstate`
+- `dynamodb_table` = `tfpilot-tfstate-lock-<repo>-${workspace_key}`
 
 ### v2 concurrency
 
-- **Plan:** `group: <repo>-${{ inputs.environment_key }}-${{ inputs.environment_slug }}-${{ inputs.request_id }}` — one per request.
-- **Apply / destroy:** `group: <repo>-state-${{ inputs.environment_key }}-${{ inputs.environment_slug }}` — serialized per workspace root.
+- **Plan:** `group: <repo>-${{ inputs.workspace_key }}-${{ inputs.workspace_slug }}-${{ inputs.request_id }}` — one per request.
+- **Apply / destroy / drift:** `group: <repo>-state-${{ inputs.workspace_key }}-${{ inputs.workspace_slug }}` — serialized per workspace root.
 
 ### v2 artifact names
 
 - `plan-logs-v2`, `apply-logs-v2`, `destroy-logs-v2`
-- `drift-logs-v2`, `drift-plan-json-v2` — drift plan v2 artifacts (per ENV_ROOT).
+- `drift-logs-v2`, `drift-plan-json-v2` — drift plan v2 artifacts (per workspace root).
 
 ### Drift plan v2
 
 - **Workflow:** `drift_plan.yml`
-- **Inputs:** `environment_key`, `environment_slug` (no `request_id`; workspace-scoped; TfPilot passes from workspace).
-- **Concurrency:** Same as apply/destroy: `group: <repo>-state-${{ inputs.environment_key }}-${{ inputs.environment_slug }}`.
+- **Inputs:** `workspace_key`, `workspace_slug` (no `request_id`; workspace-scoped).
+- **Concurrency:** Same as apply/destroy: `group: <repo>-state-${{ inputs.workspace_key }}-${{ inputs.workspace_slug }}`.
 - **Artifacts:** `drift-logs-v2` (plan.txt, .terraform.lock.hcl), `drift-plan-json-v2` (plan.json).
 - **No webhook:** Last drift is derived from GitHub runs + workspace drift index.

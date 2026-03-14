@@ -243,7 +243,7 @@ Requests can now be created (New Request enabled).
 
 ## Terraform repo structure (Model 2)
 
-Infra repos use multi-environment roots:
+Infra repos use workspace roots:
 
 ```
 envs/<workspace_key>/<workspace_slug>/
@@ -256,6 +256,8 @@ envs/<workspace_key>/<workspace_slug>/
       <module>_req_<request_id>.tf
       .gitkeep
 ```
+
+The `envs/` prefix is historical repository naming. Each directory represents a Terraform root for a workspace.
 
 - Request files use canonical naming: `<module>_req_<request_id>.tf` (e.g. `ecr-repo_req_a12bc3.tf`). No `req_<id>.tf` legacy format.
 - Deploy creates this structure from workspace templates. Merge deploy PR → `backend.tf` exists → workspace becomes deployed; requests can then be created.

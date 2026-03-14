@@ -59,7 +59,7 @@ For archived/retired docs see `docs/archive/`. For design proposals and implemen
 ## Doc refresh (Model 2 + Environment Activity + full alignment) — 2026-03-04
 
 **What changed**
-- **Terraform root (Model 2):** All docs reflect `envs/<environment_key>/<environment_slug>/` layout; request files `<module>_req_<request_id>.tf`; paths derived from (module, request_id); no `req_<id>.tf`, no `request.environment`, no single-root model.
+- **Terraform root (Model 2):** All docs reflect `envs/<workspace_key>/<workspace_slug>/` layout; request files `<module>_req_<request_id>.tf`; paths derived from (module, request_id); no `req_<id>.tf`, no single-root model.
 - **Workspace lifecycle (then env-named):** Create (POST /api/workspaces), Deploy (POST /api/workspaces/:id/deploy → branch `deploy/<key>/<slug>`), deploy detection (GET :id), activity (GET :id/activity). *(Historical: docs previously referred to environment APIs; these are now workspace APIs.)*
 - **Deploy error semantics:** Workspace deploy uses `WORKSPACE_*` error codes (409 already deployed / in progress, 503 check failed, 400 invalid template). Branch-only and PR-open treated same.
 - **Workspace Activity:** `GET /api/workspaces/:id/activity` — event types `workspace_deployed`, `workspace_deploy_pr_open`, `request_created`; Postgres-only (no S3); fail-closed on deploy check.
@@ -74,14 +74,14 @@ For archived/retired docs see `docs/archive/`. For design proposals and implemen
 
 **What changed**
 - **Architecture alignment (Phases 0–6):** All docs reflect Model 2: Terraform repo structure `envs/<key>/<slug>/tfpilot/requests/<module>_req_<request_id>.tf`; no `req_<id>.tf`. Request files use canonical `<module>_req_<request_id>.tf`.
-- **Environment lifecycle:** Create (POST /api/environments), Deploy (POST /api/environments/:id/deploy → branch `deploy/<key>/<slug>`), deploy detection (GET /api/environments/:id → `deployed`, `deployPrOpen`, `deployPrUrl`, `envRootExists`; fail-closed `ENV_DEPLOY_CHECK_FAILED`).
+- **Workspace lifecycle:** Create (POST /api/workspaces), Deploy (POST /api/workspaces/:id/deploy → branch `deploy/<key>/<slug>`), deploy detection (GET /api/workspaces/:id → `deployed`, `deployPrOpen`, `deployPrUrl`, `envRootExists`; fail-closed `WORKSPACE_DEPLOY_CHECK_FAILED`).
 - **Workspace templates:** S3 `templates/workspaces/` index + documents; template-only model. workspaceSkeleton (env deploy via envSkeleton shim) generates bootstrap request files.
 - **Module Registry:** Docs list s3-bucket, ec2-instance, ecr-repo, cloudwatch-log-group, iam-role; registry defines schema; Terraform modules may not yet exist in infra repos.
 - **New Request gating:** `lib/new-request-gate.ts`; messages: "Environment must be deployed before creating resources", "Environment deployment in progress", "Cannot verify deploy status".
-- **API.md:** Environment endpoints (GET/POST /api/environments, GET /api/environments/:id, POST /api/environments/:id/deploy); workspace templates (GET /api/workspace-templates).
-- **INVARIANTS.md:** Added INV-ENV-1..4 (deploy detection, fail-closed, atomic rollback), INV-GATE-1..2 (New Request gating).
-- **Obsolete:** `.request.environment` → `.request.environment_key` for workflow dispatch.
-- **Obsolete removals:** No references to `request.environment`, `req_<id>.tf`, `envs/<environment>/` single-root, Terraform workspace usage in canonical docs.
+- **API.md:** Workspace endpoints (GET/POST /api/workspaces, GET /api/workspaces/:id, POST /api/workspaces/:id/deploy); workspace templates (GET /api/workspace-templates).
+- **INVARIANTS.md:** Workspace deploy invariants INV-WS-1..4 (deploy detection, fail-closed, atomic rollback), INV-GATE-1..2 (New Request gating).
+- **Canonical:** Request and workflow dispatch use `workspace_id`, `workspace_key`, `workspace_slug` only.
+- **Obsolete removals:** No references to legacy `environment_*` identifiers, `req_<id>.tf`, single-root paths in canonical docs.
 
 ---
 

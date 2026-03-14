@@ -2,13 +2,13 @@
 
 ![Deploy Status](https://github.com/giuseppe-moffa/TfPilot/actions/workflows/deploy.yml/badge.svg)
 
-**What is TfPilot:** AI-assisted Terraform self-service platform. Users create requests (project + environment + module + config); the app persists to S3, generates bounded Terraform blocks in infra repos, opens PRs, and GitHub Actions run plan/apply/destroy/cleanup. Status is derived from facts; webhooks + optional SSE keep the UI updated.
+**What is TfPilot:** AI-assisted Terraform self-service platform. Users create requests (project + workspace + module + config); the app persists to S3, generates bounded Terraform blocks in infra repos, opens PRs, and GitHub Actions run plan/apply/destroy/cleanup. Status is derived from facts; webhooks + optional SSE keep the UI updated.
 
 **Core invariants:** Terraform runs only in GitHub Actions (PR-native execution only; no direct Terraform from app). **S3 request document is canonical**; Postgres `requests_index` is a projection for list/pagination only (no lifecycle in DB). Lifecycle derived from facts; attempts created only on dispatch; webhooks patch facts only. No Terraform workspaces. TfPilot writes one Terraform file per request at `envs/<key>/<slug>/tfpilot/requests/<module>_req_<request_id>.tf`. See [docs/INVARIANTS.md](docs/INVARIANTS.md).
 
 **Production URL:** [https://tfpilot.com](https://tfpilot.com) · **Tech stack:** Next.js 16, React 19, Tailwind CSS 4, shadcn/ui.
 
-**Documentation:** [docs/DOCS_INDEX.md](docs/DOCS_INDEX.md) — index of canonical docs. [Useful commands](docs/USEFUL_COMMANDS.md) — dev, Postgres, webhook tunnel, tests. Key: [System overview](docs/SYSTEM_OVERVIEW.md), [Request lifecycle](docs/REQUEST_LIFECYCLE.md), [GitHub workflows](docs/GITHUB_WORKFLOWS.md), [Webhooks & correlation](docs/WEBHOOKS_AND_CORRELATION.md), [Operations](docs/OPERATIONS.md), [Run index](docs/RUN_INDEX.md), [Postgres index](docs/POSTGRES_INDEX.md), [API](docs/API.md). Environment activity timeline: `GET /api/environments/:id/activity`.
+**Documentation:** [docs/DOCS_INDEX.md](docs/DOCS_INDEX.md) — index of canonical docs. [Useful commands](docs/USEFUL_COMMANDS.md) — dev, Postgres, webhook tunnel, tests. Key: [System overview](docs/SYSTEM_OVERVIEW.md), [Request lifecycle](docs/REQUEST_LIFECYCLE.md), [GitHub workflows](docs/GITHUB_WORKFLOWS.md), [Webhooks & correlation](docs/WEBHOOKS_AND_CORRELATION.md), [Operations](docs/OPERATIONS.md), [Run index](docs/RUN_INDEX.md), [Postgres index](docs/POSTGRES_INDEX.md), [API](docs/API.md). Workspace activity timeline: `GET /api/workspaces/:id/activity`.
 
 ### For users: Sign-in and GitHub App
 
@@ -26,19 +26,19 @@ After that, go to [tfpilot.com](https://tfpilot.com) (or your instance URL), cli
 - **Hosting:** AWS ECS Fargate behind Application Load Balancer (ALB) with HTTPS, deployed via GitHub Actions CI/CD. Infrastructure managed in [tfpilot-terraform](https://github.com/giuseppe-moffa/tfpilot-terraform) repository.
 - **Storage:** Requests persisted in S3 (`requests/`), optimistic locking via `version`; destroyed requests archived to `history/`. Cost estimation JSONs (Infracost) stored under `cost/<requestId>/` in the same requests bucket. Assistant state (clarifications, suggestions, patches) stored in request JSON. Lifecycle events logged to S3. Chat logs stored in S3 bucket (e.g., `tfpilot-chat-logs`) with SSE-S3.
 - **Auth/RBAC:** Session cookie validation in middleware; prod actions (create/approve/merge/apply/destroy/cleanup dispatch) gated by `TFPILOT_PROD_ALLOWED_USERS` allow-list. Role-based access (viewer/developer/approver/admin) enforced on critical routes. GitHub OAuth for authentication.
-- **GitHub:** Workflows dispatched with concurrency (plan/cleanup per request; apply/destroy per env). Webhooks (`pull_request`, `pull_request_review`, `workflow_run`) patch request facts; run index gives O(1) correlation. See [docs/GITHUB_WORKFLOWS.md](docs/GITHUB_WORKFLOWS.md), [docs/WEBHOOKS_AND_CORRELATION.md](docs/WEBHOOKS_AND_CORRELATION.md).
+- **GitHub:** Workflows dispatched with concurrency (plan/cleanup per request; apply/destroy per workspace). Webhooks (`pull_request`, `pull_request_review`, `workflow_run`) patch request facts; run index gives O(1) correlation. See [docs/GITHUB_WORKFLOWS.md](docs/GITHUB_WORKFLOWS.md), [docs/WEBHOOKS_AND_CORRELATION.md](docs/WEBHOOKS_AND_CORRELATION.md).
 - **UI:** Requests list (filters, dataset modes), new request form, request detail (Overview, timeline, approve/merge/apply/destroy, plan diff, assistant). Single global SSE subscriber in root layout revalidates request and list (list mutate debounced 300ms); SWR + polling — see [docs/POLLING.md](docs/POLLING.md).
 - **AI Assistant:** Schema-driven assistant that guides users through module inputs, provides suggestions (patches), asks clarifications (text/choice/boolean), and helps refine configurations. Assistant state persisted in requests with hash-based validation to prevent stale suggestions.
 
-### Environment lifecycle
-1) **Create**: POST `/api/environments` — creates DB record (project_key, environment_key, environment_slug, template_id, template_version).
-2) **Deploy**: POST `/api/environments/:id/deploy` — creates branch `deploy/<key>/<slug>`, commits bootstrap Terraform root (backend.tf, providers.tf, versions.tf, tfpilot/base.tf, tfpilot/requests/*.tf), opens PR. Admin-only.
-3) **Deploy detection**: `GET /api/environments/:id` returns `deployed`, `deployPrOpen`, `deployPrUrl`, `envRootExists` from GitHub (backend.tf exists on default branch; open deploy PR if any).
-4) **Gating**: "New Request" is disabled until `deployed=true` and `deployPrOpen=false`. Messages: "Environment must be deployed before creating resources", "Environment deployment in progress", "Cannot verify deploy status" (fail-closed on GitHub check failure).
-5) **Activity**: `GET /api/environments/:id/activity` — env0-style timeline (deploy events + request_created) from Postgres index only.
+### Workspace lifecycle
+1) **Create**: POST `/api/workspaces` — creates DB record (project_key, workspace_key, workspace_slug, template_id, template_version).
+2) **Deploy**: POST `/api/workspaces/:id/deploy` — creates branch `deploy/<key>/<slug>`, commits bootstrap Terraform root (backend.tf, providers.tf, versions.tf, tfpilot/base.tf, tfpilot/requests/*.tf), opens PR. Admin-only.
+3) **Deploy detection**: `GET /api/workspaces/:id` returns `deployed`, `deployPrOpen`, `deployPrUrl`, `envRootExists` from GitHub (backend.tf exists on default branch; open deploy PR if any).
+4) **Gating**: "New Request" is disabled until `deployed=true` and `deployPrOpen=false`. Messages: "Workspace must be deployed before creating resources", "Workspace deployment in progress", "Cannot verify deploy status" (fail-closed on GitHub check failure).
+5) **Activity**: `GET /api/workspaces/:id/activity` — workspace timeline (deploy events + request_created) from Postgres index only.
 
 ### Request lifecycle
-1) **Create**: User selects project/environment/module → fills form or chats with assistant → submits → request created, Terraform generated, PR opened, plan workflow dispatched.
+1) **Create**: User selects project/workspace/module → fills form or chats with assistant → submits → request created, Terraform generated, PR opened, plan workflow dispatched.
 2) **Update** (optional): User can update request configuration → new revision created → new PR opened → previous PR superseded → plan workflow re-runs.
 3) **Plan**: GitHub Actions runs `terraform plan` → results recorded in request → status transitions to `plan_ready`.
 4) **Approve**: User/approver approves request → status transitions to `approved`.
@@ -49,8 +49,8 @@ After that, go to [tfpilot.com](https://tfpilot.com) (or your instance URL), cli
 **Status** (derived, not stored): `request_created` → `planning` → `plan_ready` → `approved` → `merged` → `applying` → `applied` (or `failed`). Destroy: `destroying` → `destroyed`. See [docs/REQUEST_LIFECYCLE.md](docs/REQUEST_LIFECYCLE.md), [docs/GLOSSARY.md](docs/GLOSSARY.md).
 
 ### Workflows (core/payments repos)
-- **Plan**: Concurrency per env+request; `-lock=false`. Uploads plan artifact; run index written on dispatch; webhook/sync patch the plan attempt in `request.runs.plan`. Infracost (when TF files changed) uploads to S3 `cost/<requestId>/`; needs `INFRACOST_API_KEY` and `request_id` on dispatch.
-- **Apply / Destroy**: Serialized per env (state group); prod-guarded. Run index written on dispatch; webhook/sync patch the apply or destroy attempt in `request.runs`. Destroy: cleanup workflow strips TfPilot block first; request archived to `history/` on success.
+- **Plan**: Concurrency per workspace+request; `-lock=false`. Uploads plan artifact; run index written on dispatch; webhook/sync patch the plan attempt in `request.runs.plan`. Infracost (when TF files changed) uploads to S3 `cost/<requestId>/`; needs `INFRACOST_API_KEY` and `request_id` on dispatch.
+- **Apply / Destroy**: Serialized per workspace (state group); prod-guarded. Run index written on dispatch; webhook/sync patch the apply or destroy attempt in `request.runs`. Destroy: cleanup workflow strips TfPilot block first; request archived to `history/` on success.
 - **Cleanup**: Branch `cleanup/<requestId>`; strips only TfPilot block; can auto-merge in dev.
 - **Drift-Plan**: Plan on base branch for drift (dev); nightly drift-check dispatches per request. See [docs/GITHUB_WORKFLOWS.md](docs/GITHUB_WORKFLOWS.md).
 
@@ -65,7 +65,7 @@ After that, go to [tfpilot.com](https://tfpilot.com) (or your instance URL), cli
 - **Required env:** See `env.example` and `lib/config/env.ts`. Buckets, GitHub OAuth, auth secret, workflow filenames, etc.
 - **Postgres (optional):** `DATABASE_URL` or `PGHOST`/`PGUSER`/`PGPASSWORD`/`PGDATABASE`/`PGPORT`. When set, list and health use Postgres; when unset, `GET /api/requests` returns 503. See [docs/POSTGRES_INDEX.md](docs/POSTGRES_INDEX.md), [docs/API.md](docs/API.md).
 - **ECS (tfpilot-terraform):** Sensitive values live in a single Secrets Manager secret (`tfpilot/app`). Task definition injects each key via `valueFrom = "<secret_arn>:KEY::"` (e.g. `AUTH_SECRET`, `GITHUB_CLIENT_SECRET`, `DATABASE_URL`). Postgres is hosted on EC2; `DATABASE_URL` is built from private DNS (`postgres.tfpilot.internal`), security groups allow 5432 from ECS tasks only. See [tfpilot-terraform](https://github.com/giuseppe-moffa/tfpilot-terraform) README and `secrets.tf` / `ecs.tf`.
-- **Migrations:** `npm run db:migrate` (uses `scripts/db-migrate.ts` and `migrations/*.sql`). After adding `environment_slug` to `requests_index`: run `npm run db:rebuild-index` to backfill.
+- **Migrations:** `npm run db:migrate` (uses `scripts/db-migrate.ts` and `migrations/*.sql`). After adding `workspace_slug` to `requests_index`: run `npm run db:rebuild-index` to backfill.
 
 ### Environment (see `env.example`)
 - Buckets/region: `TFPILOT_REQUESTS_BUCKET`, `TFPILOT_CHAT_LOGS_BUCKET`, `TFPILOT_DEFAULT_REGION`
@@ -152,7 +152,7 @@ Runs the lifecycle invariant suite (`tests/invariants/`). Must pass before mergi
 
 ### Environment health (future roadmap)
 
-Planned: drift detection, plan/apply activity events in timeline, environment health indicators. See [docs/SYSTEM_OVERVIEW.md](docs/SYSTEM_OVERVIEW.md) Future roadmap section.
+Planned: drift detection, plan/apply activity events in timeline, workspace health indicators. See [docs/SYSTEM_OVERVIEW.md](docs/SYSTEM_OVERVIEW.md) Future roadmap section.
 
 ### Observability
 - **Current**: UI polling (SWR) for list and per-request sync; statuses surfaced for plan/apply/destroy; cleanup PR displayed. Lifecycle events logged to S3 (JSON format) for plan/approve/merge/apply/destroy/cleanup/configuration_updated events. Request detail pages show timeline of events. Downloadable audit logs (JSON export) for compliance and troubleshooting. Admin email notifications (AWS SES) for apply/destroy/plan success and failure events. Passive drift detection (dev-only): nightly terraform plans for successfully applied requests detect infrastructure drift; drift status surfaced in UI with plan run links.

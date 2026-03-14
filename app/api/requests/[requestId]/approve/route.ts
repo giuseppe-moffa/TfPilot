@@ -34,9 +34,8 @@ type RequestDocForApprove = {
   targetRepo?: string
   prNumber?: number
   pr?: { number?: number }
-  environment_key?: string
+  workspace_id?: string
   timeline?: unknown[]
-  environment_id?: string
   idempotency?: Record<string, { key: string; at: string }>
 }
 
@@ -224,7 +223,7 @@ export function makeRequestApprovePOST(deps: RequestApproveDeps) {
         entity_id: requestId,
         request_id: requestId,
         project_key: existing.project_key,
-        environment_id: existing.environment_id,
+        workspace_id: existing.workspace_id,
       })
 
       return NextResponse.json({ success: true, request: updated }, { status: 200 })

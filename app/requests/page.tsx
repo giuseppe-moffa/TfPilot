@@ -36,14 +36,14 @@ import { cn } from "@/lib/utils"
 import { useAwsConnection } from "../providers"
 import { patchRequestCache } from "@/hooks/use-request"
 import { normalizeRequestStatus } from "@/lib/status/status-config"
-import { formatEnvDisplay } from "@/lib/format/envDisplay"
+import { formatWorkspaceDisplay } from "@/lib/format/workspaceDisplay"
 
 type RequestRow = {
   id: string
   project: string
   project_key?: string
-  environment: string
-  environment_key?: string
+  workspace: string
+  workspace_key?: string
   name?: string
   module?: string
   status?: string
@@ -91,9 +91,8 @@ function mapApiRequestToRow(r: {
   id?: string
   project?: string
   project_key?: string
-  environment?: string
-  environment_key?: string
-  environment_slug?: string
+  workspace_key?: string
+  workspace_slug?: string
   module?: string
   config?: Record<string, unknown>
   status?: string
@@ -108,8 +107,8 @@ function mapApiRequestToRow(r: {
     id: r.id ?? "",
     project: r.project_key ?? r.project ?? "",
     project_key: r.project_key ?? r.project ?? "",
-    environment: formatEnvDisplay(r.environment_key ?? "", r.environment_slug ?? ""),
-    environment_key: r.environment_key ?? "",
+    workspace: formatWorkspaceDisplay(r.workspace_key ?? "", r.workspace_slug ?? ""),
+    workspace_key: r.workspace_key ?? "",
     module: r.module,
     name:
       typeof r.config?.["name"] === "string" ? (r.config["name"] as string) : undefined,
@@ -236,7 +235,7 @@ export default function RequestsPage() {
       if (datasetMode === "active" && isFullyDestroyed) return false
       if (datasetMode === "drifted" && row.drift?.status !== "detected") return false
 
-      if (envFilter !== "all" && (row.environment_key ?? "").toLowerCase() !== envFilter) return false
+      if (envFilter !== "all" && (row.workspace_key ?? "").toLowerCase() !== envFilter) return false
       if (moduleFilter !== "all" && row.module !== moduleFilter) return false
       if (projectFilter !== "all" && row.project !== projectFilter) return false
 
@@ -244,7 +243,7 @@ export default function RequestsPage() {
       const haystack = [
         row.id,
         row.project ?? row.project_key,
-        row.environment,
+        row.workspace,
         row.module,
         row.name,
         row.config && typeof row.config === "object" ? JSON.stringify(row.config) : "",
@@ -405,10 +404,10 @@ export default function RequestsPage() {
               <SelectTrigger
                 className="!h-11 min-w-[130px] bg-muted/50 dark:bg-muted/40 px-3 text-sm text-foreground shadow-none hover:bg-muted/60 dark:hover:bg-muted/50 data-[state=open]:bg-muted/60 dark:data-[state=open]:bg-muted/50 focus-visible:ring-0 focus-visible:ring-offset-0"
               >
-                <SelectValue placeholder="All envs" />
+                <SelectValue placeholder="All workspaces" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All envs</SelectItem>
+                <SelectItem value="all">All workspaces</SelectItem>
                 <SelectItem value="dev">Dev</SelectItem>
                 <SelectItem value="prod">Prod</SelectItem>
               </SelectContent>
@@ -465,7 +464,7 @@ export default function RequestsPage() {
                   <TableHead>Project</TableHead>
                   <TableHead>Module</TableHead>
                   <TableHead>Resource Name</TableHead>
-                  <TableHead>Environment</TableHead>
+                  <TableHead>Workspace</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Created</TableHead>
                 <TableHead>Last updated</TableHead>
@@ -505,7 +504,7 @@ export default function RequestsPage() {
                         </div>
                       </TableCell>
                       <TableCell>{item.name ?? "N/A"}</TableCell>
-                      <TableCell className="capitalize">{item.environment}</TableCell>
+                      <TableCell className="capitalize">{item.workspace}</TableCell>
                       <TableCell className="text-sm text-foreground whitespace-normal break-words leading-tight align-middle">
                         <div className="flex items-center gap-2 flex-wrap">
                           <StatusIndicator

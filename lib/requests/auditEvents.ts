@@ -23,7 +23,6 @@ type RequestLike = {
   project?: string
   project_key?: string
   environment?: string
-  environment_key?: string
   workspace_key?: string
   module?: string
   config?: { tags?: Record<string, unknown> }
@@ -187,7 +186,6 @@ export function buildAuditEvents(
     const requestCreatedMeta: Record<string, unknown> = {}
     if (request.project_key != null) requestCreatedMeta.project = request.project_key
     if (request.workspace_key != null) requestCreatedMeta.environment = request.workspace_key
-    else if (request.environment_key != null) requestCreatedMeta.environment = request.environment_key
     if (request.module != null) requestCreatedMeta.module = request.module
     if (targetRepoStr != null) requestCreatedMeta.targetRepo = targetRepoStr
     add(out, receivedAt, "request_created", "Request created", requestCreatedMeta, createdBy)

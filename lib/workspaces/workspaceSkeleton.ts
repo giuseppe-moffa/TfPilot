@@ -249,7 +249,7 @@ export async function workspaceSkeleton(
     const ctx = {
       requestId: fullRequestId,
       project_key,
-      environment_key: workspace_key,
+      workspace_key,
     }
     const config = regEntry.compute ? regEntry.compute(rawConfig, ctx) : rawConfig
     const { path, content } = generateModel2RequestFile(workspace_key, workspace_slug, {

@@ -1,5 +1,5 @@
 /**
- * POST /api/workspaces/:id/destroy — Dispatch destroy with destroy_scope="environment",
+ * POST /api/workspaces/:id/destroy — Dispatch destroy with destroy_scope="workspace",
  * resolve runId, write index. Archive happens on webhook when run completes successfully.
  */
 
@@ -197,9 +197,9 @@ export function makeWorkspaceDestroyPOST(deps: WorkspaceDestroyRouteDeps) {
     body: JSON.stringify({
       ref: branch,
       inputs: buildWorkspaceDestroyInputs({
-        environment_key: wsRow.workspace_key,
-        environment_slug: wsRow.workspace_slug,
-        environment_id: workspaceId,
+        workspace_id: workspaceId,
+        workspace_key: wsRow.workspace_key,
+        workspace_slug: wsRow.workspace_slug,
       }),
     }),
   })
@@ -266,7 +266,7 @@ export function makeWorkspaceDestroyPOST(deps: WorkspaceDestroyRouteDeps) {
     event_type: "workspace_destroy_requested",
     entity_type: "workspace",
     entity_id: workspaceId,
-    environment_id: workspaceId,
+    workspace_id: workspaceId,
     project_key: wsRow.project_key,
     metadata: { project_key: wsRow.project_key, workspace_slug: wsRow.workspace_slug },
   }).catch(() => {})

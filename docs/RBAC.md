@@ -41,7 +41,7 @@ Defined in **org_memberships** table. Resolved via `getUserOrgRole(login, orgId)
 | **viewer**  | Read-only. Cannot create, update, approve, deploy, or destroy. |
 | **developer** | Create requests, update config, trigger plan. Cannot approve, merge, apply, deploy, or destroy. |
 | **approver** | Developer permissions + approve PRs, merge, apply. |
-| **admin**   | Full org access including environment deploy and destroy. Org admin short-circuits to full project authority. |
+| **admin**   | Full org access including workspace deploy and destroy. Org admin short-circuits to full project authority. |
 
 ## Project roles
 

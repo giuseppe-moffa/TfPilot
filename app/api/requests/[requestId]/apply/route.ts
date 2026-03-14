@@ -80,12 +80,6 @@ type RequestDocForApply = {
   workspace_key?: string
   workspace_slug?: string
   workspace_id?: string
-  /** @deprecated Compat */
-  environment_key?: string
-  /** @deprecated Compat */
-  environment_slug?: string
-  /** @deprecated Compat */
-  environment_id?: string
   runs?: RunsState
 }
 
@@ -210,7 +204,7 @@ function validatePolicy(config: Record<string, unknown>) {
   }
 }
 
-function normalizeByFields(entry: ModuleRegistryEntry, rawConfig: Record<string, unknown>, ctx: { requestId: string; project_key: string; environment_key: string }) {
+function normalizeByFields(entry: ModuleRegistryEntry, rawConfig: Record<string, unknown>, ctx: { requestId: string; project_key: string; workspace_key: string }) {
   const fields = buildFieldMap(entry)
   const allowed = new Set(Object.keys(fields))
 
@@ -249,7 +243,7 @@ function normalizeByFields(entry: ModuleRegistryEntry, rawConfig: Record<string,
   return finalConfig
 }
 
-function buildModuleConfig(entry: ModuleRegistryEntry, rawConfig: Record<string, unknown>, ctx: { requestId: string; project_key: string; environment_key: string }) {
+function buildModuleConfig(entry: ModuleRegistryEntry, rawConfig: Record<string, unknown>, ctx: { requestId: string; project_key: string; workspace_key: string }) {
   if (!entry.fields || entry.fields.length === 0) {
     throw new Error(`Module ${entry.type} missing fields schema (schema contract v2 required)`)
   }
@@ -429,13 +423,13 @@ export function makeApplyPOST(deps: ApplyRouteDeps) {
           return NextResponse.json({ error: "Request missing target repo info" }, { status: 400 })
         }
         const dispatchTime = new Date()
-        const aWsKey = request.workspace_key ?? request.environment_key ?? "dev"
-        const aWsSlug = request.workspace_slug ?? request.environment_slug ?? ""
+        const workspaceKey = request.workspace_key ?? "dev"
+        const workspaceSlug = request.workspace_slug ?? ""
         await gh(token, `/repos/${owner}/${repo}/actions/workflows/${env.GITHUB_APPLY_WORKFLOW_FILE}/dispatches`, {
           method: "POST",
           body: JSON.stringify({
             ref: applyRef,
-            inputs: { request_id: request.id, environment_key: aWsKey, environment_slug: aWsSlug },
+            inputs: { request_id: request.id, workspace_key: workspaceKey, workspace_slug: workspaceSlug },
           }),
         })
         const RESOLVE_ATTEMPTS = 12
@@ -528,7 +522,7 @@ export function makeApplyPOST(deps: ApplyRouteDeps) {
           entity_id: request.id,
           request_id: request.id,
           project_key: request.project_key,
-          environment_id: request.environment_id,
+          workspace_id: request.workspace_id,
         }).catch(() => {})
         return NextResponse.json({ ok: true, request: afterApply })
       } catch (deployErr) {
@@ -615,7 +609,7 @@ export function makeApplyPOST(deps: ApplyRouteDeps) {
     const finalConfig = buildModuleConfig(regEntry, nextConfig, {
       requestId: baseRequest.id,
       project_key: baseRequest.project_key,
-      environment_key: baseRequest.workspace_key ?? baseRequest.environment_key,
+      workspace_key: baseRequest.workspace_key ?? "dev",
     })
 
     appendRequestIdToNames(finalConfig, baseRequest.id)

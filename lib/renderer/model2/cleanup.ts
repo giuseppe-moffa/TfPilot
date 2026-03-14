@@ -32,10 +32,10 @@ export function assertCleanupPathSafe(path: string): AssertCleanupPathSafeResult
 
 /** Returns the exact file path to delete for Model 2 cleanup. No marker scanning. */
 export function getCleanupPath(
-  environment_key: string,
-  environment_slug: string,
+  workspace_key: string,
+  workspace_slug: string,
   module: string,
   requestId: string
 ): string {
-  return computeRequestTfPath(environment_key, environment_slug, module, requestId)
+  return computeRequestTfPath(workspace_key, workspace_slug, module, requestId)
 }

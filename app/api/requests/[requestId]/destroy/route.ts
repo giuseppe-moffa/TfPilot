@@ -24,7 +24,7 @@ import { getCurrentAttemptStrict, patchAttemptRunId, persistDispatchAttempt } fr
 import type { RunsState } from "@/lib/requests/runsModel"
 import { putRunIndex } from "@/lib/requests/runIndex"
 import { resolveDestroyRunId } from "@/lib/requests/resolveDestroyRunId"
-import { getMissingEnvFields } from "@/lib/requests/requireEnvFields"
+import { getMissingWorkspaceFields } from "@/lib/requests/requireWorkspaceFields"
 import { getRequestOrgId } from "@/lib/db/requestsList"
 import type { SessionPayload } from "@/lib/auth/session"
 
@@ -36,9 +36,9 @@ type RequestDocForDestroy = {
   targetRepo?: string
   targetEnvPath?: string
   targetBase?: string
-  environment_key?: string
-  environment_slug?: string
-  environment_id?: string
+  workspace_id?: string
+  workspace_key?: string
+  workspace_slug?: string
   module?: string
   mergedSha?: string
   commitSha?: string
@@ -137,7 +137,7 @@ export function makeDestroyPOST(deps: DestroyRouteDeps) {
       throw e
     }
 
-    const missing = getMissingEnvFields(request as Record<string, unknown>)
+    const missing = getMissingWorkspaceFields(request as Record<string, unknown>)
     if (missing.length > 0) {
       logError("destroy.missing_env_fields", new Error(`Request missing: ${missing.join(", ")}`), { ...correlation, requestId: request.id })
       return NextResponse.json(
@@ -202,27 +202,26 @@ export function makeDestroyPOST(deps: DestroyRouteDeps) {
     }
 
     if (!request.targetOwner || !request.targetRepo || !request.targetEnvPath) {
-      return NextResponse.json({ error: "Request missing repo or env info" }, { status: 400 })
+      return NextResponse.json({ error: "Request missing repo or workspace info" }, { status: 400 })
     }
 
-    const envKey = request.environment_key
-    const isProd = envKey?.toLowerCase() === "prod"
+    const workspaceKey = request.workspace_key
+    const isProd = workspaceKey?.toLowerCase() === "prod"
 
     // Fire cleanup workflow first so code removal is ready before destroy completes
-    const envSlug = request.environment_slug ?? ""
+    const workspaceSlug = request.workspace_slug ?? ""
     if (
       env.GITHUB_CLEANUP_WORKFLOW_FILE &&
       request.targetOwner &&
       request.targetRepo &&
-      envKey &&
-      envSlug !== undefined &&
+      workspaceKey &&
       request.module
     ) {
       const cleanupInputs = {
         request_id: request.id,
         module: request.module,
-        environment_key: envKey,
-        environment_slug: envSlug,
+        workspace_key: workspaceKey,
+        workspace_slug: workspaceSlug,
         target_base: request.targetBase ?? env.GITHUB_DEFAULT_BASE_BRANCH,
         auto_merge: isProd ? "false" : "true",
       }
@@ -358,16 +357,16 @@ export function makeDestroyPOST(deps: DestroyRouteDeps) {
     const dispatchTime = new Date()
 
     // Dispatch destroy workflow (destroy_scope=module for single request)
-    const dEnvKey = request.environment_key
-    const dEnvSlug = request.environment_slug ?? ""
+    const dWorkspaceKey = request.workspace_key
+    const dWorkspaceSlug = request.workspace_slug ?? ""
     await gh(token, `/repos/${request.targetOwner}/${request.targetRepo}/actions/workflows/${env.GITHUB_DESTROY_WORKFLOW_FILE}/dispatches`, {
       method: "POST",
       body: JSON.stringify({
         ref: request.targetBase ?? env.GITHUB_DEFAULT_BASE_BRANCH,
         inputs: {
           request_id: request.id,
-          environment_key: dEnvKey,
-          environment_slug: dEnvSlug,
+          workspace_key: dWorkspaceKey,
+          workspace_slug: dWorkspaceSlug,
           destroy_scope: "module",
         },
       }),
@@ -467,7 +466,7 @@ export function makeDestroyPOST(deps: DestroyRouteDeps) {
       entity_id: request.id,
       request_id: request.id,
       project_key: request.project_key,
-      environment_id: request.environment_id,
+      workspace_id: request.workspace_id,
     }).catch(() => {})
 
     // Write an archive copy under history/ while keeping the active tombstone
