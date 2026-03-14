@@ -64,81 +64,45 @@ Implementation: `app/api/health/db/route.ts` — uses `isDatabaseConfigured()` f
 
 ---
 
-## Environment and Environment Templates
+## Workspaces
 
-### GET /api/environments
+Use **GET/POST /api/workspaces** and project-scoped workspace URLs (e.g. `/projects/[projectId]/workspaces`). Request create accepts `workspace_id` or `(project_key, workspace_key, workspace_slug)`.
 
-List environments (DB-backed). **Requires session.** Query params: `project_key`, `include_archived` (default false).
+### GET /api/workspace-templates
 
-**Response (200):** `{ environments: Environment[] }`. **503** when DB not configured or unavailable.
+Returns workspace template index from S3 (`templates/workspaces/index.json`). **Requires session.** Response: array of `{ id, name, latest_version, description?, category?, icon?, recommended? }`. Used by create-workspace UI. **503** when index not seeded.
 
-### POST /api/environments
+---
 
-Create environment. **Requires session** (viewer role blocked). Body: `project_key`, `environment_key`, `environment_slug`, `template_id` (optional; validated against `config/environment-templates.ts`). Invalid `template_id` → **400** `{ error: "INVALID_ENV_TEMPLATE" }`. On success: creates DB row, optionally creates bootstrap PR; returns **201** `{ environment, bootstrap }`. **409** when environment already exists.
+## Projects and workspaces
 
-### GET /api/environments/:id
+### GET /api/projects
 
-Fetch single environment + deploy status. **Requires session.** Uses GitHub API via `getEnvironmentDeployStatus`.
+List projects for the active org. **Requires session.** Response: `{ projects: [{ id, project_key, name, workspace_count }] }`. **503** when DB not configured.
 
-**Response (200):**
-```json
-{
-  "environment": { /* DB row */ },
-  "deployed": boolean,
-  "deployPrOpen": boolean | null,
-  "envRootExists": boolean | null,
-  "deployPrUrl": string | null,
-  "error": "ENV_DEPLOY_CHECK_FAILED" | null
-}
-```
+### POST /api/projects
 
-- `deployed`: true when `backend.tf` exists on default branch at `envs/<key>/<slug>/`.
-- `deployPrOpen`: true when open PR with head `deploy/<key>/<slug>` exists.
-- `deployPrUrl`: URL when PR exists.
-- `envRootExists`: env root directory exists on default branch.
-- When GitHub check fails (e.g. rate limit), `error: "ENV_DEPLOY_CHECK_FAILED"`; `deployPrOpen` null; fail-closed.
+Create project. **Requires session.** Body: `name`, `project_key`, `repo_full_name`, `default_branch`. Validates: project_key lowercase alphanumeric + hyphens; repo_full_name owner/repo format. Creator auto-assigned as project admin. **409** when project_key already exists in org. **201** returns created project.
 
-### POST /api/environments/:id/deploy
+### GET /api/projects/[projectId]
 
-Create deploy PR from environment template. **Admin-only.** Creates branch `deploy/<key>/<slug>`, commits bootstrap via `envSkeleton`, opens PR. Returns `deploy.pr_url`, `deploy.pr_number`.
+Fetch single project. **Requires session.** Accepts `project_key` or project id in URL. Response: `{ project: { id, project_key, name, repo_full_name, default_branch, ... }, workspace_count }`. **404** when not found.
 
-**Deploy error semantics:**
+### PATCH /api/projects/[projectId]
 
-| Error | HTTP | Condition |
-|-------|------|-----------|
-| `ENV_ALREADY_DEPLOYED` | 409 | `backend.tf` exists on default branch (env already deployed) |
-| `ENV_DEPLOY_IN_PROGRESS` | 409 | Branch `deploy/<key>/<slug>` exists **or** open deploy PR exists. Branch-only and PR-open are intentionally treated the same. |
-| `ENV_DEPLOY_CHECK_FAILED` | 503 | GitHub check fails (e.g. rate limit, unreachable). Fail-closed. |
-| `INVALID_ENV_TEMPLATE` | 400 | Environment has invalid or unknown `template_id`. |
+Update project metadata. **Requires session** and `manage_access` on project. Body: `name`, `repo_full_name`, `default_branch` (all optional, partial update). **403** when permission denied. **404** when not found.
 
-### GET /api/environments/:id/activity
+### GET /api/workspaces
 
-Environment activity timeline. **Requires session.** Derived from Postgres request index + deploy status only (no S3 reads).
+List workspaces. **Requires session.** Query: `project_key`, `include_archived` (default false). Response: `{ workspaces: [...] }`. **503** when DB not configured.
 
-**Response (200):**
-```json
-{
-  "activity": [
-    {
-      "type": "environment_deployed" | "environment_deploy_pr_open" | "request_created",
-      "timestamp": "<ISO string>",
-      "request_id": "<optional>",
-      "module": "<optional>",
-      "pr_url": "<optional>",
-      "pr_number": "<optional>"
-    }
-  ],
-  "warning": "ENV_DEPLOY_CHECK_FAILED"
-}
-```
+### POST /api/workspaces
 
-- `activity`: Newest first. Event types: `environment_deployed`, `environment_deploy_pr_open`, `request_created`. Future types may include `plan_succeeded`, `apply_succeeded`, `destroy_succeeded`.
-- `warning`: Present when GitHub deploy check fails; deploy events are omitted, request-derived events still returned.
-- **404** when environment not found: `{ error: "NOT_FOUND" }`.
+Create workspace + bootstrap PR. **Requires session** and GitHub connected. Body: `project_key`, `workspace_key`, `workspace_slug`, `template_id` (optional). Reads `repo_full_name` and `default_branch` from **projects table** only. **404** when project not found. **400** when project missing repo config. **409** when workspace already exists. **201** returns workspace + bootstrap info.
 
-### GET /api/environment-templates
+### Admin audit: workspaces missing project
 
-Returns environment templates (static config from `config/environment-templates.ts`). **Requires session.** Response: array of `{ id, label?, modules: { module, order, defaultConfig? }[] }`. Templates: `blank`, `baseline-ai-service`, `baseline-app-service`, `baseline-worker-service`.
+**GET /api/admin/audit/workspaces-missing-project** — Platform-admin only. Lists `(org_id, project_key)` pairs from workspaces that have no matching project row. Optional `?org_id=` filter. Response: `{ orphaned: [{ org_id, project_key }], count }`. Read-only; no auto-fix.
 
 ---
 
@@ -170,7 +134,7 @@ Platform-admin = `isPlatformAdmin(login)` (platform_admins table). Non-admins re
 | `POST /api/platform/orgs/[orgId]/archive` | POST | Soft-archive org (sets `archived_at`). Idempotent. |
 | `POST /api/platform/orgs/[orgId]/restore` | POST | Restore archived org (clears `archived_at`). Idempotent. |
 
-**Archived org enforcement:** Org-scoped APIs (requests, environments, metrics/insights, etc.) return **403** `{ error: "Organization archived" }` when `session.orgId` points to an archived org. Platform routes bypass this; platform admins can list/view/archive/restore orgs even when current org is archived.
+**Archived org enforcement:** Org-scoped APIs (requests, workspaces, metrics/insights, etc.) return **403** `{ error: "Organization archived" }` when `session.orgId` points to an archived org. Platform routes bypass this; platform admins can list/view/archive/restore orgs even when current org is archived.
 
 ---
 

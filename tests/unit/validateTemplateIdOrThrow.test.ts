@@ -1,26 +1,14 @@
 /**
  * Unit tests: validateTemplateIdOrThrow.
- * S3-backed template validation; uses S3 stub for deterministic tests.
+ * Uses workspace-templates-store (new S3 layout). No blank. Test override for index.
  */
 
-import { createS3Stub, TEST_BUCKET } from "../fixtures/s3-stub"
-import {
-  __testOnlySetS3,
-  seedEnvTemplatesFromConfig,
-  disableEnvTemplate,
-} from "@/lib/env-templates-store"
 import {
   validateTemplateIdOrThrow,
-  INVALID_ENV_TEMPLATE,
-  ENV_TEMPLATES_NOT_INITIALIZED,
-} from "@/lib/environments/validateTemplateId"
-
-const stub = createS3Stub()
-
-function useStub() {
-  __testOnlySetS3(stub, TEST_BUCKET)
-  stub.clear()
-}
+  INVALID_WORKSPACE_TEMPLATE,
+  WORKSPACE_TEMPLATES_NOT_INITIALIZED,
+} from "@/lib/workspaces/validateTemplateId"
+import { __testOnlySetWorkspaceTemplatesIndex } from "@/lib/workspace-templates-store"
 
 function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(`Assertion failed: ${message}`)
@@ -28,110 +16,107 @@ function assert(condition: boolean, message: string): void {
 
 const TEST_ORG_ID = "default"
 
+const INDEX_WITH_BASELINE = [
+  { id: "baseline-ai-service", name: "Baseline AI", latest_version: "v1" },
+]
+
 export const tests = [
   {
     name: "validateTemplateIdOrThrow: null resolves (no throw)",
     fn: async () => {
-      useStub()
+      __testOnlySetWorkspaceTemplatesIndex(null)
       await validateTemplateIdOrThrow(null, TEST_ORG_ID)
     },
   },
   {
     name: "validateTemplateIdOrThrow: undefined resolves (no throw)",
     fn: async () => {
-      useStub()
+      __testOnlySetWorkspaceTemplatesIndex(null)
       await validateTemplateIdOrThrow(undefined, TEST_ORG_ID)
     },
   },
   {
-    name: "validateTemplateIdOrThrow: blank resolves even when index missing",
+    name: "validateTemplateIdOrThrow: blank throws INVALID_WORKSPACE_TEMPLATE (template-only)",
     fn: async () => {
-      useStub()
-      await validateTemplateIdOrThrow("blank", TEST_ORG_ID)
+      __testOnlySetWorkspaceTemplatesIndex(null)
+      try {
+        await validateTemplateIdOrThrow("blank", TEST_ORG_ID)
+        throw new Error("Expected throw")
+      } catch (err: unknown) {
+        const code = (err as { code?: string })?.code
+        assert(code === INVALID_WORKSPACE_TEMPLATE, `Expected ${INVALID_WORKSPACE_TEMPLATE}, got ${code}`)
+      }
     },
   },
   {
-    name: "validateTemplateIdOrThrow: empty string throws INVALID_ENV_TEMPLATE",
+    name: "validateTemplateIdOrThrow: empty string throws INVALID_WORKSPACE_TEMPLATE",
     fn: async () => {
-      useStub()
+      __testOnlySetWorkspaceTemplatesIndex(null)
       try {
         await validateTemplateIdOrThrow("", TEST_ORG_ID)
         throw new Error("Expected throw")
       } catch (err: unknown) {
         const code = (err as { code?: string })?.code
-        assert(code === INVALID_ENV_TEMPLATE, `Expected ${INVALID_ENV_TEMPLATE}, got ${code}`)
+        assert(code === INVALID_WORKSPACE_TEMPLATE, `Expected ${INVALID_WORKSPACE_TEMPLATE}, got ${code}`)
       }
     },
   },
   {
-    name: "validateTemplateIdOrThrow: whitespace-only throws INVALID_ENV_TEMPLATE",
+    name: "validateTemplateIdOrThrow: whitespace-only throws INVALID_WORKSPACE_TEMPLATE",
     fn: async () => {
-      useStub()
+      __testOnlySetWorkspaceTemplatesIndex(null)
       try {
         await validateTemplateIdOrThrow("   ", TEST_ORG_ID)
         throw new Error("Expected throw")
       } catch (err: unknown) {
         const code = (err as { code?: string })?.code
-        assert(code === INVALID_ENV_TEMPLATE, `Expected ${INVALID_ENV_TEMPLATE}, got ${code}`)
+        assert(code === INVALID_WORKSPACE_TEMPLATE, `Expected ${INVALID_WORKSPACE_TEMPLATE}, got ${code}`)
       }
     },
   },
   {
-    name: "validateTemplateIdOrThrow: unknown id when index present throws INVALID_ENV_TEMPLATE",
+    name: "validateTemplateIdOrThrow: unknown id when index present throws INVALID_WORKSPACE_TEMPLATE",
     fn: async () => {
-      useStub()
-      await seedEnvTemplatesFromConfig(TEST_ORG_ID, [
-        { id: "baseline-ai-service", label: "Baseline AI", modules: [] },
-      ])
+      __testOnlySetWorkspaceTemplatesIndex(() => Promise.resolve(INDEX_WITH_BASELINE))
       try {
         await validateTemplateIdOrThrow("unknown", TEST_ORG_ID)
         throw new Error("Expected throw")
       } catch (err: unknown) {
         const code = (err as { code?: string })?.code
-        assert(code === INVALID_ENV_TEMPLATE, `Expected ${INVALID_ENV_TEMPLATE}, got ${code}`)
+        assert(code === INVALID_WORKSPACE_TEMPLATE, `Expected ${INVALID_WORKSPACE_TEMPLATE}, got ${code}`)
+      } finally {
+        __testOnlySetWorkspaceTemplatesIndex(null)
       }
     },
   },
   {
-    name: "validateTemplateIdOrThrow: non-blank when index missing throws ENV_TEMPLATES_NOT_INITIALIZED",
+    name: "validateTemplateIdOrThrow: non-blank when index missing throws WORKSPACE_TEMPLATES_NOT_INITIALIZED",
     fn: async () => {
-      useStub()
+      __testOnlySetWorkspaceTemplatesIndex(() =>
+        Promise.reject(new Error("Workspace templates index not found (S3 key: templates/workspaces/index.json). Seed the templates bucket before use."))
+      )
       try {
         await validateTemplateIdOrThrow("baseline-ai-service", TEST_ORG_ID)
         throw new Error("Expected throw")
       } catch (err: unknown) {
         const code = (err as { code?: string })?.code
         assert(
-          code === ENV_TEMPLATES_NOT_INITIALIZED,
-          `Expected ${ENV_TEMPLATES_NOT_INITIALIZED}, got ${code}`
+          code === WORKSPACE_TEMPLATES_NOT_INITIALIZED,
+          `Expected ${WORKSPACE_TEMPLATES_NOT_INITIALIZED}, got ${code}`
         )
+      } finally {
+        __testOnlySetWorkspaceTemplatesIndex(null)
       }
     },
   },
   {
-    name: "validateTemplateIdOrThrow: baseline-ai-service when index present + enabled resolves",
+    name: "validateTemplateIdOrThrow: baseline-ai-service when index present resolves",
     fn: async () => {
-      useStub()
-      await seedEnvTemplatesFromConfig(TEST_ORG_ID, [
-        { id: "baseline-ai-service", label: "Baseline AI", modules: [] },
-      ])
-      await validateTemplateIdOrThrow("baseline-ai-service", TEST_ORG_ID)
-    },
-  },
-  {
-    name: "validateTemplateIdOrThrow: baseline-ai-service when disabled throws INVALID_ENV_TEMPLATE",
-    fn: async () => {
-      useStub()
-      await seedEnvTemplatesFromConfig(TEST_ORG_ID, [
-        { id: "baseline-ai-service", label: "Baseline AI", modules: [] },
-      ])
-      await disableEnvTemplate(TEST_ORG_ID, "baseline-ai-service")
+      __testOnlySetWorkspaceTemplatesIndex(() => Promise.resolve(INDEX_WITH_BASELINE))
       try {
         await validateTemplateIdOrThrow("baseline-ai-service", TEST_ORG_ID)
-        throw new Error("Expected throw")
-      } catch (err: unknown) {
-        const code = (err as { code?: string })?.code
-        assert(code === INVALID_ENV_TEMPLATE, `Expected ${INVALID_ENV_TEMPLATE}, got ${code}`)
+      } finally {
+        __testOnlySetWorkspaceTemplatesIndex(null)
       }
     },
   },

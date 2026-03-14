@@ -17,7 +17,8 @@ const REQUIRED_TAG_KEYS_WITH_TEMPLATE = [...REQUIRED_TAG_KEYS, "tfpilot:template
 export type RequestForTags = {
   id: string
   project_key: string
-  environment_key: string
+  /** workspace_key. Used for tfpilot:environment tag value. */
+  workspace_key?: string
   templateId?: string
 }
 
@@ -31,7 +32,7 @@ export function buildServerAuthoritativeTags(
   const tags: Record<string, string> = {
     "tfpilot:request_id": request.id,
     "tfpilot:project": request.project_key,
-    "tfpilot:environment": request.environment_key,
+    "tfpilot:environment": request.workspace_key ?? "",
     "tfpilot:created_by": createdBy,
   }
   if (request.templateId != null && String(request.templateId).trim() !== "") {

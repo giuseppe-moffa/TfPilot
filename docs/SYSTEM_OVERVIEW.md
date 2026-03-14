@@ -26,7 +26,7 @@ TfPilot is a **PR-native, deterministic Terraform control plane**: AI-assisted s
 
 ## Multi-org architecture
 
-TfPilot is **multi-tenant** at the org level. All environments, requests, projects, and teams are scoped to an **org**.
+TfPilot is **multi-tenant** at the org level. All workspaces, requests, projects, and teams are scoped to an **org**.
 
 ### Org model
 
@@ -68,16 +68,23 @@ When `session.orgId` points to an **archived org**, org-scoped APIs return **403
 
 ---
 
-## Teams and project access
+## Projects and workspaces (first-class)
+
+**Projects** and **workspaces** are user-created, user-managed resources. The hierarchy is: Organization → Project → Workspace → Request.
 
 | Table | Purpose |
 |-------|---------|
+| **projects** | `id`, `org_id`, `project_key`, `name`, `repo_full_name`, `default_branch`. User-created. Defines the infra repo and RBAC boundary. |
+| **workspaces** | `workspace_id`, `org_id`, `project_key`, `repo_full_name`, `workspace_key`, `workspace_slug`. Terraform root + state boundary. Created inside a project. |
 | **teams** | `id`, `org_id`, `slug`, `name` |
 | **team_memberships** | `team_id`, `login` |
-| **project_team_access** | `project_id`, `team_id` |
-| **projects** | `id`, `org_id`, `project_key`, `name`, `repo_full_name`, `default_branch` |
+| **project_team_access** / **project_team_roles** | Project access grants (team or user roles) |
 
-**Team → project access:** Users gain access to a project if (a) they are org admin, or (b) they are in at least one team that has `project_team_access` to that project. All request lifecycle and environment APIs check both RBAC and project access. Cross-org: `resource.org_id` must match `session.orgId`; otherwise 404.
+**Project lifecycle:** Create project (`POST /api/projects`, `/projects/new`) with name, project_key, repo_full_name, default_branch. Creator is auto-assigned as project admin. Update via `/projects/[projectId]/settings`. Access (teams, users) via `/projects/[projectId]/access`.
+
+**Workspace lifecycle:** Create workspace (`POST /api/workspaces`, `/projects/[projectId]/workspaces/new`) inside an existing project. Workspace creation reads `repo_full_name` and `default_branch` from the project record — no static config. Bootstrap PR creates `envs/<workspace_key>/<workspace_slug>/`.
+
+**Team → project access:** Users gain access to a project if (a) they are org admin, or (b) they have a direct project role, or (c) they are in a team with project access. All request lifecycle and workspace APIs check both RBAC and project access. Cross-org: `resource.org_id` must match `session.orgId`; otherwise 404.
 
 ---
 
@@ -93,7 +100,7 @@ When `session.orgId` points to an **archived org**, org-scoped APIs return **403
 
 ## Runtime guard: requireActiveOrg
 
-`requireActiveOrg(session)` in **lib/auth/requireActiveOrg.ts** returns 403 `{ error: "Organization archived" }` when `session.orgId` exists and the org is archived. Applied after session/orgId checks in all org-scoped routes (requests, environments, request-templates, environment-templates, metrics/insights, org members/teams/projects, etc.). Platform routes do **not** use this guard.
+`requireActiveOrg(session)` in **lib/auth/requireActiveOrg.ts** returns 403 `{ error: "Organization archived" }` when `session.orgId` exists and the org is archived. Applied after session/orgId checks in all org-scoped routes (requests, workspaces, request-templates, workspace-templates, metrics/insights, org members/teams/projects, etc.). Platform routes do **not** use this guard.
 
 ---
 
@@ -134,7 +141,7 @@ When `session.orgId` points to an **archived org**, org-scoped APIs return **403
 | **Next.js UI** | Request list (filters, dataset modes), request detail (timeline, actions, plan diff), new request form, assistant. SWR + optional SSE for freshness. |
 | **API routes** | Request CRUD, sync (repair/hydrate), approve, merge, apply, destroy, webhook receiver, drift-eligible/drift-result, assistant state, logs. |
 | **S3 request storage** | `requests/<requestId>.json` (optimistic `version`). Destroyed → `history/<requestId>.json`. Lifecycle logs `logs/<requestId>/<ts>.json`. Run index: `webhooks/github/run-index/<kind>/` (see **docs/RUN_INDEX.md**). |
-| **GitHub workflows** | Plan, apply, destroy, cleanup, drift_plan (infra repos). Dispatched by TfPilot; concurrency per env/state group. |
+| **GitHub workflows** | Plan, apply, destroy, cleanup, drift_plan (infra repos). Dispatched by TfPilot; concurrency per workspace/state group. |
 | **Webhooks** | `pull_request`, `pull_request_review`, `workflow_run` → correlate to request, patch facts only, push SSE event. |
 | **SSE** | Single global subscriber in root layout (`RequestStreamRevalidator`). On each request event: mutate `req:${id}` immediately; debounce 300ms and mutate `/api/requests` so list and detail stay fresh. No duplicate subscribers. |
 
@@ -205,29 +212,29 @@ The lifecycle engine enforces **monotonic patching** (no regressing completed st
 
 ---
 
-## Environment lifecycle and deploy
+## Workspace lifecycle and deploy
 
-- **Create:** POST `/api/environments` — creates DB record (project_key, environment_key, environment_slug, template_id, template_version). `template_id` validated against `config/environment-templates.ts`; invalid → `400 INVALID_ENV_TEMPLATE`.
-- **Deploy:** POST `/api/environments/:id/deploy` — creates branch `deploy/<key>/<slug>`, commits bootstrap Terraform root via `lib/environments/envSkeleton`, opens PR. Admin-only. Returns `deploy.pr_url`, `deploy.pr_number`. Atomic rollback on PR failure (delete request docs, delete branch).
-- **Deploy detection:** `GET /api/environments/:id` uses `getEnvironmentDeployStatus` (GitHub API): `deployed` = `backend.tf` exists on default branch; `deployPrOpen` = open PR with head `deploy/<key>/<slug>`; `deployPrUrl` when PR exists; `envRootExists` = env root directory exists. Fail-closed: GitHub check failure → `error: "ENV_DEPLOY_CHECK_FAILED"`, `deployPrOpen: null`.
-- **UI gating:** "New Request" disabled when `deployed=false`, `deployPrOpen=true`, or deploy check fails. Messages: "Environment must be deployed before creating resources", "Environment deployment in progress", "Cannot verify deploy status". `lib/new-request-gate.ts` centralizes gating logic.
+- **Create:** POST `/api/workspaces` — creates DB record (project_key, workspace_key, workspace_slug, template_id, template_version, template_inputs). `template_id` validated against S3 workspace template index; invalid → 400. Template document loaded from S3; inputs validated and defaults resolved.
+- **Deploy:** POST `/api/workspaces/:id/deploy` — creates branch `deploy/<key>/<slug>`, commits bootstrap Terraform root via `lib/workspaces/workspaceSkeleton`, opens PR. Admin-only. Returns `deploy.pr_url`, `deploy.pr_number`. Atomic rollback on PR failure (delete request docs, delete branch).
+- **Deploy detection:** Workspace deploy status uses `lib/workspaces/isWorkspaceDeployed` (GitHub API): `deployed` = `backend.tf` exists on default branch; `deployPrOpen` = open PR with head `deploy/<key>/<slug>`; `deployPrUrl` when PR exists; `envRootExists` = workspace root exists. Fail-closed: GitHub check failure → `WORKSPACE_DEPLOY_CHECK_FAILED`.
+- **UI gating:** "New Request" disabled when `deployed=false`, `deployPrOpen=true`, or deploy check fails. Messages: "Workspace must be deployed before creating resources", "Workspace deployment in progress", "Cannot verify deploy status". `lib/new-request-gate.ts` centralizes gating logic.
 
-**Environment Activity:** `GET /api/environments/:id/activity` returns an env0/Spacelift-style activity timeline. Derived from Postgres request index + deploy status only (no S3 reads). Event types: `environment_deployed`, `environment_deploy_pr_open`, `request_created`. When GitHub deploy check fails, deploy events are omitted and `warning: "ENV_DEPLOY_CHECK_FAILED"` is returned; request-derived events still returned. See [API.md](API.md).
+**Workspace Activity:** Workspace activity timeline is derived from Postgres request index + deploy status (no S3 reads). Event types: `workspace_deployed`, `workspace_deploy_pr_open`, `request_created`. When GitHub deploy check fails, deploy events are omitted and `warning: "WORKSPACE_DEPLOY_CHECK_FAILED"` is returned. See [API.md](API.md).
 
-**Environment Deploy Flow (textual):**
+**Workspace Deploy Flow (textual):**
 
 ```
-Create environment (POST /api/environments)
+Create workspace (POST /api/workspaces)
   → DB record created; optional bootstrap PR for repo setup
 
-Deploy environment (POST /api/environments/:id/deploy)
+Deploy workspace (POST /api/workspaces/:id/deploy)
   → branch deploy/<key>/<slug>
   → commits bootstrap Terraform root (backend.tf, providers.tf, versions.tf, base.tf, request files from template)
   → opens PR
 
 Merge deploy PR
   → backend.tf exists on default branch
-  → environment becomes deployed (deployed=true)
+  → workspace becomes deployed (deployed=true)
 
 Requests can now be created (New Request enabled).
 ```
@@ -239,7 +246,7 @@ Requests can now be created (New Request enabled).
 Infra repos use multi-environment roots:
 
 ```
-envs/<environment_key>/<environment_slug>/
+envs/<workspace_key>/<workspace_slug>/
   backend.tf
   providers.tf
   versions.tf
@@ -251,7 +258,7 @@ envs/<environment_key>/<environment_slug>/
 ```
 
 - Request files use canonical naming: `<module>_req_<request_id>.tf` (e.g. `ecr-repo_req_a12bc3.tf`). No `req_<id>.tf` legacy format.
-- Deploy creates this structure from environment templates. Merge deploy PR → `backend.tf` exists → environment becomes deployed; requests can then be created.
+- Deploy creates this structure from workspace templates. Merge deploy PR → `backend.tf` exists → workspace becomes deployed; requests can then be created.
 
 ---
 
@@ -259,7 +266,7 @@ envs/<environment_key>/<environment_slug>/
 
 Defined in `config/module-registry.ts`. Registry modules define schema and request config for AI-assisted form generation. Current modules: **s3-bucket**, **ec2-instance**, **ecr-repo**, **cloudwatch-log-group**, **iam-role**.
 
-**Note:** Registry modules define the platform schema; corresponding Terraform modules may not yet exist in infra repos. Environment templates reference registry keys; templates may omit modules until Terraform implementations exist.
+**Note:** Registry modules define the platform schema; corresponding Terraform modules may not yet exist in infra repos. Workspace templates reference registry keys; templates may omit modules until Terraform implementations exist.
 
 ---
 
@@ -315,9 +322,9 @@ See [INVARIANTS.md](INVARIANTS.md) for the full formal checklist.
 
 ## Future roadmap (not yet implemented)
 
-- **Drift detection:** Active drift status per environment; UI indicators.
+- **Drift detection:** Active drift status per workspace; UI indicators.
 - **Plan/apply activity events:** Activity timeline could include `plan_succeeded`, `apply_succeeded`, `destroy_succeeded` when run/attempt data is available from the index (currently Postgres projection has no runs).
-- **Environment health indicators:** Consolidated health status per environment (deploy, drift, request count).
+- **Workspace health indicators:** Consolidated health status per workspace (deploy, drift, request count).
 
 ---
 
@@ -326,7 +333,7 @@ See [INVARIANTS.md](INVARIANTS.md) for the full formal checklist.
 The invariant test suite (`npm run test:invariants`) includes **273 tests** covering:
 
 - **Org lifecycle:** Archive/restore (sets archived_at, idempotent); org creation (valid, duplicate slug, missing fields); org detail (404, archived visible to platform admin, members/teams/stats shape).
-- **Archived org enforcement:** Active org → normal behavior; archived org → 403 "Organization archived" on GET/POST requests, environments, metrics/insights, request-templates/admin; platform routes bypass enforcement.
+- **Archived org enforcement:** Active org → normal behavior; archived org → 403 "Organization archived" on GET/POST requests, workspaces, metrics/insights, request-templates/admin; platform routes bypass enforcement.
 - **Platform admin gating:** Non-platform-admin → 404 on GET/POST /api/platform/orgs, GET /api/platform/orgs/[orgId], archive, restore.
 - **Org switching:** GET /api/auth/orgs excludes archived; POST switch-org to archived rejected; switch to active succeeds.
 - **RBAC + project access:** Deploy, apply, approve, destroy, project access enforcement (see `tests/api/projectAccessEnforcementRoute.test.ts`, `tests/unit/projectAccessEnforcement.test.ts`, `tests/api/orgLifecycleRoute.test.ts`, `tests/unit/orgLifecycle.test.ts`).

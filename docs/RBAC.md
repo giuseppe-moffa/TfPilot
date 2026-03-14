@@ -25,7 +25,7 @@ Both must pass. A developer with project access can create requests; an approver
 
 | Mechanism              | Identity          | Config               | Use case                           |
 |------------------------|-------------------|----------------------|------------------------------------|
-| Org role               | `session.login` + org | `org_memberships` | Request lifecycle, environments (org-scoped) |
+| Org role               | `session.login` + org | `org_memberships` | Request lifecycle, workspaces (org-scoped) |
 | Platform admin         | `session.login`   | `platform_admins` table | Platform org management (/api/platform/orgs) |
 | Project role           | org/team + project | `project_user_roles`, `project_team_roles`, org admin | Per-project permissions (plan, approve, apply, destroy) |
 | Admin-by-email        | `session.email`   | `TFPILOT_ADMIN_EMAILS` | Catalogue, request templates, Insights |
@@ -47,13 +47,13 @@ Defined in **org_memberships** table. Resolved via `getUserOrgRole(login, orgId)
 
 Defined in **project_user_roles** and **project_team_roles**. Resolved via `resolveEffectiveProjectRole` in `lib/auth/projectRoles.ts`. Org admin bypasses (treated as project admin).
 
-| Role        | plan | approve | apply | destroy | deploy_env |
-|-------------|:----:|:-------:|:-----:|:-------:|:----------:|
-| viewer      | ✗    | ✗       | ✗     | ✗       | ✗          |
-| planner     | ✓    | ✗       | ✗     | ✗       | ✗          |
-| operator    | ✓    | ✓       | ✓     | ✗       | ✗          |
-| deployer    | ✓    | ✓       | ✓     | ✗       | ✓          |
-| admin       | ✓    | ✓       | ✓     | ✓       | ✓          |
+| Role        | plan | approve | apply | destroy | deploy_workspace |
+|-------------|:----:|:-------:|:-----:|:-------:|:----------------:|
+| viewer      | ✗    | ✗       | ✗     | ✗       | ✗                |
+| planner     | ✓    | ✗       | ✗     | ✗       | ✗                |
+| operator    | ✓    | ✓       | ✓     | ✗       | ✗                |
+| deployer    | ✓    | ✓       | ✓     | ✗       | ✓                |
+| admin       | ✓    | ✓       | ✓     | ✓       | ✓                |
 
 ---
 
@@ -86,14 +86,14 @@ Defined in **project_user_roles** and **project_team_roles**. Resolved via `reso
 
 Prod access is gated by project roles (operator/deployer/admin); no separate prod allowlists.
 
-### Environments
+### Workspaces
 
 | Action                   | viewer | developer | approver | admin |
 |--------------------------|:-----:|:---------:|:--------:|:-----:|
-| List environments        | ✓     | ✓         | ✓        | ✓     |
-| Create environment       | ✗     | ✓         | ✓        | ✓     |
-| Deploy environment       | ✗     | ✗         | ✗        | ✓     |
-| Destroy environment      | ✗     | ✗         | ✗        | ✓     |
+| List workspaces          | ✓     | ✓         | ✓        | ✓     |
+| Create workspace         | ✗     | ✓         | ✓        | ✓     |
+| Deploy workspace         | ✗     | ✗         | ✗        | ✓     |
+| Destroy workspace        | ✗     | ✗         | ✗        | ✓     |
 
 ### Admin-by-email features
 
@@ -112,9 +112,9 @@ Prod access is gated by project roles (operator/deployer/admin); no separate pro
 |-----------------------------|-----------------------------|-------|
 | `POST /api/requests`        | `viewer` blocked            | Create request |
 | `PATCH /api/requests/update`| `viewer` blocked            | Update config |
-| `POST /api/environments`    | `viewer` blocked            | Create environment |
-| `POST /api/environments/:id/deploy` | `admin` only        | Deploy environment |
-| `POST /api/environments/:id/destroy` | `admin` only        | Destroy environment |
+| `POST /api/workspaces`    | `viewer` blocked            | Create workspace |
+| `POST /api/workspaces/:id/deploy` | `admin` only        | Deploy workspace |
+| `POST /api/workspaces/:id/destroy` | `admin` only        | Destroy workspace |
 | `POST /api/requests/:id/approve` | `approver` or `admin` | Approve PR |
 | `POST /api/github/plan`     | —                           | Prod: `TFPILOT_PROD_ALLOWED_USERS` |
 | `POST /api/github/apply`    | `approver` or `admin`       | Prod: `TFPILOT_PROD_ALLOWED_USERS` |
@@ -130,7 +130,7 @@ Prod access is gated by project roles (operator/deployer/admin); no separate pro
 
 ## Prod allowlists
 
-When `request.environment_key === "prod"` (case-insensitive):
+When `request.workspace_key === "prod"` (case-insensitive):
 
 1. **Plan / Apply / Merge / Update branch**
    - If `TFPILOT_PROD_ALLOWED_USERS` is non-empty, user must be in the list.

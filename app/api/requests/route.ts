@@ -45,21 +45,20 @@ import {
 import { getProjectByKey } from "@/lib/db/projects"
 import { ensureAssistantState } from "@/lib/assistant/state"
 import {
-  resolveRequestEnvironment,
-  type ResolveRequestEnvironmentResult,
-  type ResolvedRequestEnvironment,
-} from "@/lib/requests/resolveRequestEnvironment"
+  resolveRequestWorkspace,
+  type ResolveRequestWorkspaceResult,
+  type ResolvedRequestWorkspace,
+} from "@/lib/requests/resolveRequestWorkspace"
 import { validateCreateBody } from "@/lib/requests/validateCreateBody"
 import { writeAuditEvent, auditWriteDeps } from "@/lib/audit/write"
 import type { PermissionContext, ProjectPermission } from "@/lib/auth/permissions"
 import type { CheckCreateResult } from "@/lib/requests/idempotency"
 
 type RequestPayload = {
-  /** environment_id (preferred) or (project_key, environment_key, environment_slug) */
-  environment_id?: string
+  workspace_id?: string
   project_key?: string
-  environment_key?: string
-  environment_slug?: string
+  workspace_key?: string
+  workspace_slug?: string
   module?: string
   config?: Record<string, unknown>
   templateId?: string
@@ -70,9 +69,9 @@ type StoredRequest = {
   id: string
   org_id: string
   project_key: string
-  environment_key: string
-  environment_slug: string
-  environment_id: string
+  workspace_key: string
+  workspace_slug: string
+  workspace_id: string
   module: string
   config: Record<string, unknown>
   receivedAt: string
@@ -465,7 +464,7 @@ async function createBranchCommitPrAndPlan(
       title: `Infra request ${request.id}: ${request.module}`,
       head: branchName,
       base: target.base,
-      body: `Automated request for ${request.project_key}/${request.environment_key}/${request.environment_slug}\n\nModule: ${request.module}\nRequest ID: ${request.id}`,
+      body: `Automated request for ${request.project_key}/${request.workspace_key}/${request.workspace_slug}\n\nModule: ${request.module}\nRequest ID: ${request.id}`,
     }),
   })
   const prJson = (await prRes.json()) as { number?: number; html_url?: string; head?: { sha?: string } }
@@ -477,8 +476,8 @@ async function createBranchCommitPrAndPlan(
       ref: branchName,
       inputs: {
         request_id: request.id,
-        environment_key: request.environment_key,
-        environment_slug: request.environment_slug,
+        environment_key: request.workspace_key,
+        environment_slug: request.workspace_slug,
       },
     }),
   })
@@ -534,13 +533,14 @@ export type RequestsPOSTDeps = {
   getGitHubAccessToken: (req: NextRequest) => Promise<string | null>
   getIdempotencyKey: (req: NextRequest) => string | null
   checkCreateIdempotency: (key: string, now: Date) => CheckCreateResult
-  resolveRequestEnvironment: (input: {
-    environment_id?: string
+  resolveRequestWorkspace: (input: {
+    workspace_id?: string
     project_key?: string
-    environment_key?: string
-    environment_slug?: string
-    _deps?: import("@/lib/requests/resolveRequestEnvironment").ResolveRequestEnvironmentDeps
-  }) => Promise<ResolveRequestEnvironmentResult>
+    workspace_key?: string
+    workspace_slug?: string
+    orgId?: string
+    _deps?: import("@/lib/requests/resolveRequestWorkspace").ResolveRequestWorkspaceDeps
+  }) => Promise<ResolveRequestWorkspaceResult>
   getProjectByKey: (orgId: string, projectKey: string) => Promise<{ id: string; orgId: string } | null>
   buildPermissionContext: (login: string, orgId: string) => Promise<PermissionContext>
   requireProjectPermission: (
@@ -572,7 +572,7 @@ const realRequestsPOSTDeps: RequestsPOSTDeps = {
   getGitHubAccessToken,
   getIdempotencyKey,
   checkCreateIdempotency,
-  resolveRequestEnvironment,
+  resolveRequestWorkspace,
   getProjectByKey,
   buildPermissionContext,
   requireProjectPermission,
@@ -632,11 +632,12 @@ export function makeRequestsPOST(deps: RequestsPOSTDeps) {
       )
     }
 
-    const envResult = await deps.resolveRequestEnvironment({
-      environment_id: body.environment_id,
+    const envResult = await deps.resolveRequestWorkspace({
+      workspace_id: body.workspace_id,
       project_key: body.project_key,
-      environment_key: body.environment_key,
-      environment_slug: body.environment_slug,
+      workspace_key: body.workspace_key,
+      workspace_slug: body.workspace_slug,
+      orgId: session.orgId!,
     })
     if (!envResult.ok) {
       return NextResponse.json({ success: false, error: envResult.error }, { status: 400 })
@@ -659,7 +660,7 @@ export function makeRequestsPOST(deps: RequestsPOSTDeps) {
 
     const targetRepo = resolved.targetRepo
 
-    const requestId = generateRequestId(resolved.environment_key, body.module!)
+    const requestId = generateRequestId(resolved.workspace_key, body.module!)
     logInfo("request.create", { ...correlation, requestId, user: userLogin })
 
     console.log("[api/requests] received payload:", body)
@@ -678,9 +679,9 @@ export function makeRequestsPOST(deps: RequestsPOSTDeps) {
       id: requestId,
       org_id: session.orgId,
       project_key: resolved.project_key,
-      environment_key: resolved.environment_key,
-      environment_slug: resolved.environment_slug,
-      environment_id: resolved.environment_id!,
+      workspace_key: resolved.workspace_key,
+      workspace_slug: resolved.workspace_slug,
+      workspace_id: resolved.workspace_id!,
       module: body.module!,
       config: normalizedConfig,
       receivedAt: nowIso,
@@ -690,13 +691,13 @@ export function makeRequestsPOST(deps: RequestsPOSTDeps) {
       plan: { diff: planDiffForModule(body.module) },
     }
     if (process.env.NODE_ENV !== "production") {
-      if (!resolved.environment_key || !resolved.environment_slug) {
-        throw new Error("[DEV] Request create: environment_key and environment_slug required (Model 2)")
+      if (!resolved.workspace_key || !resolved.workspace_slug) {
+        throw new Error("[DEV] Request create: workspace_key and workspace_slug required (Model 2)")
       }
     }
-    if (!resolved.environment_id || !resolved.environment_key || !resolved.environment_slug) {
+    if (!resolved.workspace_id || !resolved.workspace_key || !resolved.workspace_slug) {
       return NextResponse.json(
-        { success: false, error: "Environment resolution must produce environment_id, environment_key, environment_slug" },
+        { success: false, error: "Workspace resolution must produce workspace_id, workspace_key, workspace_slug" },
         { status: 400 }
       )
     }
@@ -708,7 +709,7 @@ export function makeRequestsPOST(deps: RequestsPOSTDeps) {
     newRequest.config = buildModuleConfig(regEntry, newRequest.config, {
       requestId: newRequest.id,
       project_key: newRequest.project_key,
-      environment_key: newRequest.environment_key,
+      environment_key: newRequest.workspace_key,
     })
 
     appendRequestIdToNames(newRequest.config, requestId)
@@ -728,8 +729,8 @@ export function makeRequestsPOST(deps: RequestsPOSTDeps) {
 
     const generated = await deps.generateModel2TerraformFiles(
       token,
-      resolved.environment_key,
-      resolved.environment_slug,
+      resolved.workspace_key,
+      resolved.workspace_slug,
       newRequest,
       targetRepo.owner,
       targetRepo.repo
@@ -816,8 +817,8 @@ export function makeRequestsPOST(deps: RequestsPOSTDeps) {
       entity_id: requestId,
       request_id: requestId,
       project_key: newRequestWithAssistant.project_key,
-      environment_id: newRequestWithAssistant.environment_id,
-      metadata: { project_key: newRequestWithAssistant.project_key, environment_id: newRequestWithAssistant.environment_id, module: newRequestWithAssistant.module },
+      workspace_id: newRequestWithAssistant.workspace_id,
+      metadata: { project_key: newRequestWithAssistant.project_key, workspace_id: newRequestWithAssistant.workspace_id, module: newRequestWithAssistant.module },
     }).catch(() => {})
 
     await putPrIndex(targetRepo.owner, targetRepo.repo, ghResult.prNumber, requestId).catch(() => {})
@@ -846,7 +847,7 @@ export function makeRequestsPOST(deps: RequestsPOSTDeps) {
       source: "api/requests",
       data: {
         project: newRequestWithAssistant.project_key,
-        environment: newRequestWithAssistant.environment_key,
+        workspace: newRequestWithAssistant.workspace_key,
         module: newRequestWithAssistant.module,
         targetRepo: `${targetRepo.owner}/${targetRepo.repo}`,
       },

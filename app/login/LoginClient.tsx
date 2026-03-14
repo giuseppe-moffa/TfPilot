@@ -43,10 +43,15 @@ function OAuthErrorContent({ error, errorDescription }: { error: string; errorDe
       body: "You cancelled the authorization or GitHub denied access.",
       fix: "Click « Continue with GitHub » and approve the requested permissions.",
     },
+    no_org_membership: {
+      title: "No organization membership",
+      body: "Your GitHub user is not in any organization in this app. This often happens after a database reset.",
+      fix: "Run: npm run db:seed-platform-admins (with TFPILOT_ADMINS=your-github-login in .env.local), then npm run db:seed. Or have a platform admin add you to an org.",
+    },
     oauth_failed: {
       title: "Sign-in failed",
       body: errorDescription || "GitHub token exchange or user fetch failed.",
-      fix: "Try again. If it persists, check that the app's Client ID and Secret match the app registered in GitHub, and that the callback URL is correct.",
+      fix: "Check the terminal where the app is running for the exact error. Ensure GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET match your GitHub OAuth App, and GITHUB_OAUTH_REDIRECT (e.g. http://localhost:3000/api/auth/github/callback for local dev) is set and registered in GitHub as the Authorization callback URL.",
     },
   }
   const m = messages[error] || messages.oauth_failed

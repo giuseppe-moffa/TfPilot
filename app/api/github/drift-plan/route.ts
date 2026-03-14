@@ -1,5 +1,5 @@
 /**
- * POST /api/github/drift-plan — Dispatch drift_plan for an environment.
+ * POST /api/github/drift-plan — Dispatch drift_plan for a workspace.
  * Resolves runId and writes env drift index for last-drift display.
  */
 
@@ -8,7 +8,7 @@ import { getSessionFromCookies } from "@/lib/auth/session"
 import { getGitHubAccessToken } from "@/lib/github/auth"
 import { gh } from "@/lib/github/client"
 import { env } from "@/lib/config/env"
-import { getEnvironmentById } from "@/lib/db/environments"
+import { getWorkspaceById } from "@/lib/db/workspaces"
 import { buildDriftPlanInputs } from "@/lib/github/dispatchDriftPlan"
 import { putEnvDriftRunIndex } from "@/lib/github/envDriftRunIndex"
 import { resolveEnvDriftRunId } from "@/lib/github/resolveEnvDriftRunId"
@@ -24,10 +24,10 @@ function parseRepoFullName(repo_full_name: string): { owner: string; repo: strin
 }
 
 export async function POST(req: NextRequest) {
-  const body = (await req.json().catch(() => ({}))) as { environment_id?: string }
-  const environmentId = body?.environment_id
-  if (!environmentId) {
-    return NextResponse.json({ error: "environment_id required" }, { status: 400 })
+  const body = (await req.json().catch(() => ({}))) as { workspace_id?: string }
+  const workspaceId = body?.workspace_id
+  if (!workspaceId) {
+    return NextResponse.json({ error: "workspace_id required" }, { status: 400 })
   }
 
   const session = await getSessionFromCookies()
@@ -40,16 +40,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "GitHub not connected" }, { status: 401 })
   }
 
-  const envRow = await getEnvironmentById(environmentId)
-  if (!envRow) {
-    return NextResponse.json({ error: "Environment not found" }, { status: 404 })
+  const wsRow = await getWorkspaceById(workspaceId)
+  if (!wsRow) {
+    return NextResponse.json({ error: "Workspace not found" }, { status: 404 })
   }
 
-  if (envRow.archived_at) {
-    return NextResponse.json({ error: "Environment is archived" }, { status: 400 })
+  if (wsRow.archived_at) {
+    return NextResponse.json({ error: "Workspace is archived" }, { status: 400 })
   }
 
-  const repo = parseRepoFullName(envRow.repo_full_name)
+  const repo = parseRepoFullName(wsRow.repo_full_name)
   if (!repo) {
     return NextResponse.json({ error: "Invalid repo_full_name" }, { status: 400 })
   }
@@ -61,8 +61,8 @@ export async function POST(req: NextRequest) {
     body: JSON.stringify({
       ref: branch,
       inputs: buildDriftPlanInputs({
-        environment_key: envRow.environment_key,
-        environment_slug: envRow.environment_slug,
+        environment_key: wsRow.workspace_key,
+        environment_slug: wsRow.workspace_slug,
       }),
     }),
   })
@@ -93,7 +93,7 @@ export async function POST(req: NextRequest) {
     } catch (err) {
       if (attempt === RESOLVE_ATTEMPTS - 1) {
         logWarn("env_drift.resolve_failed", {
-          environmentId,
+          workspaceId,
           attempt: attempt + 1,
           err: String(err),
         })
@@ -102,12 +102,12 @@ export async function POST(req: NextRequest) {
   }
 
   if (runId != null) {
-    await putEnvDriftRunIndex(runId, environmentId).catch(() => {})
-    logInfo("env.drift.dispatch", {
-      env_id: environmentId,
+    await putEnvDriftRunIndex(runId, workspaceId).catch(() => {})
+    logInfo("workspace.drift.dispatch", {
+      workspace_id: workspaceId,
       run_id: runId,
-      environment_key: envRow.environment_key,
-      environment_slug: envRow.environment_slug,
+      workspace_key: wsRow.workspace_key,
+      workspace_slug: wsRow.workspace_slug,
     })
   }
 

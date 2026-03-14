@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import Link from "next/link"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -108,7 +109,9 @@ export function AssignTeamProjectDialog({
                 <SelectValue
                   placeholder={
                     availableProjects.length === 0
-                      ? "No projects available"
+                      ? projects.length === 0
+                        ? "No projects in org"
+                        : "All projects already assigned"
                       : "Select project"
                   }
                 />
@@ -121,6 +124,15 @@ export function AssignTeamProjectDialog({
                 ))}
               </SelectContent>
             </Select>
+            {availableProjects.length === 0 && projects.length === 0 && (
+              <p className="text-xs text-muted-foreground">
+                No projects yet.{" "}
+                <Link href="/projects/new" className="text-primary hover:underline">
+                  Create a project
+                </Link>{" "}
+                first.
+              </p>
+            )}
           </div>
           <div className="flex flex-col gap-1">
             <label htmlFor="assign-role" className="text-xs font-medium text-muted-foreground">

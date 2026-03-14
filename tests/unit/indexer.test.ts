@@ -92,8 +92,8 @@ export const tests = [
       const req = minimalRequest({
         targetOwner: "owner",
         targetRepo: "repo",
-        environment_key: "dev",
-        environment_slug: "ai-agent",
+        workspace_key: "dev",
+        workspace_slug: "ai-agent",
         module: "ec2-instance",
         actor: "alice",
         pr: { number: 42 },
@@ -107,8 +107,8 @@ export const tests = [
       assert(values[2] === "2026-01-15T10:00:00.000Z", "created_at from receivedAt")
       assert(values[3] === "2026-01-15T11:00:00.000Z", "updated_at")
       assert(values[4] === "owner/repo", "repo_full_name")
-      assert(values[5] === "dev", "environment_key")
-      assert(values[6] === "ai-agent", "environment_slug")
+      assert(values[5] === "dev", "workspace_key")
+      assert(values[6] === "ai-agent", "workspace_slug")
       assert(values[7] === "ec2-instance", "module_key")
       assert(values[8] === "alice", "actor")
       assert(values[9] === 42, "pr_number")

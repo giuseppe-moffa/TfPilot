@@ -1,6 +1,6 @@
 # Drift Detection
 
-This document describes how TfPilot detects **infrastructure drift** — when live AWS/resources have diverged from the desired state in Terraform. It covers both environment-scoped drift (TfPilot UI) and request-level drift (scheduled checks, optional).
+This document describes how TfPilot detects **infrastructure drift** — when live AWS/resources have diverged from the desired state in Terraform. It covers both workspace-scoped drift (TfPilot UI) and request-level drift (scheduled checks, optional).
 
 ---
 
@@ -12,43 +12,43 @@ TfPilot supports two drift flows:
 
 | Flow | Scope | Trigger | Primary use |
 |------|-------|---------|-------------|
-| **Environment drift** | Whole env root (`envs/<key>/<slug>/`) | Manual from env page | On-demand drift check per environment |
+| **Workspace drift** | Whole workspace root (`envs/<key>/<slug>/`) | Manual from workspace page | On-demand drift check per workspace |
 | **Request-level drift** | Per-request (optional) | Scheduled (`drift-check.yml`) | Nightly drift checks for dev requests |
 
 ---
 
-## Environment drift (TfPilot UI)
+## Workspace drift (TfPilot UI)
 
 ### Flow
 
-1. User opens environment detail page → clicks **"Run Drift Plan"**
-2. TfPilot calls `POST /api/github/drift-plan` with `{ environment_id }`
+1. User opens workspace detail page → clicks **"Run Drift Plan"**
+2. TfPilot calls `POST /api/github/drift-plan` with `{ workspace_id }`
 3. App dispatches `drift_plan` workflow to the infra repo (base branch)
-4. Workflow runs `terraform plan` at `envs/<environment_key>/<environment_slug>/`
-5. Run ID is resolved and written to env drift index
-6. UI shows last drift run via `GET /api/environments/:id/drift-latest`
+4. Workflow runs `terraform plan` at `envs/<workspace_key>/<workspace_slug>/`
+5. Run ID is resolved and written to workspace drift index
+6. UI shows last drift run via `GET /api/workspaces/:id/drift-latest`
 
 ### API
 
 | Endpoint | Method | Auth | Purpose |
 |----------|--------|------|---------|
-| `POST /api/github/drift-plan` | POST | Session + GitHub | Dispatch drift plan for environment |
-| `GET /api/environments/:id/drift-latest` | GET | Session + GitHub | Last drift run for environment |
+| `POST /api/github/drift-plan` | POST | Session + GitHub | Dispatch drift plan for workspace |
+| `GET /api/workspaces/:id/drift-latest` | GET | Session + GitHub | Last drift run for workspace |
 
 ### Workflow
 
 - **File:** `drift_plan.yml` (or `GITHUB_DRIFT_PLAN_WORKFLOW_FILE`)
-- **Inputs:** `environment_key`, `environment_slug`
+- **Inputs:** `environment_key`, `environment_slug` (passed from workspace_key/workspace_slug)
 - **Ref:** Default branch (e.g. `main`)
 - **Steps:** Checkout → AWS OIDC → `terraform init` → `terraform plan -detailed-exitcode`
 - **Artifacts:** `drift-logs-v2` (plan.txt), `drift-plan-json-v2` (plan.json)
-- **Concurrency:** Same group as apply/destroy per env
+- **Concurrency:** Same group as apply/destroy per workspace
 
-### Env drift index (S3)
+### Workspace drift index (S3)
 
-- **Purpose:** Map drift run ID → environment for "last drift" display
+- **Purpose:** Map drift run ID → workspace for "last drift" display
 - **Prefix:** `webhooks/github/env-drift/`
-- **Keys:** `run-<runId>.json`, `by-env/<environmentId>.json`
+- **Keys:** `run-<runId>.json`, `by-env/<workspaceId>.json`
 - **Pruning:** 30 days TTL (`ENV_DRIFT_PRUNING_TTL_DAYS`)
 - **Code:** `lib/github/envDriftRunIndex.ts`
 
@@ -156,12 +156,12 @@ A request is eligible when:
 
 ## Future
 
-Per [SYSTEM_OVERVIEW.md](SYSTEM_OVERVIEW.md): "Drift detection: Active drift status per environment; UI indicators" — not yet implemented. Current state: drift runs are triggered manually (env page) or by scheduled workflow; per-request drift status is stored when drift-result is called.
+Per [SYSTEM_OVERVIEW.md](SYSTEM_OVERVIEW.md): "Drift detection: Active drift status per workspace; UI indicators" — not yet implemented. Current state: drift runs are triggered manually (workspace page) or by scheduled workflow; per-request drift status is stored when drift-result is called.
 
 ---
 
 ## See also
 
 - [GITHUB_WORKFLOWS.md](GITHUB_WORKFLOWS.md) — Workflow kinds, concurrency, drift plan v2
-- [RUN_INDEX.md](RUN_INDEX.md) — Run index and env drift index
+- [RUN_INDEX.md](RUN_INDEX.md) — Run index and workspace drift index
 - [POSTGRES_INDEX.md](POSTGRES_INDEX.md) — Index drift (different concept)

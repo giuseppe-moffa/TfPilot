@@ -59,26 +59,26 @@ GitHub’s `workflow_dispatch` API does **not** return the new run’s `runId`; 
 - **After resolve:** Once requestId is known, the webhook patches only the **attempt record** in `request.runs[kind]` that matches the incoming `workflow_run.id` (via `patchRunsAttemptByRunId`). No other run state is written; there is no legacy run state or canonicalization.
 - **Backwards compatibility:** `putDestroyRunIndex` / `getRequestIdByDestroyRunIdIndexed` remain as wrappers around the generic API.
 
-## Environment destroy index (separate, facts-only)
+## Workspace destroy index (separate, facts-only)
 
-For environment destroy (destroy_scope="environment"), correlation is stored under `webhooks/github/env-destroy/`:
-- `run-<runId>.json` — runId → environment_id (webhook fast path)
-- `pending-<environmentId>.json` — `{ run_id, repo, created_at }`; used for reconcile before dispatch. TTL 2h when run not found.
+For workspace destroy (destroy_scope="environment"), correlation is stored under `webhooks/github/env-destroy/`:
+- `run-<runId>.json` — runId → workspace_id (webhook fast path)
+- `pending-<workspaceId>.json` — `{ run_id, repo, created_at }`; used for reconcile before dispatch. TTL 2h when run not found.
 
-**Facts-only:** These indexes are correlation caches, never authoritative. Correlation is derivable (we pass `environment_id` in workflow inputs; webhook uses index first, then payload inputs on miss). See **lib/github/envDestroyRunIndex.ts** and **docs/OPERATIONS.md** (Environment destroy).
+**Facts-only:** These indexes are correlation caches, never authoritative. Correlation is derivable (workflow inputs carry workspace identity; webhook uses index first, then payload on miss). See **lib/github/envDestroyRunIndex.ts** and **docs/OPERATIONS.md** (Workspace destroy).
 
-## Environment drift index (separate, facts-only)
+## Workspace drift index (separate, facts-only)
 
-For drift plan v2 (env-scoped drift detection), correlation is stored under `webhooks/github/env-drift/`:
-- `run-<runId>.json` — `{ runId, environment_id, createdAt }` — runId → environment_id
-- `by-env/<environmentId>.json` — `{ runs: [{ runId, createdAt }] }` — used for pruning
+For drift plan v2 (workspace-scoped drift detection), correlation is stored under `webhooks/github/env-drift/`:
+- `run-<runId>.json` — `{ runId, workspace_id, createdAt }` — runId → workspace_id
+- `by-env/<workspaceId>.json` — `{ runs: [{ runId, createdAt }] }` — used for pruning
 
-Used by `GET /api/environments/:id/drift-latest` to find the last drift run for an environment. Written when TfPilot dispatches drift_plan and resolves the runId. See **lib/github/envDriftRunIndex.ts**.
+Used by `GET /api/workspaces/:id/drift-latest` to find the last drift run for a workspace. Written when TfPilot dispatches drift_plan and resolves the runId. See **lib/github/envDriftRunIndex.ts**.
 
 ### Pruning policy (TTL 30 days)
 
-- **Automatic:** On each `putEnvDriftRunIndex`, we prune entries for that environment older than 30 days. Pruning is **best-effort** and **fail-open** — it never blocks the main write. If pruning fails, the index write still succeeds.
-- **Scope:** Per-environment. Entries for env E older than 30 days are deleted when a new drift run for E is indexed.
+- **Automatic:** On each `putEnvDriftRunIndex`, we prune entries for that workspace older than 30 days. Pruning is **best-effort** and **fail-open** — it never blocks the main write. If pruning fails, the index write still succeeds.
+- **Scope:** Per-workspace. Entries for a workspace older than 30 days are deleted when a new drift run for that workspace is indexed.
 - **Retention:** 30 days. See `ENV_DRIFT_PRUNING_TTL_DAYS` in `lib/github/envDriftRunIndex.ts`.
 
 ### Manual cleanup (optional)

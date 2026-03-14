@@ -111,7 +111,7 @@ export async function listRequestIndexRowsPage(options: {
   return result.rows
 }
 
-/** Row shape for environment activity builder. Includes created_at, module_key, pr_number. */
+/** Row shape for workspace activity builder. Includes created_at, module_key, pr_number. */
 export type RequestIndexRowForActivity = {
   request_id: string
   created_at: string
@@ -122,10 +122,10 @@ export type RequestIndexRowForActivity = {
 
 const SORT_FOR_ACTIVITY = "COALESCE(last_activity_at, updated_at)"
 
-const SELECT_BY_ENV_SQL = `
+const SELECT_BY_WORKSPACE_SQL = `
   SELECT request_id, created_at, updated_at, module_key, pr_number
   FROM requests_index
-  WHERE repo_full_name = $1 AND environment_key = $2 AND environment_slug = $3
+  WHERE repo_full_name = $1 AND workspace_key = $2 AND workspace_slug = $3
   ORDER BY ${SORT_FOR_ACTIVITY} DESC, request_id DESC
   LIMIT $4
 `
@@ -145,20 +145,20 @@ export async function getRequestOrgId(requestId: string): Promise<string | null>
 }
 
 /**
- * List request index rows for an environment, filtered by (repo, environment_key, environment_slug).
+ * List request index rows for a workspace, filtered by (repo, workspace_key, workspace_slug).
  * Returns null when DB not configured.
  */
-export async function listRequestIndexRowsByEnvironment(
+export async function listRequestIndexRowsByWorkspace(
   repoFullName: string,
-  environmentKey: string,
-  environmentSlug: string,
+  workspaceKey: string,
+  workspaceSlug: string,
   limit: number
 ): Promise<RequestIndexRowForActivity[] | null> {
   if (!isDatabaseConfigured()) return null
-  const result = await query<RequestIndexRowForActivity>(SELECT_BY_ENV_SQL, [
+  const result = await query<RequestIndexRowForActivity>(SELECT_BY_WORKSPACE_SQL, [
     repoFullName,
-    environmentKey,
-    environmentSlug,
+    workspaceKey,
+    workspaceSlug,
     limit,
   ])
   if (result == null) return null

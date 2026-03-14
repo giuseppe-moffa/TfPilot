@@ -24,7 +24,7 @@ import {
   getEnvironmentIdByEnvDestroyRunId,
   deleteEnvDestroyPending,
 } from "@/lib/github/envDestroyRunIndex"
-import { archiveEnvironment } from "@/lib/db/environments"
+import { archiveWorkspace } from "@/lib/db/workspaces"
 import { logInfo } from "@/lib/observability/logger"
 import { incrementEnvMetric } from "@/lib/observability/metrics"
 import { getRequestIdByRunId } from "@/lib/requests/runIndex"
@@ -188,7 +188,7 @@ export function makeWebhookPOST(deps: WebhookRouteDeps) {
           (wr as { inputs?: { environment_id?: string } }).inputs?.environment_id
         if (envId) {
           if (wr.conclusion === "success") {
-            const archived = await archiveEnvironment(envId)
+            const archived = await archiveWorkspace(envId)
             if (archived) {
               await deleteEnvDestroyPending(envId).catch(() => {})
               logInfo("env.archive", { env_id: envId, run_id: wr.id, source: "webhook" })

@@ -2,7 +2,9 @@
 
 Postgres holds a **projection** of request metadata for list and pagination only. It is **not** the source of truth for lifecycle or status. S3 request documents are authoritative.
 
-**References:** Schema: `migrations/20260301000000_requests_index.sql`, `migrations/20260304100000_requests_index_environment_slug.sql`, `migrations/20260302000000_requests_index_pagination_idx.sql`, `migrations/20260302110000_drop_last_action_at.sql`, `migrations/20260302120000_requests_index_last_activity_sort_idx.sql`. Indexer: `lib/db/indexer.ts`. List: `lib/db/requestsList.ts`. UI: `app/requests/page.tsx`.
+**Schema:** One baseline migration `migrations/20260301000000_baseline.sql` defines the canonical schema: `orgs`, `org_memberships`, `projects`, `teams`, `workspaces` (with `template_id`/`template_version` NOT NULL, `template_inputs` JSONB), `requests_index` (with `workspace_key`/`workspace_slug`, `org_id`), `audit_events` (with `workspace_id`), `platform_admins`. Old incremental migrations are archived under `migrations/archive/`.
+
+**References:** Schema: single baseline migration `migrations/20260301000000_baseline.sql`. Indexer: `lib/db/indexer.ts`. List: `lib/db/requestsList.ts`. UI: `app/requests/page.tsx`.
 
 **Org tenancy tables** (separate from requests_index): `orgs`, `org_memberships`, `teams`, `team_memberships`, `project_team_access`, `projects`. See [ORGANISATIONS.md](ORGANISATIONS.md) and [SYSTEM_OVERVIEW.md](SYSTEM_OVERVIEW.md).
 
@@ -30,11 +32,12 @@ Migrations: `20260320000000_orgs.sql`, `20260320001000_projects.sql`, `202603200
 | Column | Type | Description |
 |--------|------|-------------|
 | `request_id` | TEXT PK | Request ID (matches S3 key `requests/<id>.json`). |
+| `org_id` | TEXT NOT NULL | Org ownership; required for tenancy. |
 | `created_at` | TIMESTAMPTZ | From request `receivedAt` / `createdAt` / `updatedAt`. |
 | `updated_at` | TIMESTAMPTZ | From request `updatedAt`; fallback for ordering when `last_activity_at` is null. |
 | `repo_full_name` | TEXT | `targetOwner/targetRepo`. |
-| `environment_key` | TEXT | Environment (e.g. dev, prod). |
-| `environment_slug` | TEXT | Environment slug (e.g. ai-agent). Enables precise filtering by (repo, key, slug). |
+| `workspace_key` | TEXT | Workspace key (e.g. dev, prod). |
+| `workspace_slug` | TEXT | Workspace slug (e.g. ai-agent). Enables precise filtering by (repo, key, slug). |
 | `module_key` | TEXT | Module name. |
 | `actor` | TEXT | Creator (or from config tags). |
 | `pr_number` | INTEGER | PR number if present. |
@@ -78,16 +81,19 @@ Migrations: `20260320000000_orgs.sql`, `20260320001000_projects.sql`, `202603200
 
 ---
 
-## Activity filtering (environment_slug)
+## Activity filtering (workspace)
 
-Environment activity (`GET /api/environments/:id/activity`) queries `listRequestIndexRowsByEnvironment` in **lib/db/requestsList.ts**. **Filtering must use all three:** `repo_full_name`, `environment_key`, `environment_slug`. This ensures activity timelines include only requests belonging to the exact environment, not other environments sharing the same key.
+Workspace activity (`GET /api/workspaces/:id/activity`) queries `listRequestIndexRowsByWorkspace` in **lib/db/requestsList.ts**. **Filtering must use all three:** `repo_full_name`, `workspace_key`, `workspace_slug`. This ensures activity timelines include only requests belonging to the exact workspace.
 
-**Migration:** `20260304100000_requests_index_environment_slug.sql` adds the `environment_slug` column. Until applied, the column does not exist and activity queries would fail.
+---
 
-**Post-deploy steps (after adding environment_slug):**
+## Local bootstrap (clean baseline)
 
-1. `npm run db:migrate` — apply migration (adds column).
-2. `npm run db:rebuild-index` — backfill `environment_slug` from S3 documents for existing rows. Rows with `environment_slug IS NULL` will not match activity queries.
+To get a clean schema from scratch:
+
+1. **Reset** (drops all app tables and schema_migrations): `npm run db:reset`
+2. **Apply baseline:** `npm run db:migrate`
+3. **Seed** (optional): `npm run db:seed`, `npm run db:seed-platform-admins`, and seed workspace templates via `POST /api/workspace-templates/admin/seed` if needed.
 
 ---
 

@@ -8,18 +8,18 @@ Workflows live in infra repos (e.g. **core-terraform**, **payments-terraform**).
 
 | Kind | Purpose | Concurrency | Lock |
 |------|---------|-------------|------|
-| **plan** | `terraform plan -lock=false`, upload plan artifact | Per env + request_id (`cancel-in-progress: true`) | No lock acquisition |
-| **apply** | `terraform apply` after PR merged | Per env **state group** (serialized per env) | Uses state lock |
-| **destroy** | Destroy resources; runs after cleanup | Per env **state group** (serialized per env) | Uses state lock |
-| **cleanup** | Strip TfPilot block from env files, open cleanup PR | Per env + request_id | N/A |
-| **drift_plan** | Plan on base branch to detect drift (e.g. nightly) | Per env (v2) | No lock |
+| **plan** | `terraform plan -lock=false`, upload plan artifact | Per workspace + request_id (`cancel-in-progress: true`) | No lock acquisition |
+| **apply** | `terraform apply` after PR merged | Per workspace **state group** (serialized per workspace) | Uses state lock |
+| **destroy** | Destroy resources; runs after cleanup | Per workspace **state group** (serialized per workspace) | Uses state lock |
+| **cleanup** | Strip TfPilot block from workspace files, open cleanup PR | Per workspace + request_id | N/A |
+| **drift_plan** | Plan on base branch to detect drift (e.g. nightly) | Per workspace (v2) | No lock |
 
 ---
 
 ## Concurrency (current)
 
 - **Plan / cleanup:** `group: <repo>-${{ inputs.environment_key }}-${{ inputs.environment_slug }}-${{ inputs.request_id }}` — one active plan per request; cancel-in-progress for plan.
-- **Apply / destroy / drift:** `group: <repo>-state-${{ inputs.environment_key }}-${{ inputs.environment_slug }}` — **serialized per env** to protect state lock.
+- **Apply / destroy / drift:** `group: <repo>-state-${{ inputs.environment_key }}-${{ inputs.environment_slug }}` — **serialized per workspace** to protect state lock.
 
 ---
 
@@ -30,7 +30,7 @@ Common inputs (names may vary by repo):
 | Input | Description |
 |-------|-------------|
 | `request_id` | TfPilot request ID (required for plan, apply, destroy, cleanup). |
-| `environment_key` / `environment_slug` | v2: `environment_key` (dev|prod), `environment_slug` (e.g. ai-agent). |
+| `environment_key` / `environment_slug` | v2: workspace identity (dev|prod key, slug). TfPilot passes these from workspace_key/workspace_slug when dispatching. |
 | `ref` / branch | Branch to run on (e.g. `request/<requestId>` for plan; default branch for destroy). |
 | `dry_run` | Optional; some workflows support it. |
 
@@ -61,17 +61,17 @@ Workflow files `plan.yml`, `apply.yml`, `destroy.yml`, `drift_plan.yml`, `cleanu
 | Input | Required | Description |
 |-------|----------|-------------|
 | `request_id` | plan: yes; apply: no; destroy: yes if scope=module | TfPilot request ID |
-| `environment_key` | yes | `dev` or `prod` |
-| `environment_slug` | yes | Slug (e.g. `ai-agent`) |
+| `environment_key` | yes | Workspace key (e.g. `dev`, `prod`). Passed from TfPilot workspace_key. |
+| `environment_slug` | yes | Workspace slug (e.g. `ai-agent`). Passed from TfPilot workspace_slug. |
 | `destroy_scope` | destroy only | `module` = target single module; `environment` = full destroy (no -target) |
 | `ref` | no | Git ref to checkout (default: main) |
 | `dry_run` | no | Skip terraform destroy if true |
 
-### v2 ENV_ROOT
+### v2 workspace root (in workflow: ENV_ROOT)
 
-- `ENV_ROOT = envs/${environment_key}/${environment_slug}`
-- `working-directory` uses `${{ env.ENV_ROOT }}`
-- All artifact paths and Infracost plan path use `${ENV_ROOT}/...`
+- In workflow: `ENV_ROOT = envs/${environment_key}/${environment_slug}/` (workspace root).
+- `working-directory` uses `${{ env.ENV_ROOT }}`.
+- All artifact paths and Infracost plan path use the workspace root.
 
 ### v2 backend init
 
@@ -82,7 +82,7 @@ Workflow files `plan.yml`, `apply.yml`, `destroy.yml`, `drift_plan.yml`, `cleanu
 ### v2 concurrency
 
 - **Plan:** `group: <repo>-${{ inputs.environment_key }}-${{ inputs.environment_slug }}-${{ inputs.request_id }}` — one per request.
-- **Apply / destroy:** `group: <repo>-state-${{ inputs.environment_key }}-${{ inputs.environment_slug }}` — serialized per env root.
+- **Apply / destroy:** `group: <repo>-state-${{ inputs.environment_key }}-${{ inputs.environment_slug }}` — serialized per workspace root.
 
 ### v2 artifact names
 
@@ -92,7 +92,7 @@ Workflow files `plan.yml`, `apply.yml`, `destroy.yml`, `drift_plan.yml`, `cleanu
 ### Drift plan v2
 
 - **Workflow:** `drift_plan.yml`
-- **Inputs:** `environment_key`, `environment_slug` (no `request_id`; env-scoped).
+- **Inputs:** `environment_key`, `environment_slug` (no `request_id`; workspace-scoped; TfPilot passes from workspace).
 - **Concurrency:** Same as apply/destroy: `group: <repo>-state-${{ inputs.environment_key }}-${{ inputs.environment_slug }}`.
 - **Artifacts:** `drift-logs-v2` (plan.txt, .terraform.lock.hcl), `drift-plan-json-v2` (plan.json).
-- **No webhook:** Last drift is derived from GitHub runs + env drift index.
+- **No webhook:** Last drift is derived from GitHub runs + workspace drift index.

@@ -1,16 +1,15 @@
 /**
  * Invariant tests: Deploy error codes (Chunk 7.1).
- * Per docs/plans-and-deltas/ENVIRONMENT_TEMPLATES_DELTA.md.
- * Route contract: POST /api/environments/:id/deploy maps these to HTTP status + JSON body.
+ * Route contract: POST /api/workspaces/:id/deploy maps these to HTTP status + JSON body.
  */
 
-import { isValidTemplateId } from "@/lib/environments/validateTemplateId"
+import { isValidTemplateId } from "@/lib/workspaces/validateTemplateId"
 import {
-  isEnvironmentDeployed,
-  ENV_DEPLOY_CHECK_FAILED,
-  type IsEnvironmentDeployedParams,
+  isWorkspaceDeployed,
+  WORKSPACE_DEPLOY_CHECK_FAILED,
+  type IsWorkspaceDeployedParams,
   type DeployCheckFetcher,
-} from "@/lib/environments/isEnvironmentDeployed"
+} from "@/lib/workspaces/isWorkspaceDeployed"
 import {
   createDeployPR,
   DeployBranchExistsError,
@@ -29,10 +28,10 @@ function mockJsonResponse(data: unknown, status = 200): Response {
   } as Response
 }
 
-const BASE_DEPLOY_PARAMS: IsEnvironmentDeployedParams = {
-  environment_id: "env_1",
-  environment_key: "dev",
-  environment_slug: "ai-agent",
+const BASE_DEPLOY_PARAMS: IsWorkspaceDeployedParams = {
+  workspace_id: "ws_1",
+  workspace_key: "dev",
+  workspace_slug: "ai-agent",
   repo_full_name: "owner/core-terraform",
 }
 
@@ -48,58 +47,65 @@ const BASE_CREATE_PARAMS = {
 }
 
 export const tests = [
-  // --- INVALID_ENV_TEMPLATE (400) ---
   {
-    name: "deployErrors: INVALID_ENV_TEMPLATE — isValidTemplateId rejects empty string",
-    fn: () => {
-      assert(isValidTemplateId("") === false, "empty string invalid")
+    name: "deployErrors: isValidTemplateId rejects empty string",
+    fn: async () => {
+      assert((await isValidTemplateId("")) === false, "empty string invalid")
     },
   },
   {
-    name: "deployErrors: INVALID_ENV_TEMPLATE — isValidTemplateId rejects unknown id",
-    fn: () => {
-      assert(isValidTemplateId("unknown-template") === false, "unknown id invalid")
-      assert(isValidTemplateId("baseline-xyz") === false, "non-existent template invalid")
+    name: "deployErrors: isValidTemplateId rejects unknown id",
+    fn: async () => {
+      assert((await isValidTemplateId("unknown-template")) === false, "unknown id invalid")
+      assert((await isValidTemplateId("baseline-xyz")) === false, "non-existent template invalid")
     },
   },
   {
-    name: "deployErrors: INVALID_ENV_TEMPLATE — isValidTemplateId accepts valid ids",
-    fn: () => {
-      assert(isValidTemplateId("blank") === true, "blank valid")
-      assert(isValidTemplateId("baseline-ai-service") === true, "baseline-ai-service valid")
-      assert(isValidTemplateId(null) === true, "null valid")
-      assert(isValidTemplateId(undefined) === true, "undefined valid")
+    name: "deployErrors: isValidTemplateId rejects blank, accepts null/undefined and valid ids",
+    fn: async () => {
+      assert((await isValidTemplateId("blank")) === false, "blank invalid (template-only)")
+      assert((await isValidTemplateId(null)) === true, "null valid")
+      assert((await isValidTemplateId(undefined)) === true, "undefined valid")
+      const { __testOnlySetWorkspaceTemplatesIndex } = await import("@/lib/workspace-templates-store")
+      __testOnlySetWorkspaceTemplatesIndex(() =>
+        Promise.resolve([
+          { id: "baseline-ai-service", name: "Baseline AI", latest_version: "v1" },
+        ])
+      )
+      try {
+        assert((await isValidTemplateId("baseline-ai-service")) === true, "baseline-ai-service valid when in index")
+      } finally {
+        __testOnlySetWorkspaceTemplatesIndex(null)
+      }
     },
   },
 
-  // --- ENV_DEPLOY_CHECK_FAILED (503) ---
   {
-    name: "deployErrors: ENV_DEPLOY_CHECK_FAILED — isEnvironmentDeployed returns ok:false on GitHub failure",
+    name: "deployErrors: WORKSPACE_DEPLOY_CHECK_FAILED — isWorkspaceDeployed returns ok:false on GitHub failure",
     fn: async () => {
       const fetcher: DeployCheckFetcher = async () => {
         throw new Error("Network error")
       }
-      const result = await isEnvironmentDeployed("token", BASE_DEPLOY_PARAMS, fetcher)
+      const result = await isWorkspaceDeployed("token", BASE_DEPLOY_PARAMS, fetcher)
       assert(result.ok === false, "expected failure")
-      assert((result as { error: string }).error === ENV_DEPLOY_CHECK_FAILED, "ENV_DEPLOY_CHECK_FAILED")
+      assert((result as { error: string }).error === WORKSPACE_DEPLOY_CHECK_FAILED, "WORKSPACE_DEPLOY_CHECK_FAILED")
     },
   },
   {
-    name: "deployErrors: ENV_DEPLOY_CHECK_FAILED — isEnvironmentDeployed returns ok:false on invalid repo",
+    name: "deployErrors: WORKSPACE_DEPLOY_CHECK_FAILED — isWorkspaceDeployed returns ok:false on invalid repo",
     fn: async () => {
       const fetcher: DeployCheckFetcher = async () => mockJsonResponse({})
-      const result = await isEnvironmentDeployed("token", {
+      const result = await isWorkspaceDeployed("token", {
         ...BASE_DEPLOY_PARAMS,
         repo_full_name: "invalid",
       }, fetcher)
       assert(result.ok === false, "expected failure")
-      assert((result as { error: string }).error === ENV_DEPLOY_CHECK_FAILED, "ENV_DEPLOY_CHECK_FAILED")
+      assert((result as { error: string }).error === WORKSPACE_DEPLOY_CHECK_FAILED, "WORKSPACE_DEPLOY_CHECK_FAILED")
     },
   },
 
-  // --- ENV_ALREADY_DEPLOYED (409) ---
   {
-    name: "deployErrors: ENV_ALREADY_DEPLOYED — isEnvironmentDeployed returns deployed:true when backend.tf exists",
+    name: "deployErrors: isWorkspaceDeployed returns deployed:true when backend.tf exists",
     fn: async () => {
       const fetcher: DeployCheckFetcher = async (path) => {
         if (path.includes("/repos/")) {
@@ -109,15 +115,14 @@ export const tests = [
         }
         return mockJsonResponse({}, 404)
       }
-      const result = await isEnvironmentDeployed("token", BASE_DEPLOY_PARAMS, fetcher)
+      const result = await isWorkspaceDeployed("token", BASE_DEPLOY_PARAMS, fetcher)
       assert(result.ok === true, "expected ok")
-      assert((result as { deployed: boolean }).deployed === true, "deployed:true → route returns 409 ENV_ALREADY_DEPLOYED")
+      assert((result as { deployed: boolean }).deployed === true, "deployed:true → route returns 409")
     },
   },
 
-  // --- ENV_DEPLOY_IN_PROGRESS (409) — case (a): deployPrOpen ---
   {
-    name: "deployErrors: ENV_DEPLOY_IN_PROGRESS — isEnvironmentDeployed deployPrOpen:true (open PR)",
+    name: "deployErrors: isWorkspaceDeployed deployPrOpen:true (open PR)",
     fn: async () => {
       const fetcher: DeployCheckFetcher = async (path) => {
         if (path.includes("/repos/")) {
@@ -127,19 +132,16 @@ export const tests = [
         }
         return mockJsonResponse({}, 404)
       }
-      const result = await isEnvironmentDeployed("token", BASE_DEPLOY_PARAMS, fetcher)
+      const result = await isWorkspaceDeployed("token", BASE_DEPLOY_PARAMS, fetcher)
       assert(result.ok === true, "expected ok")
-      assert((result as { deployPrOpen: boolean }).deployPrOpen === true, "deployPrOpen:true → route returns 409 ENV_DEPLOY_IN_PROGRESS")
+      assert((result as { deployPrOpen: boolean }).deployPrOpen === true, "deployPrOpen:true → route returns 409")
     },
   },
 
-  // --- ENV_DEPLOY_IN_PROGRESS (409) — case (b): DeployBranchExistsError ---
   {
-    name: "deployErrors: ENV_DEPLOY_IN_PROGRESS — createDeployPR throws DeployBranchExistsError when branch exists",
+    name: "deployErrors: createDeployPR throws DeployBranchExistsError when branch exists",
     fn: async () => {
-      // ghResponse for branch ref GET returns 200 → branch exists → createDeployPR throws
       const ghResponseOverride = async (_token: string, path: string) => {
-        // branchExists GET /repos/.../git/ref/heads%2Fdeploy%2Fdev%2Fai-agent
         if (path.includes("/git/ref/") && path.includes("deploy")) {
           return mockJsonResponse({ ref: "refs/heads/deploy/dev/ai-agent", object: { sha: "abc" } })
         }
@@ -160,22 +162,21 @@ export const tests = [
     },
   },
 
-  // --- Deploy error contract (status mapping) ---
   {
-    name: "deployErrors: contract — error codes map to HTTP status per delta",
+    name: "deployErrors: contract — error codes map to HTTP status",
     fn: () => {
       const contract: Record<string, number> = {
-        INVALID_ENV_TEMPLATE: 400,
-        ENV_TEMPLATES_NOT_INITIALIZED: 503,
-        ENV_ALREADY_DEPLOYED: 409,
-        ENV_DEPLOY_IN_PROGRESS: 409,
-        ENV_DEPLOY_CHECK_FAILED: 503,
+        INVALID_WORKSPACE_TEMPLATE: 400,
+        WORKSPACE_TEMPLATES_NOT_INITIALIZED: 503,
+        WORKSPACE_ALREADY_DEPLOYED: 409,
+        WORKSPACE_DEPLOY_IN_PROGRESS: 409,
+        WORKSPACE_DEPLOY_CHECK_FAILED: 503,
       }
-      assert(contract.INVALID_ENV_TEMPLATE === 400, "INVALID_ENV_TEMPLATE → 400")
-      assert(contract.ENV_TEMPLATES_NOT_INITIALIZED === 503, "ENV_TEMPLATES_NOT_INITIALIZED → 503")
-      assert(contract.ENV_ALREADY_DEPLOYED === 409, "ENV_ALREADY_DEPLOYED → 409")
-      assert(contract.ENV_DEPLOY_IN_PROGRESS === 409, "ENV_DEPLOY_IN_PROGRESS → 409")
-      assert(contract.ENV_DEPLOY_CHECK_FAILED === 503, "ENV_DEPLOY_CHECK_FAILED → 503")
+      assert(contract.INVALID_WORKSPACE_TEMPLATE === 400, "INVALID_WORKSPACE_TEMPLATE → 400")
+      assert(contract.WORKSPACE_TEMPLATES_NOT_INITIALIZED === 503, "WORKSPACE_TEMPLATES_NOT_INITIALIZED → 503")
+      assert(contract.WORKSPACE_ALREADY_DEPLOYED === 409, "WORKSPACE_ALREADY_DEPLOYED → 409")
+      assert(contract.WORKSPACE_DEPLOY_IN_PROGRESS === 409, "WORKSPACE_DEPLOY_IN_PROGRESS → 409")
+      assert(contract.WORKSPACE_DEPLOY_CHECK_FAILED === 503, "WORKSPACE_DEPLOY_CHECK_FAILED → 503")
     },
   },
 ]

@@ -16,7 +16,7 @@ import {
   type PermissionContext,
   type ProjectPermission,
 } from "@/lib/auth/permissions"
-import { getProjectById } from "@/lib/db/projects"
+import { resolveProjectByIdOrKey } from "@/lib/db/projects"
 import {
   upsertProjectUserRole,
   isValidProjectRole,
@@ -34,7 +34,7 @@ export type ProjectUsersRouteDeps = {
     projectId: string,
     permission: ProjectPermission
   ) => Promise<unknown>
-  getProjectById: (projectId: string) => Promise<{ orgId: string; projectKey: string } | null>
+  resolveProject: (orgId: string, projectIdOrKey: string) => Promise<{ id: string; orgId: string; projectKey: string } | null>
   upsertProjectUserRole: (projectId: string, userLogin: string, role: ProjectRoleDb) => Promise<boolean>
   isValidProjectRole: (r: unknown) => r is ProjectRoleDb
   writeAuditEvent: (deps: unknown, event: AuditEventInput) => Promise<void>
@@ -45,7 +45,7 @@ const realDeps: ProjectUsersRouteDeps = {
   requireActiveOrg,
   buildPermissionContext,
   requireProjectPermission,
-  getProjectById,
+  resolveProject: resolveProjectByIdOrKey,
   upsertProjectUserRole,
   isValidProjectRole,
   writeAuditEvent: async (deps, event) => {
@@ -101,14 +101,14 @@ export function makeProjectUsersPOST(deps: ProjectUsersRouteDeps) {
     }
     const role = roleRaw as ProjectRoleDb
 
-    const project = await deps.getProjectById(projectId)
+    const project = await deps.resolveProject(session.orgId, projectId)
     if (!project || project.orgId !== session.orgId) {
       return NextResponse.json({ error: "Not found" }, { status: 404 })
     }
 
     const permissionCtx = await deps.buildPermissionContext(session.login, session.orgId)
     try {
-      await deps.requireProjectPermission(permissionCtx, projectId, "manage_access")
+      await deps.requireProjectPermission(permissionCtx, project.id, "manage_access")
     } catch (e) {
       if (e instanceof PermissionDeniedError) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 })
@@ -116,14 +116,14 @@ export function makeProjectUsersPOST(deps: ProjectUsersRouteDeps) {
       throw e
     }
 
-    await deps.upsertProjectUserRole(projectId, login, role)
+    await deps.upsertProjectUserRole(project.id, login, role)
     deps.writeAuditEvent(auditWriteDeps, {
       org_id: session.orgId,
       actor_login: session.login,
       source: "user",
       event_type: "project_user_role_assigned",
       entity_type: "project",
-      entity_id: projectId,
+      entity_id: project.id,
       metadata: { user_login: login, role, project_key: project.projectKey },
     })
 

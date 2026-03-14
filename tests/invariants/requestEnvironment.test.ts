@@ -1,38 +1,39 @@
 /**
- * Invariant tests: Request create body validation, environment resolution, immutability.
- * Phase 4 staged — Model 2 fields accepted, execution still Model 1.
+ * Invariant tests: Request create body validation, workspace resolution, immutability.
+ * Workspace-first; uses resolveRequestWorkspace and assertWorkspaceImmutability.
  */
 
 import { validateCreateBody } from "@/lib/requests/validateCreateBody"
-import { assertEnvironmentImmutability } from "@/lib/requests/assertEnvironmentImmutability"
-import { resolveRequestEnvironment } from "@/lib/requests/resolveRequestEnvironment"
+import { assertWorkspaceImmutability } from "@/lib/requests/assertWorkspaceImmutability"
+import { resolveRequestWorkspace } from "@/lib/requests/resolveRequestWorkspace"
 
 function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(`Assertion failed: ${message}`)
 }
 
-const mockEnv = {
-  environment_id: "env_abc",
+const mockWs = {
+  workspace_id: "ws_abc",
   org_id: "org_default",
   project_key: "core",
   repo_full_name: "owner/core-terraform",
-  environment_key: "dev",
-  environment_slug: "ai-agent",
-  template_id: null,
-  template_version: null,
+  workspace_key: "dev",
+  workspace_slug: "ai-agent",
+  template_id: "baseline",
+  template_version: "v1",
+  template_inputs: {},
   created_at: "2025-01-01T00:00:00Z",
   updated_at: "2025-01-01T00:00:00Z",
   archived_at: null,
 }
 
-const mockEnvArchived = { ...mockEnv, archived_at: "2025-01-02T00:00:00Z" }
+const mockWsArchived = { ...mockWs, archived_at: "2025-01-02T00:00:00Z" }
 
 export const tests = [
   {
-    name: "validateCreateBody: accepts environment_id only",
+    name: "validateCreateBody: accepts workspace_id only",
     fn: () => {
       const errors = validateCreateBody({
-        environment_id: "env_abc",
+        workspace_id: "ws_abc",
         module: "s3-bucket",
         config: { name: "test" },
       })
@@ -40,12 +41,12 @@ export const tests = [
     },
   },
   {
-    name: "validateCreateBody: accepts project_key + environment_key + environment_slug",
+    name: "validateCreateBody: accepts project_key + workspace_key + workspace_slug",
     fn: () => {
       const errors = validateCreateBody({
         project_key: "core",
-        environment_key: "dev",
-        environment_slug: "ai-agent",
+        workspace_key: "dev",
+        workspace_slug: "ai-agent",
         module: "ecr-repo",
         config: {},
       })
@@ -61,17 +62,17 @@ export const tests = [
         module: "s3-bucket",
         config: {},
       })
-      assert(errors.length > 0 && errors.some((e) => e.includes("environment_id") || e.includes("project_key")), "legacy rejected")
+      assert(errors.length > 0 && errors.some((e) => e.includes("workspace_id") || e.includes("project_key")), "legacy rejected")
     },
   },
   {
-    name: "validateCreateBody: rejects when no env ref provided",
+    name: "validateCreateBody: rejects when no workspace ref provided",
     fn: () => {
       const errors = validateCreateBody({
         module: "s3-bucket",
         config: {},
       })
-      assert(errors.length > 0 && errors.some((e) => e.includes("environment")), "env ref required")
+      assert(errors.length > 0 && errors.some((e) => e.includes("workspace")), "workspace ref required")
     },
   },
   {
@@ -97,118 +98,128 @@ export const tests = [
     },
   },
   {
-    name: "resolveRequestEnvironment: environment_id with mock — found",
+    name: "resolveRequestWorkspace: workspace_id with mock — found",
     fn: async () => {
-      const r = await resolveRequestEnvironment({
-        environment_id: "env_abc",
+      const r = await resolveRequestWorkspace({
+        workspace_id: "ws_abc",
+        orgId: "org_default",
         _deps: {
-          getEnvironmentById: async (id) => (id === "env_abc" ? mockEnv : null),
-          getEnvironmentByRepoKeySlug: async () => null,
+          getWorkspaceById: async (id) => (id === "ws_abc" ? mockWs : null),
+          getWorkspaceByRepoKeySlug: async () => null,
+          getProjectByKey: async () => ({ repoFullName: "owner/core-terraform", defaultBranch: "main" }),
         },
       })
       assert(r.ok === true, "resolves")
-      assert(r.ok && r.resolved.environment_id === "env_abc", "environment_id")
-      assert(r.ok && r.resolved.environment_slug === "ai-agent", "slug")
+      assert(r.ok && r.resolved.workspace_id === "ws_abc", "workspace_id")
+      assert(r.ok && r.resolved.workspace_slug === "ai-agent", "slug")
     },
   },
   {
-    name: "resolveRequestEnvironment: environment_id — archived rejected",
+    name: "resolveRequestWorkspace: workspace_id — archived rejected",
     fn: async () => {
-      const r = await resolveRequestEnvironment({
-        environment_id: "env_archived",
+      const r = await resolveRequestWorkspace({
+        workspace_id: "ws_archived",
+        orgId: "org_default",
         _deps: {
-          getEnvironmentById: async () => mockEnvArchived,
-          getEnvironmentByRepoKeySlug: async () => null,
+          getWorkspaceById: async () => mockWsArchived,
+          getWorkspaceByRepoKeySlug: async () => null,
+          getProjectByKey: async () => ({ repoFullName: "owner/core-terraform", defaultBranch: "main" }),
         },
       })
       assert(r.ok === false && r.error.includes("archived"), "archived rejected")
     },
   },
   {
-    name: "resolveRequestEnvironment: environment_id — not found",
+    name: "resolveRequestWorkspace: workspace_id — not found",
     fn: async () => {
-      const r = await resolveRequestEnvironment({
-        environment_id: "env_nonexistent",
+      const r = await resolveRequestWorkspace({
+        workspace_id: "ws_nonexistent",
+        orgId: "org_default",
         _deps: {
-          getEnvironmentById: async () => null,
-          getEnvironmentByRepoKeySlug: async () => null,
+          getWorkspaceById: async () => null,
+          getWorkspaceByRepoKeySlug: async () => null,
+          getProjectByKey: async () => null,
         },
       })
       assert(r.ok === false && r.error.includes("not found"), "not found")
     },
   },
   {
-    name: "resolveRequestEnvironment: both env_id and key+slug matching",
+    name: "resolveRequestWorkspace: both workspace_id and key+slug matching",
     fn: async () => {
-      const r = await resolveRequestEnvironment({
-        environment_id: "env_abc",
+      const r = await resolveRequestWorkspace({
+        workspace_id: "ws_abc",
         project_key: "core",
-        environment_key: "dev",
-        environment_slug: "ai-agent",
+        workspace_key: "dev",
+        workspace_slug: "ai-agent",
+        orgId: "org_default",
         _deps: {
-          getEnvironmentById: async () => mockEnv,
-          getEnvironmentByRepoKeySlug: async () => null,
+          getWorkspaceById: async () => mockWs,
+          getWorkspaceByRepoKeySlug: async () => null,
+          getProjectByKey: async () => ({ repoFullName: "owner/core-terraform", defaultBranch: "main" }),
         },
       })
       assert(r.ok === true, "match succeeds")
     },
   },
   {
-    name: "resolveRequestEnvironment: both env_id and key+slug mismatching",
+    name: "resolveRequestWorkspace: both workspace_id and key+slug mismatching",
     fn: async () => {
-      const r = await resolveRequestEnvironment({
-        environment_id: "env_abc",
+      const r = await resolveRequestWorkspace({
+        workspace_id: "ws_abc",
         project_key: "core",
-        environment_key: "prod",
-        environment_slug: "wrong",
+        workspace_key: "prod",
+        workspace_slug: "wrong",
+        orgId: "org_default",
         _deps: {
-          getEnvironmentById: async () => mockEnv,
-          getEnvironmentByRepoKeySlug: async () => null,
+          getWorkspaceById: async () => mockWs,
+          getWorkspaceByRepoKeySlug: async () => null,
+          getProjectByKey: async () => ({ repoFullName: "owner/core-terraform", defaultBranch: "main" }),
         },
       })
       assert(r.ok === false && r.error.includes("match"), "mismatch rejected")
     },
   },
   {
-    name: "assertEnvironmentImmutability: allows patch without env fields",
+    name: "assertWorkspaceImmutability: allows patch without workspace fields",
     fn: () => {
-      const current = { environment_id: "env_1", environment_key: "dev", environment_slug: "x" }
-      const err = assertEnvironmentImmutability(current, { name: "newname" })
+      const current = { workspace_id: "ws_1", workspace_key: "dev", workspace_slug: "x" }
+      const err = assertWorkspaceImmutability(current, { name: "newname" })
       assert(err === null, "no error")
     },
   },
   {
-    name: "assertEnvironmentImmutability: rejects change to environment_id",
+    name: "assertWorkspaceImmutability: rejects change to workspace_id",
     fn: () => {
-      const current = { environment_id: "env_1", environment_key: "dev" }
-      const err = assertEnvironmentImmutability(current, { environment_id: "env_2" })
-      assert(err === "environment_id is immutable", "rejects env_id change")
+      const current = { workspace_id: "ws_1", workspace_key: "dev" }
+      const err = assertWorkspaceImmutability(current, { workspace_id: "ws_2" })
+      assert(err === "workspace_id is immutable", "rejects workspace_id change")
     },
   },
   {
-    name: "assertEnvironmentImmutability: rejects change to environment_key",
+    name: "assertWorkspaceImmutability: rejects change to workspace_key",
     fn: () => {
-      const current = { environment_key: "dev", environment_slug: "x" }
-      const err = assertEnvironmentImmutability(current, { environment_key: "prod" })
-      assert(err === "environment_key is immutable", "rejects key change")
+      const current = { workspace_key: "dev", workspace_slug: "x" }
+      const err = assertWorkspaceImmutability(current, { workspace_key: "prod" })
+      assert(err === "workspace_key is immutable", "rejects key change")
     },
   },
   {
-    name: "assertEnvironmentImmutability: rejects change to environment_slug",
+    name: "assertWorkspaceImmutability: rejects change to workspace_slug",
     fn: () => {
-      const current = { environment_key: "dev", environment_slug: "ai-agent" }
-      const err = assertEnvironmentImmutability(current, { environment_slug: "other" })
-      assert(err === "environment_slug is immutable", "rejects slug change")
+      const current = { workspace_key: "dev", workspace_slug: "ai-agent" }
+      const err = assertWorkspaceImmutability(current, { workspace_slug: "other" })
+      assert(err === "workspace_slug is immutable", "rejects slug change")
     },
   },
   {
-    name: "assertEnvironmentImmutability: allows same values (no change)",
+    name: "assertWorkspaceImmutability: allows same values (no change)",
     fn: () => {
-      const current = { environment_id: "env_1", environment_key: "dev", environment_slug: "x" }
-      const err = assertEnvironmentImmutability(current, {
-        environment_id: "env_1",
-        environment_key: "dev",
-        environment_slug: "x",
+      const current = { workspace_id: "ws_1", workspace_key: "dev", workspace_slug: "x" }
+      const err = assertWorkspaceImmutability(current, {
+        workspace_id: "ws_1",
+        workspace_key: "dev",
+        workspace_slug: "x",
       })
       assert(err === null, "same values allowed")
     },

@@ -8,7 +8,6 @@ import { tests as reconcileTests } from "./invariants/reconcile.test"
 import { tests as completionTimeTests } from "./invariants/completionTime.test"
 import { tests as auditDeterminismTests } from "./invariants/auditDeterminism.test"
 import { tests as locksTests } from "./invariants/locks.test"
-import { tests as environmentsHelpersTests } from "./invariants/environmentsHelpers.test"
 import { tests as rendererModel2Tests } from "./invariants/rendererModel2.test"
 import { tests as requestEnvironmentTests } from "./invariants/requestEnvironment.test"
 import { tests as envDestroyTests } from "./invariants/envDestroy.test"
@@ -16,25 +15,12 @@ import { tests as envFieldsChunk9Tests } from "./invariants/envFieldsChunk9.test
 import { tests as model2LegacyTests } from "./invariants/model2Legacy.test"
 import { tests as driftPlanTests } from "./invariants/driftPlan.test"
 import { tests as zeroLegacyEnvTests } from "./invariants/zeroLegacyEnv.test"
-import { tests as environmentTemplatesTests } from "./unit/environmentTemplates.test"
-import { tests as environmentTemplatesRouteTests } from "./api/environmentTemplatesRoute.test"
 import { tests as requestTemplatesRouteTests } from "./api/requestTemplatesRoute.test"
 import { tests as requestTemplatesTests } from "./unit/requestTemplates.test"
 import { tests as moduleRegistryTests } from "./unit/moduleRegistry.test"
-import { tests as envSkeletonTests } from "./unit/envSkeleton.test"
-import { tests as isEnvironmentDeployedTests } from "./unit/isEnvironmentDeployed.test"
 import { tests as createDeployPRTests } from "./unit/createDeployPR.test"
-import { tests as getEnvironmentDeployStatusTests } from "./unit/getEnvironmentDeployStatus.test"
-import { tests as environmentsCreateTests } from "./invariants/environmentsCreate.test"
-import { tests as environmentDeployRouteTests } from "./api/environmentDeployRoute.test"
-import { tests as environmentsCreateRouteTests } from "./api/environmentsCreateRoute.test"
-import { tests as environmentDeployErrorsRouteTests } from "./api/environmentDeployErrorsRoute.test"
-import { tests as environmentActivityRouteTests } from "./api/environmentActivityRoute.test"
 import { tests as deployErrorsTests } from "./invariants/deployErrors.test"
-import { tests as environmentActivityTests } from "./unit/environmentActivity.test"
-import { tests as envTemplatesStoreTests } from "./unit/envTemplatesStore.test"
-import { tests as envTemplatesValidationTests } from "./unit/envTemplatesValidation.test"
-import { tests as envTemplatesAdminRouteTests } from "./api/envTemplatesAdminRoute.test"
+import { tests as workspaceActivityTests } from "./unit/workspaceActivity.test"
 import { tests as validateTemplateIdOrThrowTests } from "./unit/validateTemplateIdOrThrow.test"
 import { tests as projectAccessEnforcementTests } from "./unit/projectAccessEnforcement.test"
 import { tests as projectAccessEnforcementRouteTests } from "./api/projectAccessEnforcementRoute.test"
@@ -48,7 +34,6 @@ import { tests as requestsSyncRouteTests } from "./api/requestsSyncRoute.test"
 import { tests as auditRouteTests } from "./api/auditRoute.test"
 import { tests as projectRoleManagementRouteTests } from "./api/projectRoleManagementRoute.test"
 import { tests as requestActionRouteTests } from "./api/requestActionRoute.test"
-import { tests as environmentActionRouteTests } from "./api/environmentActionRoute.test"
 import { tests as teamMemberAuditProducerTests } from "./unit/teamMemberAuditProducer.test"
 import { tests as projectRolesTests } from "./unit/projectRoles.test"
 import { tests as permissionsTests } from "./unit/permissions.test"
@@ -57,7 +42,6 @@ const allSuites = [
   completionTimeTests,
   auditDeterminismTests,
   locksTests,
-  environmentsHelpersTests,
   rendererModel2Tests,
   requestEnvironmentTests,
   envDestroyTests,
@@ -65,25 +49,12 @@ const allSuites = [
   model2LegacyTests,
   driftPlanTests,
   zeroLegacyEnvTests,
-  environmentTemplatesTests,
-  environmentTemplatesRouteTests,
   requestTemplatesRouteTests,
   requestTemplatesTests,
   moduleRegistryTests,
-  envSkeletonTests,
-  isEnvironmentDeployedTests,
   createDeployPRTests,
-  getEnvironmentDeployStatusTests,
-  environmentsCreateTests,
-  environmentDeployRouteTests,
-  environmentsCreateRouteTests,
-  environmentDeployErrorsRouteTests,
-  environmentActivityRouteTests,
   deployErrorsTests,
-  environmentActivityTests,
-  envTemplatesStoreTests,
-  envTemplatesValidationTests,
-  envTemplatesAdminRouteTests,
+  workspaceActivityTests,
   validateTemplateIdOrThrowTests,
   projectAccessEnforcementTests,
   projectAccessEnforcementRouteTests,
@@ -97,7 +68,6 @@ const allSuites = [
   auditRouteTests,
   projectRoleManagementRouteTests,
   requestActionRouteTests,
-  environmentActionRouteTests,
   teamMemberAuditProducerTests,
   projectRolesTests,
   permissionsTests,

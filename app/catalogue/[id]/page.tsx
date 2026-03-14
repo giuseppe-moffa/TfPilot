@@ -18,7 +18,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
-import { listEnvironments, listProjects } from "@/config/infra-repos"
+const DEFAULT_ENVIRONMENT_KEYS = ["dev", "prod"]
 
 /** Sentinel for "Any project" in the Select (Radix does not allow value=""). */
 const ANY_PROJECT_VALUE = "__any__"
@@ -164,10 +164,22 @@ export default function TemplateEditorPage() {
 
   const [modules, setModules] = React.useState<ModuleSchema[]>([])
   const [configFormValues, setConfigFormValues] = React.useState<Record<string, unknown>>({})
+  const [apiProjects, setApiProjects] = React.useState<Array<{ project_key: string; name: string }>>([])
 
-  const projects = React.useMemo(() => listProjects(), [])
-  const projectForEnvs = project === ANY_PROJECT_VALUE ? (projects[0] ?? "") : project
-  const environments = React.useMemo(() => listEnvironments(projectForEnvs), [projectForEnvs])
+  const projects = React.useMemo(() => apiProjects.map((p) => p.project_key), [apiProjects])
+  const environments = DEFAULT_ENVIRONMENT_KEYS
+
+  React.useEffect(() => {
+    let cancelled = false
+    fetch("/api/projects", { credentials: "include" })
+      .then((res) => (res.ok ? res.json() : { projects: [] }))
+      .then((data: { projects?: Array<{ project_key: string; name: string }> }) => {
+        if (cancelled) return
+        setApiProjects((data?.projects ?? []).map((p) => ({ project_key: p.project_key, name: p.name ?? p.project_key })))
+      })
+      .catch(() => { if (!cancelled) setApiProjects([]) })
+    return () => { cancelled = true }
+  }, [])
 
   React.useEffect(() => {
     if (isNew) {
@@ -393,8 +405,7 @@ export default function TemplateEditorPage() {
               value={project}
               onValueChange={(v) => {
                 setProject(v)
-                const forEnvs = v === ANY_PROJECT_VALUE ? (projects[0] ?? "") : v
-                setEnvironment(listEnvironments(forEnvs)[0] ?? "")
+                setEnvironment(DEFAULT_ENVIRONMENT_KEYS[0] ?? "")
               }}
               disabled={readOnly}
             >

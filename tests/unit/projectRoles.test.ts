@@ -13,7 +13,7 @@ import {
   userCanApprove,
   userCanApply,
   userCanDestroy,
-  userCanDeployEnv,
+  userCanDeploy,
   userCanManageProjectAccess,
   type PermissionContext,
 } from "@/lib/auth/projectRoles"
@@ -165,7 +165,7 @@ export const tests = [
       assert(!userCanApprove("viewer"), "viewer cannot approve")
       assert(!userCanApply("viewer"), "viewer cannot apply")
       assert(!userCanDestroy("viewer"), "viewer cannot destroy")
-      assert(!userCanDeployEnv("viewer"), "viewer cannot deploy env")
+      assert(!userCanDeploy("viewer"), "viewer cannot deploy env")
       assert(!userCanManageProjectAccess("viewer"), "viewer cannot manage access")
     },
   },
@@ -176,7 +176,7 @@ export const tests = [
       assert(!userCanApprove("planner"), "planner cannot approve")
       assert(!userCanApply("planner"), "planner cannot apply")
       assert(!userCanDestroy("planner"), "planner cannot destroy")
-      assert(!userCanDeployEnv("planner"), "planner cannot deploy env")
+      assert(!userCanDeploy("planner"), "planner cannot deploy env")
       assert(!userCanManageProjectAccess("planner"), "planner cannot manage access")
     },
   },
@@ -187,7 +187,7 @@ export const tests = [
       assert(userCanApprove("operator"), "operator can approve")
       assert(userCanApply("operator"), "operator can apply")
       assert(!userCanDestroy("operator"), "operator cannot destroy")
-      assert(!userCanDeployEnv("operator"), "operator cannot deploy env")
+      assert(!userCanDeploy("operator"), "operator cannot deploy env")
       assert(!userCanManageProjectAccess("operator"), "operator cannot manage access")
     },
   },
@@ -198,7 +198,7 @@ export const tests = [
       assert(userCanApprove("deployer"), "deployer can approve")
       assert(userCanApply("deployer"), "deployer can apply")
       assert(!userCanDestroy("deployer"), "deployer cannot destroy")
-      assert(userCanDeployEnv("deployer"), "deployer can deploy env")
+      assert(userCanDeploy("deployer"), "deployer can deploy env")
       assert(!userCanManageProjectAccess("deployer"), "deployer cannot manage access")
     },
   },
@@ -209,7 +209,7 @@ export const tests = [
       assert(userCanApprove("admin"), "admin can approve")
       assert(userCanApply("admin"), "admin can apply")
       assert(userCanDestroy("admin"), "admin can destroy")
-      assert(userCanDeployEnv("admin"), "admin can deploy env")
+      assert(userCanDeploy("admin"), "admin can deploy env")
       assert(userCanManageProjectAccess("admin"), "admin can manage access")
     },
   },
@@ -220,7 +220,7 @@ export const tests = [
       assert(!userCanApprove(null), "null cannot approve")
       assert(!userCanApply(null), "null cannot apply")
       assert(!userCanDestroy(null), "null cannot destroy")
-      assert(!userCanDeployEnv(null), "null cannot deploy env")
+      assert(!userCanDeploy(null), "null cannot deploy env")
       assert(!userCanManageProjectAccess(null), "null cannot manage access")
     },
   },

@@ -218,13 +218,13 @@ export const tests = [
     },
   },
   {
-    name: "GET /api/environments: archived org -> 403 Organization archived",
+    name: "GET /api/workspaces: archived org -> 403 Organization archived",
     fn: async () => {
       if (SKIP) return
       const cookie = process.env.TEST_SESSION_COOKIE_ARCHIVED_ORG
       if (!cookie) return
       try {
-        const res = await fetchWithCookie(`${BASE}/api/environments`, {}, cookie)
+        const res = await fetchWithCookie(`${BASE}/api/workspaces`, {}, cookie)
         assert(res.status === 403, `expected 403, got ${res.status}`)
         const body = await res.json()
         assert(
@@ -237,20 +237,23 @@ export const tests = [
     },
   },
   {
-    name: "POST /api/environments: archived org -> 403 Organization archived",
+    name: "POST /api/workspaces: archived org -> 403 Organization archived",
     fn: async () => {
       if (SKIP) return
       const cookie = process.env.TEST_SESSION_COOKIE_ARCHIVED_ORG
       if (!cookie) return
       try {
         const res = await fetchWithCookie(
-          `${BASE}/api/environments`,
+          `${BASE}/api/workspaces`,
           {
             method: "POST",
             body: JSON.stringify({
               project_key: "core",
-              environment_key: "dev",
-              environment_slug: "test",
+              workspace_key: "dev",
+              workspace_slug: "test",
+              template_id: "baseline-app",
+              template_version: "v1",
+              template_inputs: {},
             }),
           },
           cookie

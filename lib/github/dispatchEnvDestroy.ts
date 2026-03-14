@@ -1,18 +1,29 @@
 /**
- * Helpers for environment destroy dispatch (destroy_scope="environment").
- * environment_id is passed so webhook can derive correlation when index misses (facts-only).
+ * Helpers for workspace destroy dispatch (destroy_scope="environment").
+ * Accepts workspace_key/workspace_slug/workspace_id (with environment_* fallback).
+ * Workflow input keys remain environment_key/environment_slug/environment_id (external contract).
  */
 
-export function buildEnvDestroyInputs(env: {
-  environment_key: string
-  environment_slug: string
+export function buildEnvDestroyInputs(ws: {
+  workspace_key?: string
+  workspace_slug?: string
+  workspace_id?: string
+  /** @deprecated Use workspace_key */
+  environment_key?: string
+  /** @deprecated Use workspace_slug */
+  environment_slug?: string
+  /** @deprecated Use workspace_id */
   environment_id?: string
 }): Record<string, string> {
+  const wsKey = ws.workspace_key ?? ws.environment_key ?? ""
+  const wsSlug = ws.workspace_slug ?? ws.environment_slug ?? ""
+  const wsId = ws.workspace_id ?? ws.environment_id
+
   const inputs: Record<string, string> = {
-    environment_key: env.environment_key,
-    environment_slug: env.environment_slug,
+    environment_key: wsKey,
+    environment_slug: wsSlug,
     destroy_scope: "environment",
   }
-  if (env.environment_id) inputs.environment_id = env.environment_id
+  if (wsId) inputs.environment_id = wsId
   return inputs
 }

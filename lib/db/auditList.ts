@@ -20,14 +20,14 @@ export type AuditEventRow = {
   created_at: string
   metadata: Record<string, unknown> | null
   request_id: string | null
-  environment_id: string | null
+  workspace_id: string | null
   project_key: string | null
 }
 
 export type AuditCursorPayload = { created_at: string; id: string }
 
 const SELECT_PAGE_SQL = `
-  SELECT id, org_id, actor_login, source, event_type, entity_type, entity_id, created_at, metadata, request_id, environment_id, project_key
+  SELECT id, org_id, actor_login, source, event_type, entity_type, entity_id, created_at, metadata, request_id, workspace_id, project_key
   FROM audit_events
   WHERE org_id = $1
   ORDER BY created_at DESC, id DESC
@@ -35,7 +35,7 @@ const SELECT_PAGE_SQL = `
 `
 
 const SELECT_PAGE_WITH_CURSOR_SQL = `
-  SELECT id, org_id, actor_login, source, event_type, entity_type, entity_id, created_at, metadata, request_id, environment_id, project_key
+  SELECT id, org_id, actor_login, source, event_type, entity_type, entity_id, created_at, metadata, request_id, workspace_id, project_key
   FROM audit_events
   WHERE org_id = $1 AND (created_at, id) < ($3::timestamptz, $4::text)
   ORDER BY created_at DESC, id DESC

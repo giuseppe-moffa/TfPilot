@@ -136,9 +136,12 @@ export function userCanDestroy(role: ProjectRole | null): boolean {
   return role !== null && PROJECT_ROLE_RANK[role] >= PROJECT_ROLE_RANK.admin
 }
 
-export function userCanDeployEnv(role: ProjectRole | null): boolean {
+export function userCanDeploy(role: ProjectRole | null): boolean {
   return role !== null && PROJECT_ROLE_RANK[role] >= PROJECT_ROLE_RANK.deployer
 }
+
+/** @deprecated Use userCanDeploy. */
+export const userCanDeployEnv = userCanDeploy
 
 export function userCanManageProjectAccess(role: ProjectRole | null): boolean {
   return role !== null && PROJECT_ROLE_RANK[role] >= PROJECT_ROLE_RANK.admin

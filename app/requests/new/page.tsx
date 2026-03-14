@@ -16,7 +16,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
-import { listEnvironments, listProjects } from "@/config/infra-repos"
+const DEFAULT_ENVIRONMENT_KEYS = ["dev", "prod"]
 import { getRequestTemplate, type RequestTemplate } from "@/config/request-templates"
 import { normalizeName, validateBaseResourceName, validateResourceName } from "@/lib/validation/resourceName"
 import { getNewRequestGate } from "@/lib/new-request-gate"
@@ -132,8 +132,8 @@ function NewRequestPageContent() {
   const createDialogTimerRef = React.useRef<number | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const [formValues, setFormValues] = React.useState<Record<string, any>>({})
-  const projects = listProjects()
-  const environments = project ? listEnvironments(project) : []
+  const [apiProjects, setApiProjects] = React.useState<Array<{ project_key: string; name: string }>>([])
+  const [loadingProjects, setLoadingProjects] = React.useState(true)
   const [activeField, setActiveField] = React.useState<string | null>(null)
   const [selectedTemplateId, setSelectedTemplateId] = React.useState<string | null>(null)
   const hasAppliedTemplateFromQuery = React.useRef(false)
@@ -183,7 +183,24 @@ function NewRequestPageContent() {
     return () => { cancelled = true }
   }, [])
 
-  const envProjectOptions = React.useMemo(() => listProjects(), [])
+  const envProjectOptions = React.useMemo(
+    () => apiProjects.map((p) => p.project_key),
+    [apiProjects]
+  )
+
+  React.useEffect(() => {
+    let cancelled = false
+    setLoadingProjects(true)
+    fetch("/api/projects", { credentials: "include" })
+      .then((res) => (res.ok ? res.json() : { projects: [] }))
+      .then((data: { projects?: Array<{ project_key: string; name: string }> }) => {
+        if (cancelled) return
+        setApiProjects((data?.projects ?? []).map((p) => ({ project_key: p.project_key, name: p.name ?? p.project_key })))
+      })
+      .catch(() => { if (!cancelled) setApiProjects([]) })
+      .finally(() => { if (!cancelled) setLoadingProjects(false) })
+    return () => { cancelled = true }
+  }, [])
 
   React.useEffect(() => {
     if (!project) {
@@ -296,7 +313,7 @@ function NewRequestPageContent() {
     setModuleName(t.moduleKey ?? "")
     const showProjectSelector = t.allowCustomProjectEnv === true || !templateProject
     if (showProjectSelector) {
-      setEnvironment(listEnvironments(projectOverride)[0] ?? "")
+      setEnvironment(DEFAULT_ENVIRONMENT_KEYS[0] ?? "")
       setFormValues({})
     } else {
       setEnvironment(t.environment)
@@ -804,7 +821,7 @@ function NewRequestPageContent() {
                           setModuleName(t.moduleKey ?? "")
                           const showProjectSelector = t.allowCustomProjectEnv === true || !templateProject
                           if (showProjectSelector) {
-                            setEnvironment(listEnvironments(projectOverride)[0] ?? "")
+                            setEnvironment(DEFAULT_ENVIRONMENT_KEYS[0] ?? "")
                             setFormValues({})
                           } else {
                             setEnvironment(t.environment)
@@ -894,7 +911,7 @@ function NewRequestPageContent() {
                                 value={project}
                                 onValueChange={(v) => {
                                   setProject(v)
-                                  setEnvironment(listEnvironments(v)[0] ?? "")
+                                  setEnvironment(DEFAULT_ENVIRONMENT_KEYS[0] ?? "")
                                   setSelectedEnvironmentId("")
                                 }}
                               >

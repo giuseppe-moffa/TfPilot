@@ -1,16 +1,19 @@
 /**
  * Unit tests: module registry.
  * Chunk 4.1 — cloudwatch-log-group and iam-role must be registered.
+ * Template-only: default workspace seed templates use these module ids; all must be in registry.
  */
 
 import { moduleRegistry } from "@/config/module-registry"
-import { environmentTemplates } from "@/config/environment-templates"
 
 function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(`Assertion failed: ${message}`)
 }
 
 const registryTypes = new Set(moduleRegistry.map((m) => m.type))
+
+/** Module ids used by default workspace template seed (baseline-ai-service, baseline-app-service, baseline-worker-service). */
+const DEFAULT_TEMPLATE_MODULE_IDS = ["ecr-repo", "cloudwatch-log-group", "iam-role", "s3-bucket"]
 
 export const tests = [
   {
@@ -32,15 +35,13 @@ export const tests = [
     },
   },
   {
-    name: "moduleRegistry: all environment template module ids are registered",
+    name: "moduleRegistry: all default workspace template module ids are registered",
     fn: () => {
-      for (const t of environmentTemplates) {
-        for (const m of t.modules) {
-          assert(
-            registryTypes.has(m.module),
-            `template ${t.id} references module ${m.module} which must be in registry`
-          )
-        }
+      for (const moduleId of DEFAULT_TEMPLATE_MODULE_IDS) {
+        assert(
+          registryTypes.has(moduleId),
+          `default template module ${moduleId} must be in registry`
+        )
       }
     },
   },

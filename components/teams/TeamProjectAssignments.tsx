@@ -39,7 +39,7 @@ export function TeamProjectAssignments({
             className="flex items-center gap-1 text-sm text-blue-600 hover:underline"
           >
             <Plus className="h-3.5 w-3.5" />
-            + Assign Project
+            Assign Project
           </button>
         )}
       </div>
@@ -81,7 +81,7 @@ export function TeamProjectAssignments({
           className="flex items-center gap-1 text-sm text-blue-600 hover:underline"
         >
           <Plus className="h-3.5 w-3.5" />
-          + Assign Project
+          Assign Project
         </button>
       )}
     </div>

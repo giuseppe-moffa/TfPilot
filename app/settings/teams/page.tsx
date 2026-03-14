@@ -405,6 +405,25 @@ export default function TeamsPage() {
                         <TooltipProvider>
                           <Tooltip>
                             <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                aria-label="Assign team to project"
+                                onClick={() => {
+                                  setAssignTeamId(t.id)
+                                  setAssignTeamName(t.name)
+                                }}
+                                className="text-muted-foreground hover:text-foreground"
+                              >
+                                <FolderPlus className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Assign to project</TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
                               <Link
                                 href={`/settings/teams/${t.id}`}
                                 className="inline-flex items-center justify-center rounded-md hover:bg-muted/50"

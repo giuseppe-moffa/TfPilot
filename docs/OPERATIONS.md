@@ -47,40 +47,40 @@ Environments are first-class entities. Each has a bootstrap PR that creates `env
 
 ---
 
-## Environment destroy (Phase 6)
+## Workspace destroy (Phase 6)
 
 | Task | Endpoint / Action |
 |------|-------------------|
-| Destroy environment | `POST /api/environments/:id/destroy` |
+| Destroy workspace | `POST /api/workspaces/:id/destroy` |
 
 **Flow:**
 1. If pending exists: reconcile (fetch run status). In-progress/queued → 409. Completed success → archive, clear pending, return 200. Completed failure → clear pending, allow re-dispatch. Run not found + TTL expired (2h) → clear pending, allow re-dispatch.
 2. Dispatches `destroy` workflow with `destroy_scope="environment"` (no `request_id`).
-3. On workflow success, webhook archives the environment (sets `archived_at`).
-4. Archived environments are excluded from request creation.
+3. On workflow success, webhook archives the workspace (sets `archived_at`).
+4. Archived workspaces are excluded from request creation.
 
 **Idempotency:** If already archived, returns 200 with `alreadyArchived: true`. Safe to retry.
 
 **Refusals:**
-- **404** — Environment not found.
-- **400** — Environment already archived.
-- **409** — Another environment destroy in progress for this env.
+- **404** — Workspace not found.
+- **400** — Workspace already archived.
+- **409** — Another workspace destroy in progress.
 - **403** — Insufficient role (admin required).
 
-**Concurrency:** The workflow uses `concurrency` per `(environment_key, environment_slug)`. Only one destroy runs at a time per env. The app refuses (409) if a pending destroy run is still in progress. Pending records include `run_id`, `repo`, `created_at`; TTL 2h for stale cleanup when run not found.
+**Concurrency:** The workflow uses `concurrency` per `(environment_key, environment_slug)` (workspace identity). Only one destroy runs at a time per workspace. The app refuses (409) if a pending destroy run is still in progress. Pending records include `run_id`, `repo`, `created_at`; TTL 2h for stale cleanup when run not found.
 
 **Runbook:**
-1. Ensure no active requests target the environment (or they will fail when env is archived).
-2. Call `POST /api/environments/:id/destroy` (admin role).
+1. Ensure no active requests target the workspace (or they will fail when workspace is archived).
+2. Call `POST /api/workspaces/:id/destroy` (admin role).
 3. Response includes `runId` and `url` to the GitHub Actions run.
 4. Monitor the workflow. On success, the webhook automatically sets `archived_at`.
 5. The repo folder `envs/<key>/<slug>/` may remain as an empty shell; Terraform state is destroyed. No direct git folder deletion.
 
-**Facts-only ethos:** S3 indexes (`webhooks/github/env-destroy/`) are correlation caches, never authoritative. Correlation is derivable from the workflow dispatch (we pass `environment_id` in inputs; webhook uses index first, then payload inputs on miss). Authoritative state: Postgres `archived_at`, GitHub run status. Indexes are repairable — if lost, webhook can still archive when payload includes inputs.
+**Facts-only ethos:** S3 indexes (`webhooks/github/env-destroy/`) are correlation caches, never authoritative. Correlation is derivable from the workflow dispatch (workflow inputs carry workspace identity; webhook uses index first, then payload on miss). Authoritative state: Postgres `archived_at`, GitHub run status. Indexes are repairable — if lost, webhook can still archive when payload includes inputs.
 
 **Failure modes:**
 - **Run ID not resolved** — Dispatch succeeded but listing didn't find the run within ~24s. Check GitHub Actions manually; archive will still occur when webhook fires on completion.
-- **Webhook not received** — If the webhook delivery fails, the environment may not be archived. **Repair:** `UPDATE environments SET archived_at = NOW() WHERE environment_id = ?` (or use a future repair endpoint).
+- **Webhook not received** — If the webhook delivery fails, the workspace may not be archived. **Repair:** `UPDATE workspaces SET archived_at = NOW() WHERE workspace_id = ?` (or use a future repair endpoint).
 
 ---
 

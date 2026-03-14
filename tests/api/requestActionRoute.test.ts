@@ -38,9 +38,9 @@ const mockRequest = {
   targetOwner: "owner",
   targetRepo: "repo",
   prNumber: 1,
-  environment_key: "dev",
-  environment_id: "env_1",
-  environment_slug: "test",
+  workspace_id: "ws_1",
+  workspace_key: "dev",
+  workspace_slug: "test",
   targetEnvPath: "envs/dev/test",
   targetBase: "main",
   timeline: [],
@@ -173,16 +173,16 @@ async function callApply(
 
 const resolvedEnvForCreate = {
   project_key: "myproj",
-  environment_key: "dev",
-  environment_slug: "test",
-  environment_id: "env_1",
+  workspace_key: "dev",
+  workspace_slug: "test",
+  workspace_id: "env_1",
   targetRepo: { owner: "owner", repo: "repo", base: "main", envPath: "envs/dev/test" },
 }
 
 const createPlanBody = {
   project_key: "myproj",
-  environment_key: "dev",
-  environment_slug: "test",
+  workspace_key: "dev",
+  workspace_slug: "test",
   module: "s3-bucket",
   config: { name: "test" },
 }
@@ -194,7 +194,7 @@ function requestsPOSTDeps(overrides: Partial<RequestsPOSTDeps> = {}): RequestsPO
     getGitHubAccessToken: async () => "token",
     getIdempotencyKey: () => null,
     checkCreateIdempotency: () => ({ ok: true, mode: "new" }),
-    resolveRequestEnvironment: async () => ({ ok: true, resolved: resolvedEnvForCreate }),
+    resolveRequestWorkspace: async () => ({ ok: true, resolved: resolvedEnvForCreate }),
     getProjectByKey: async (orgId) =>
       orgId === ORG_ID ? { id: PROJECT_ID, orgId: ORG_ID } : null,
     buildPermissionContext: async () => mockPermissionContext(),
@@ -484,7 +484,7 @@ export const tests = [
     name: "POST create/plan: cross-org project lookup returns 404",
     fn: async () => {
       const deps = requestsPOSTDeps({
-        resolveRequestEnvironment: async () => ({
+        resolveRequestWorkspace: async () => ({
           ok: true,
           resolved: { ...resolvedEnvForCreate, project_key: "otherproj" },
         }),

@@ -16,7 +16,7 @@ import {
   type PermissionContext,
   type ProjectPermission,
 } from "@/lib/auth/permissions"
-import { getProjectById } from "@/lib/db/projects"
+import { resolveProjectByIdOrKey } from "@/lib/db/projects"
 import { deleteProjectUserRole } from "@/lib/db/projectRoles"
 import { writeAuditEvent, auditWriteDeps } from "@/lib/audit/write"
 import type { AuditEventInput } from "@/lib/audit/types"
@@ -30,7 +30,7 @@ export type ProjectUserDeleteRouteDeps = {
     projectId: string,
     permission: ProjectPermission
   ) => Promise<unknown>
-  getProjectById: (projectId: string) => Promise<{ orgId: string; projectKey: string } | null>
+  resolveProject: (orgId: string, projectIdOrKey: string) => Promise<{ id: string; orgId: string; projectKey: string } | null>
   deleteProjectUserRole: (projectId: string, userLogin: string) => Promise<boolean>
   writeAuditEvent: (deps: unknown, event: AuditEventInput) => Promise<void>
 }
@@ -40,7 +40,7 @@ const realDeps: ProjectUserDeleteRouteDeps = {
   requireActiveOrg,
   buildPermissionContext,
   requireProjectPermission,
-  getProjectById,
+  resolveProject: resolveProjectByIdOrKey,
   deleteProjectUserRole,
   writeAuditEvent: async (deps, event) => {
     await writeAuditEvent(deps as typeof auditWriteDeps, event)
@@ -77,14 +77,14 @@ export function makeProjectUserDELETE(deps: ProjectUserDeleteRouteDeps) {
       return NextResponse.json({ error: "login is required" }, { status: 400 })
     }
 
-    const project = await deps.getProjectById(projectId)
+    const project = await deps.resolveProject(session.orgId, projectId)
     if (!project || project.orgId !== session.orgId) {
       return NextResponse.json({ error: "Not found" }, { status: 404 })
     }
 
     const permissionCtx = await deps.buildPermissionContext(session.login, session.orgId)
     try {
-      await deps.requireProjectPermission(permissionCtx, projectId, "manage_access")
+      await deps.requireProjectPermission(permissionCtx, project.id, "manage_access")
     } catch (e) {
       if (e instanceof PermissionDeniedError) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 })
@@ -92,7 +92,7 @@ export function makeProjectUserDELETE(deps: ProjectUserDeleteRouteDeps) {
       throw e
     }
 
-    const removed = await deps.deleteProjectUserRole(projectId, login)
+    const removed = await deps.deleteProjectUserRole(project.id, login)
     if (removed) {
       deps.writeAuditEvent(auditWriteDeps, {
         org_id: session.orgId,
@@ -100,7 +100,7 @@ export function makeProjectUserDELETE(deps: ProjectUserDeleteRouteDeps) {
         source: "user",
         event_type: "project_user_role_removed",
         entity_type: "project",
-        entity_id: projectId,
+        entity_id: project.id,
         metadata: { user_login: login, project_key: project.projectKey },
       })
     }

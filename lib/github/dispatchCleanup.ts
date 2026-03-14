@@ -14,20 +14,20 @@ export type DispatchCleanupParams = {
 
 /**
  * Load request from S3 and dispatch cleanup workflow.
- * Requires environment_key and environment_slug (Model 2).
+ * Reads workspace_key/workspace_slug (with environment_* fallback for compat).
  */
 export async function dispatchCleanup({ token, requestId }: DispatchCleanupParams): Promise<void> {
   const request = await getRequest(requestId)
   if (!request.targetOwner || !request.targetRepo || !env.GITHUB_CLEANUP_WORKFLOW_FILE) {
     return
   }
-  const envKey = request.environment_key
-  const envSlug = request.environment_slug ?? ""
-  if (!envKey || envSlug === undefined || envSlug === "") {
-    throw new Error("Request missing environment_key or environment_slug (Model 2 violation)")
+  const wsKey = (request.workspace_key ?? request.environment_key) as string | undefined
+  const wsSlug = (request.workspace_slug ?? request.environment_slug ?? "") as string
+  if (!wsKey || wsSlug === undefined || wsSlug === "") {
+    throw new Error("Request missing workspace_key or workspace_slug (Model 2 violation)")
   }
   const ref = request.targetBase ?? env.GITHUB_DEFAULT_BASE_BRANCH
-  const isProd = (envKey ?? "").toLowerCase() === "prod"
+  const isProd = (wsKey ?? "").toLowerCase() === "prod"
   const module = request.module
   if (!module) {
     throw new Error("Request missing module (required for cleanup path)")
@@ -35,8 +35,8 @@ export async function dispatchCleanup({ token, requestId }: DispatchCleanupParam
   const inputs = {
     request_id: request.id,
     module,
-    environment_key: envKey,
-    environment_slug: envSlug,
+    environment_key: wsKey,
+    environment_slug: wsSlug,
     target_base: ref,
     auto_merge: isProd ? "false" : "true",
   }

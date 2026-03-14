@@ -145,6 +145,12 @@
 }
 
 @layer base {
+  *,
+  ::before,
+  ::after,
+  ::backdrop {
+    box-sizing: border-box;
+  }
   * {
     @apply border-border outline-ring/50;
   }

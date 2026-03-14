@@ -229,7 +229,6 @@ export default function PlatformOrgsClient() {
         </div>
         <div className="flex min-h-0 flex-1 flex-col px-6 pb-6 pt-2">
           <div className="mb-4 flex flex-wrap items-center gap-3">
-            <span className="text-sm text-muted-foreground">Filter:</span>
             {(["active", "archived", "all"] as const).map((f) => (
               <Button
                 key={f}

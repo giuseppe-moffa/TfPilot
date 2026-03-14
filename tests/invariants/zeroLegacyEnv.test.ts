@@ -9,8 +9,8 @@ function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(`Assertion failed: ${message}`)
 }
 
-/** StoredRequest shape: project_key, environment_key, environment_slug, environment_id required. */
-const REQUIRED_REQUEST_ENV_FIELDS = ["project_key", "environment_key", "environment_slug", "environment_id"] as const
+/** StoredRequest shape: project_key, workspace_key, workspace_slug, workspace_id required. */
+const REQUIRED_REQUEST_WORKSPACE_FIELDS = ["project_key", "workspace_key", "workspace_slug", "workspace_id"] as const
 
 /** Legacy fields that must not appear in new request docs. */
 const FORBIDDEN_LEGACY_FIELDS = ["project", "environment"] as const
@@ -20,10 +20,9 @@ const DISPATCH_INPUTS = ["environment_key", "environment_slug", "request_id"] as
 
 export const tests = [
   {
-    name: "zeroLegacy: StoredRequest type has required env fields (no optional)",
+    name: "zeroLegacy: StoredRequest type has required workspace fields (no optional)",
     fn: () => {
-      // Type-level check: we assert the shape via runtime; TS ensures no optional for new requests
-      const required = new Set(REQUIRED_REQUEST_ENV_FIELDS)
+      const required = new Set(REQUIRED_REQUEST_WORKSPACE_FIELDS)
       for (const f of required) {
         assert(typeof f === "string" && f.length > 0, `required field ${f} defined`)
       }
@@ -33,7 +32,7 @@ export const tests = [
     name: "zeroLegacy: legacy project/environment not in canonical request shape",
     fn: () => {
       for (const f of FORBIDDEN_LEGACY_FIELDS) {
-        assert(!REQUIRED_REQUEST_ENV_FIELDS.includes(f as (typeof REQUIRED_REQUEST_ENV_FIELDS)[number]), `${f} is forbidden`)
+        assert(!REQUIRED_REQUEST_WORKSPACE_FIELDS.includes(f as (typeof REQUIRED_REQUEST_WORKSPACE_FIELDS)[number]), `${f} is forbidden`)
       }
     },
   },
@@ -47,24 +46,24 @@ export const tests = [
     },
   },
   {
-    name: "zeroLegacy: resolveRequestEnvironment rejects legacy project+environment",
+    name: "zeroLegacy: resolveRequestWorkspace rejects legacy project+environment",
     fn: async () => {
-      const { resolveRequestEnvironment } = await import("@/lib/requests/resolveRequestEnvironment")
-      const r = await resolveRequestEnvironment({ project: "core", environment: "dev" } as unknown as Parameters<typeof resolveRequestEnvironment>[0])
+      const { resolveRequestWorkspace } = await import("@/lib/requests/resolveRequestWorkspace")
+      const r = await resolveRequestWorkspace({ project: "core", environment: "dev" } as unknown as Parameters<typeof resolveRequestWorkspace>[0])
       assert(r.ok === false, "rejects")
       assert(r.ok === false && r.error.includes("Provide"), "error mentions Provide")
     },
   },
   {
-    name: "zeroLegacy: RequestForTags uses project_key and environment_key",
+    name: "zeroLegacy: RequestForTags uses project_key and workspace_key",
     fn: async () => {
       const { buildServerAuthoritativeTags } = await import("@/lib/requests/tags")
       const tags = buildServerAuthoritativeTags(
-        { id: "req_1", project_key: "core", environment_key: "dev" },
+        { id: "req_1", project_key: "core", workspace_key: "dev" },
         "user"
       )
       assert(tags["tfpilot:project"] === "core", "project tag from project_key")
-      assert(tags["tfpilot:environment"] === "dev", "environment tag from environment_key")
+      assert(tags["tfpilot:environment"] === "dev", "environment tag from workspace_key")
     },
   },
 ]

@@ -202,8 +202,8 @@ export async function POST(req: NextRequest) {
     })
 
     const dispatchTime = new Date()
-    const aEnvKey = request.environment_key ?? "dev"
-    const aEnvSlug = request.environment_slug ?? ""
+    const aEnvKey = request.workspace_key ?? request.environment_key ?? "dev"
+    const aEnvSlug = request.workspace_slug ?? request.environment_slug ?? ""
     const dispatchBody = {
       ref: applyRef,
       inputs: {

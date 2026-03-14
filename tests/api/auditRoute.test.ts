@@ -32,7 +32,7 @@ function defaultDeps(overrides: Partial<AuditRouteDeps> = {}): AuditRouteDeps {
       created_at: "2026-03-07T12:00:00.000Z",
       metadata: { team_slug: "eng", name: "Engineering" },
       request_id: null,
-      environment_id: null,
+      workspace_id: null,
       project_key: null,
     },
   ]
@@ -112,7 +112,7 @@ export const tests = [
     name: "GET /api/audit: returns events only for current org",
     fn: async () => {
       const orgA = [
-        { id: "a1", org_id: "org_a", actor_login: "u1", source: "user", event_type: "team_created", entity_type: "team", entity_id: "t1", created_at: "2026-03-07T12:00:00.000Z", metadata: null, request_id: null, environment_id: null, project_key: null },
+        { id: "a1", org_id: "org_a", actor_login: "u1", source: "user", event_type: "team_created", entity_type: "team", entity_id: "t1", created_at: "2026-03-07T12:00:00.000Z", metadata: null, request_id: null, workspace_id: null, project_key: null },
       ]
       const deps = defaultDeps({
         getSessionFromCookies: async () => ({ ...mockSession, orgId: "org_a" }),
@@ -132,8 +132,8 @@ export const tests = [
     name: "GET /api/audit: stable ordering created_at DESC id DESC",
     fn: async () => {
       const rows: AuditEventRow[] = [
-        { id: "audit_b", org_id: "org_default", actor_login: "u", source: "user", event_type: "team_created", entity_type: "team", entity_id: "t1", created_at: "2026-03-07T12:00:00.000Z", metadata: null, request_id: null, environment_id: null, project_key: null },
-        { id: "audit_a", org_id: "org_default", actor_login: "u", source: "user", event_type: "team_created", entity_type: "team", entity_id: "t2", created_at: "2026-03-07T12:00:00.000Z", metadata: null, request_id: null, environment_id: null, project_key: null },
+        { id: "audit_b", org_id: "org_default", actor_login: "u", source: "user", event_type: "team_created", entity_type: "team", entity_id: "t1", created_at: "2026-03-07T12:00:00.000Z", metadata: null, request_id: null, workspace_id: null, project_key: null },
+        { id: "audit_a", org_id: "org_default", actor_login: "u", source: "user", event_type: "team_created", entity_type: "team", entity_id: "t2", created_at: "2026-03-07T12:00:00.000Z", metadata: null, request_id: null, workspace_id: null, project_key: null },
       ]
       const deps = defaultDeps({
         listAuditEvents: async () => ({
@@ -151,9 +151,9 @@ export const tests = [
     name: "GET /api/audit: returns next_cursor when more rows exist",
     fn: async () => {
       const three: AuditEventRow[] = [
-        { id: "a1", org_id: "org_default", actor_login: "u", source: "user", event_type: "team_created", entity_type: "team", entity_id: "t1", created_at: "2026-03-07T12:00:00.000Z", metadata: null, request_id: null, environment_id: null, project_key: null },
-        { id: "a2", org_id: "org_default", actor_login: "u", source: "user", event_type: "team_created", entity_type: "team", entity_id: "t2", created_at: "2026-03-07T11:00:00.000Z", metadata: null, request_id: null, environment_id: null, project_key: null },
-        { id: "a3", org_id: "org_default", actor_login: "u", source: "user", event_type: "team_created", entity_type: "team", entity_id: "t3", created_at: "2026-03-07T10:00:00.000Z", metadata: null, request_id: null, environment_id: null, project_key: null },
+        { id: "a1", org_id: "org_default", actor_login: "u", source: "user", event_type: "team_created", entity_type: "team", entity_id: "t1", created_at: "2026-03-07T12:00:00.000Z", metadata: null, request_id: null, workspace_id: null, project_key: null },
+        { id: "a2", org_id: "org_default", actor_login: "u", source: "user", event_type: "team_created", entity_type: "team", entity_id: "t2", created_at: "2026-03-07T11:00:00.000Z", metadata: null, request_id: null, workspace_id: null, project_key: null },
+        { id: "a3", org_id: "org_default", actor_login: "u", source: "user", event_type: "team_created", entity_type: "team", entity_id: "t3", created_at: "2026-03-07T10:00:00.000Z", metadata: null, request_id: null, workspace_id: null, project_key: null },
       ]
       const deps = defaultDeps({
         listAuditEvents: async ({ limit }) => {
@@ -175,7 +175,7 @@ export const tests = [
     name: "GET /api/audit: no next_cursor on final page",
     fn: async () => {
       const one: AuditEventRow[] = [
-        { id: "a1", org_id: "org_default", actor_login: "u", source: "user", event_type: "team_created", entity_type: "team", entity_id: "t1", created_at: "2026-03-07T12:00:00.000Z", metadata: null, request_id: null, environment_id: null, project_key: null },
+        { id: "a1", org_id: "org_default", actor_login: "u", source: "user", event_type: "team_created", entity_type: "team", entity_id: "t1", created_at: "2026-03-07T12:00:00.000Z", metadata: null, request_id: null, workspace_id: null, project_key: null },
       ]
       const deps = defaultDeps({
         listAuditEvents: async () => ({ events: one, nextCursor: null }),

@@ -82,11 +82,11 @@ export const tests = [
     },
   },
   {
-    name: "archiveEnvironment: exported and callable",
+    name: "archiveWorkspace: exported and callable",
     fn: async () => {
-      const { archiveEnvironment } = await import("@/lib/db/environments")
-      assert(typeof archiveEnvironment === "function", "exported")
-      const result = await archiveEnvironment("env_nonexistent")
+      const { archiveWorkspace } = await import("@/lib/db/workspaces")
+      assert(typeof archiveWorkspace === "function", "exported")
+      const result = await archiveWorkspace("ws_nonexistent")
       assert(typeof result === "boolean", "returns boolean")
     },
   },

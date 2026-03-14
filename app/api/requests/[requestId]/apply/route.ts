@@ -77,8 +77,14 @@ type RequestDocForApply = {
   targetRepo?: string
   targetBase?: string
   branchName?: string
+  workspace_key?: string
+  workspace_slug?: string
+  workspace_id?: string
+  /** @deprecated Compat */
   environment_key?: string
+  /** @deprecated Compat */
   environment_slug?: string
+  /** @deprecated Compat */
   environment_id?: string
   runs?: RunsState
 }
@@ -423,13 +429,13 @@ export function makeApplyPOST(deps: ApplyRouteDeps) {
           return NextResponse.json({ error: "Request missing target repo info" }, { status: 400 })
         }
         const dispatchTime = new Date()
-        const aEnvKey = request.environment_key ?? "dev"
-        const aEnvSlug = request.environment_slug ?? ""
+        const aWsKey = request.workspace_key ?? request.environment_key ?? "dev"
+        const aWsSlug = request.workspace_slug ?? request.environment_slug ?? ""
         await gh(token, `/repos/${owner}/${repo}/actions/workflows/${env.GITHUB_APPLY_WORKFLOW_FILE}/dispatches`, {
           method: "POST",
           body: JSON.stringify({
             ref: applyRef,
-            inputs: { request_id: request.id, environment_key: aEnvKey, environment_slug: aEnvSlug },
+            inputs: { request_id: request.id, environment_key: aWsKey, environment_slug: aWsSlug },
           }),
         })
         const RESOLVE_ATTEMPTS = 12
@@ -609,7 +615,7 @@ export function makeApplyPOST(deps: ApplyRouteDeps) {
     const finalConfig = buildModuleConfig(regEntry, nextConfig, {
       requestId: baseRequest.id,
       project_key: baseRequest.project_key,
-      environment_key: baseRequest.environment_key,
+      environment_key: baseRequest.workspace_key ?? baseRequest.environment_key,
     })
 
     appendRequestIdToNames(finalConfig, baseRequest.id)

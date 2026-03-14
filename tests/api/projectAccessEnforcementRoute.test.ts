@@ -3,7 +3,7 @@
  * Skipped by default. Use TEST_SKIP_API=0 with npm run dev.
  * Requires TEST_SESSION_COOKIE (admin), TEST_SESSION_COOKIE_DEVELOPER,
  * TEST_SESSION_COOKIE_APPROVER for role-specific tests.
- * Optional: TEST_REQUEST_ID, TEST_ENVIRONMENT_ID for resource routes.
+ * Optional: TEST_REQUEST_ID, TEST_WORKSPACE_ID for resource routes.
  * Optional: TEST_SESSION_COOKIE_NO_ACCESS, TEST_REQUEST_ID_OTHER_ORG for edge cases.
  */
 
@@ -41,16 +41,19 @@ function fetchWithCookie(
 
 const REQUEST_BODY = {
   project_key: "core",
-  environment_key: "dev",
-  environment_slug: "test",
+  workspace_key: "dev",
+  workspace_slug: "test",
   module: "s3-bucket",
   config: { name: "test-bucket" },
 }
 
-const ENV_BODY = {
+const WS_BODY = {
   project_key: "core",
-  environment_key: "dev",
-  environment_slug: "rbac-test",
+  workspace_key: "dev",
+  workspace_slug: "rbac-test",
+  template_id: "baseline-app",
+  template_version: "v1",
+  template_inputs: {},
 }
 
 export const tests = [
@@ -72,14 +75,14 @@ export const tests = [
     },
   },
   {
-    name: "POST /api/environments: unauthenticated returns 401",
+    name: "POST /api/workspaces: unauthenticated returns 401",
     fn: async () => {
       if (SKIP) return
       try {
-        const res = await fetch(`${BASE}/api/environments`, {
+        const res = await fetch(`${BASE}/api/workspaces`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(ENV_BODY),
+          body: JSON.stringify(WS_BODY),
         })
         assert(res.status === 401, `expected 401, got ${res.status}`)
       } catch (err: unknown) {
@@ -171,17 +174,17 @@ export const tests = [
     },
   },
 
-  // --- 2. POST /api/environments ---
+  // --- 2. POST /api/workspaces ---
   {
-    name: "POST /api/environments: developer + project access -> allowed (no 403 project access)",
+    name: "POST /api/workspaces: developer + project access -> allowed (no 403 project access)",
     fn: async () => {
       if (SKIP) return
       const cookie = process.env.TEST_SESSION_COOKIE_DEVELOPER
       if (!cookie) return
       try {
         const res = await fetchWithCookie(
-          `${BASE}/api/environments`,
-          { method: "POST", body: JSON.stringify(ENV_BODY) },
+          `${BASE}/api/workspaces`,
+          { method: "POST", body: JSON.stringify(WS_BODY) },
           cookie
         )
         const body = await res.json().catch(() => ({}))
@@ -195,15 +198,15 @@ export const tests = [
     },
   },
   {
-    name: "POST /api/environments: no project access -> 403",
+    name: "POST /api/workspaces: no project access -> 403",
     fn: async () => {
       if (SKIP) return
       const cookie = process.env.TEST_SESSION_COOKIE_NO_ACCESS
       if (!cookie) return
       try {
         const res = await fetchWithCookie(
-          `${BASE}/api/environments`,
-          { method: "POST", body: JSON.stringify(ENV_BODY) },
+          `${BASE}/api/workspaces`,
+          { method: "POST", body: JSON.stringify(WS_BODY) },
           cookie
         )
         assert(res.status === 403, `expected 403, got ${res.status}`)
@@ -535,17 +538,17 @@ export const tests = [
     },
   },
 
-  // --- 7. POST /api/environments/[id]/destroy ---
+  // --- 7. POST /api/workspaces/[id]/destroy ---
   {
-    name: "POST /api/environments/[id]/destroy: admin + project access -> allowed (no 403/404 auth)",
+    name: "POST /api/workspaces/[id]/destroy: admin + project access -> allowed (no 403/404 auth)",
     fn: async () => {
       if (SKIP) return
       const cookie = process.env.TEST_SESSION_COOKIE
-      const envId = process.env.TEST_ENVIRONMENT_ID
-      if (!cookie || !envId) return
+      const workspaceId = process.env.TEST_WORKSPACE_ID
+      if (!cookie || !workspaceId) return
       try {
         const res = await fetchWithCookie(
-          `${BASE}/api/environments/${envId}/destroy`,
+          `${BASE}/api/workspaces/${workspaceId}/destroy`,
           { method: "POST", body: JSON.stringify({}) },
           cookie
         )
@@ -564,15 +567,15 @@ export const tests = [
     },
   },
   {
-    name: "POST /api/environments/[id]/destroy: admin without project access -> 404",
+    name: "POST /api/workspaces/[id]/destroy: admin without project access -> 404",
     fn: async () => {
       if (SKIP) return
       const cookie = process.env.TEST_SESSION_COOKIE_ADMIN_NO_ACCESS
-      const envId = process.env.TEST_ENVIRONMENT_ID
-      if (!cookie || !envId) return
+      const workspaceId = process.env.TEST_WORKSPACE_ID
+      if (!cookie || !workspaceId) return
       try {
         const res = await fetchWithCookie(
-          `${BASE}/api/environments/${envId}/destroy`,
+          `${BASE}/api/workspaces/${workspaceId}/destroy`,
           { method: "POST", body: JSON.stringify({}) },
           cookie
         )
@@ -583,15 +586,15 @@ export const tests = [
     },
   },
   {
-    name: "POST /api/environments/[id]/destroy: developer with project access -> 403",
+    name: "POST /api/workspaces/[id]/destroy: developer with project access -> 403",
     fn: async () => {
       if (SKIP) return
       const cookie = process.env.TEST_SESSION_COOKIE_DEVELOPER
-      const envId = process.env.TEST_ENVIRONMENT_ID
-      if (!cookie || !envId) return
+      const workspaceId = process.env.TEST_WORKSPACE_ID
+      if (!cookie || !workspaceId) return
       try {
         const res = await fetchWithCookie(
-          `${BASE}/api/environments/${envId}/destroy`,
+          `${BASE}/api/workspaces/${workspaceId}/destroy`,
           { method: "POST", body: JSON.stringify({}) },
           cookie
         )

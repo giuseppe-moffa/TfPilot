@@ -21,7 +21,7 @@ Consistent terminology for TfPilot docs and code.
 | **apply** | Terraform apply workflow (env-state serialized). |
 | **destroy** | Terraform destroy workflow (env-state serialized). |
 | **cleanup** | Cleanup workflow: strip TfPilot block, open cleanup PR. |
-| **drift_plan** | Drift detection plan (e.g. nightly on base branch). Env-scoped in Model 2 (`environment_key` + `environment_slug`). |
+| **drift_plan** | Drift detection plan (e.g. nightly on base branch). Workspace-scoped in Model 2. |
 
 Defined in **lib/github/workflowClassification.ts** (`WorkflowKind`). Used in run index and webhook classification. See **docs/DRIFT_DETECTION.md**.
 
@@ -55,17 +55,28 @@ All derived by `deriveLifecycleStatus(request)`; not stored as source of truth (
 
 ---
 
-## Environment and deploy
+## Project and workspace
 
 | Term | Meaning |
 |------|---------|
-| **Environment** | A target root `envs/<environment_key>/<environment_slug>/` with isolated Terraform state. Created via POST `/api/environments`; stored in Postgres. |
-| **Environment Template** | Static config in `config/environment-templates.ts`. One template = N modules baseline bundle. IDs: `blank`, `baseline-ai-service`, `baseline-app-service`, `baseline-worker-service`. Templates generate bootstrap request files via `envSkeleton`. |
-| **Environment Deploy** | Action that creates branch `deploy/<key>/<slug>`, commits bootstrap Terraform root (backend.tf, providers.tf, versions.tf, base.tf, request files), opens PR. Admin-only. POST `/api/environments/:id/deploy`. |
-| **Deploy detection** | Derived from GitHub repo: `deployed` = `envs/<key>/<slug>/backend.tf` exists on default branch; `deployPrOpen` = open PR with head `deploy/<key>/<slug>`. Fail-closed on GitHub check failure → `ENV_DEPLOY_CHECK_FAILED`. |
-| **Deploy error codes** | `ENV_ALREADY_DEPLOYED` (409), `ENV_DEPLOY_IN_PROGRESS` (409 — branch exists or deploy PR open; both treated same), `ENV_DEPLOY_CHECK_FAILED` (503), `INVALID_ENV_TEMPLATE` (400). |
-| **Environment Activity** | Timeline at `GET /api/environments/:id/activity`. Derived from Postgres request index + deploy status; no S3 reads. Events: `environment_deployed`, `environment_deploy_pr_open`, `request_created`. When deploy check fails, deploy events omitted, `warning: "ENV_DEPLOY_CHECK_FAILED"` returned. |
-| **New Request gating** | "New Request" disabled when `deployed=false`, `deployPrOpen=true`, or deploy check fails. Messages: "Environment must be deployed before creating resources", "Environment deployment in progress", "Cannot verify deploy status". Centralized in `lib/new-request-gate.ts`. |
+| **Project** | User-created, org-scoped resource. Defines `project_key`, `name`, `repo_full_name`, `default_branch`. RBAC boundary. Create via `POST /api/projects` or `/projects/new`. Immutable `project_key`. |
+| **Workspace** | Terraform root + state boundary. Created inside a project. Owns `envs/<workspace_key>/<workspace_slug>/`, backend state, deploy/destroy lifecycle. Create via `POST /api/workspaces` or `/projects/[projectId]/workspaces/new`. Reads repo config from project record. |
+| **Project access** | User/team roles (viewer, planner, operator, deployer, admin) on a project. Managed at `/projects/[projectId]/access`. Required for create/approve/apply/deploy/destroy on resources in that project. |
+| **Orphaned workspace** | Workspace whose `project_key` has no matching `projects` row. Audit via `GET /api/admin/audit/workspaces-missing-project`. |
+
+---
+
+## Workspace and deploy
+
+| Term | Meaning |
+|------|---------|
+| **Workspace** | Terraform root + state boundary: `envs/<workspace_key>/<workspace_slug>/`. Created via POST `/api/workspaces`; stored in Postgres. |
+| **Workspace template** | Template document in S3 (`templates/workspaces/<id>/<version>.json`). Index at `templates/workspaces/index.json`. Template-only model. Generates bootstrap request files via `lib/workspaces/workspaceSkeleton`. |
+| **Workspace deploy** | Action that creates branch `deploy/<key>/<slug>`, commits bootstrap Terraform root (backend.tf, providers.tf, versions.tf, base.tf, request files), opens PR. Admin-only. POST `/api/workspaces/:id/deploy`. |
+| **Deploy detection** | Derived from GitHub repo: `deployed` = `envs/<key>/<slug>/backend.tf` exists on default branch; `deployPrOpen` = open PR with head `deploy/<key>/<slug>`. Fail-closed on GitHub check failure → `WORKSPACE_DEPLOY_CHECK_FAILED`. |
+| **Deploy error codes** | `WORKSPACE_ALREADY_DEPLOYED` (409), `WORKSPACE_DEPLOY_IN_PROGRESS` (409), `WORKSPACE_DEPLOY_CHECK_FAILED` (503), invalid template (400). |
+| **Workspace activity** | Timeline derived from Postgres request index + deploy status; no S3 reads. Events: `workspace_deployed`, `workspace_deploy_pr_open`, `request_created`. When deploy check fails, deploy events omitted, `warning: "WORKSPACE_DEPLOY_CHECK_FAILED"` returned. |
+| **New Request gating** | "New Request" disabled when `deployed=false`, `deployPrOpen=true`, or deploy check fails. Messages: "Workspace must be deployed before creating resources", "Workspace deployment in progress", "Cannot verify deploy status". Centralized in `lib/new-request-gate.ts`. |
 
 ---
 

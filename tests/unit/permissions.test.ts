@@ -120,10 +120,10 @@ export const tests = [
     },
   },
   {
-    name: "permissions: requireProjectPermission deploy_env — deployer allowed",
+    name: "permissions: requireProjectPermission deploy — deployer allowed",
     fn: async () => {
       const ctx = ctxWithCache("proj_1", "deployer")
-      const role = await requireProjectPermission(ctx, "proj_1", "deploy_env")
+      const role = await requireProjectPermission(ctx, "proj_1", "deploy")
       assert(role === "deployer", "returns deployer")
     },
   },

@@ -6,129 +6,129 @@ function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(`Assertion failed: ${message}`)
 }
 
-import { assertEnvironmentImmutability } from "@/lib/requests/assertEnvironmentImmutability"
+import { assertWorkspaceImmutability } from "@/lib/requests/assertWorkspaceImmutability"
 import { requireEnvFieldsForDestroy, getMissingEnvFields } from "@/lib/requests/requireEnvFields"
 import { isMissingEnvField, getRequestIdsMissingEnv } from "@/lib/requests/auditMissingEnv"
 
 export const tests = [
   {
-    name: "Create always stores all env fields: validation rejects when resolved missing env_id",
+    name: "Create always stores all workspace fields: validation rejects when resolved missing workspace_id",
     fn: () => {
-      const resolved = { environment_id: "", environment_key: "dev", environment_slug: "x" }
-      const wouldReject = !resolved.environment_id || !resolved.environment_key || !resolved.environment_slug
+      const resolved = { workspace_id: "", workspace_key: "dev", workspace_slug: "x" }
+      const wouldReject = !resolved.workspace_id || !resolved.workspace_key || !resolved.workspace_slug
       assert(wouldReject === true, "create rejects incomplete resolution")
     },
   },
   {
-    name: "assertEnvironmentImmutability: rejects patch setting environment_id to empty string",
+    name: "assertWorkspaceImmutability: rejects patch setting workspace_id to empty string",
     fn: () => {
-      const current = { environment_id: "env_1", environment_key: "dev", environment_slug: "x" }
-      const err = assertEnvironmentImmutability(current, { environment_id: "" })
-      assert(err?.includes("cannot be unset") === true, "rejects empty env_id")
+      const current = { workspace_id: "ws_1", workspace_key: "dev", workspace_slug: "x" }
+      const err = assertWorkspaceImmutability(current, { workspace_id: "" })
+      assert(err?.includes("cannot be unset") === true, "rejects empty workspace_id")
     },
   },
   {
-    name: "assertEnvironmentImmutability: rejects patch setting environment_id to null",
+    name: "assertWorkspaceImmutability: rejects patch setting workspace_id to null",
     fn: () => {
-      const current = { environment_id: "env_1", environment_key: "dev", environment_slug: "x" }
-      const err = assertEnvironmentImmutability(current, { environment_id: null })
-      assert(err?.includes("cannot be unset") === true, "rejects null env_id")
+      const current = { workspace_id: "ws_1", workspace_key: "dev", workspace_slug: "x" }
+      const err = assertWorkspaceImmutability(current, { workspace_id: null })
+      assert(err?.includes("cannot be unset") === true, "rejects null workspace_id")
     },
   },
   {
-    name: "assertEnvironmentImmutability: rejects patch setting environment_key to empty string",
+    name: "assertWorkspaceImmutability: rejects patch setting workspace_key to empty string",
     fn: () => {
-      const current = { environment_id: "env_1", environment_key: "dev", environment_slug: "x" }
-      const err = assertEnvironmentImmutability(current, { environment_key: "" })
-      assert(err?.includes("cannot be unset") === true, "rejects empty env_key")
+      const current = { workspace_id: "ws_1", workspace_key: "dev", workspace_slug: "x" }
+      const err = assertWorkspaceImmutability(current, { workspace_key: "" })
+      assert(err?.includes("cannot be unset") === true, "rejects empty workspace_key")
     },
   },
   {
-    name: "assertEnvironmentImmutability: rejects patch setting environment_slug to empty string",
+    name: "assertWorkspaceImmutability: rejects patch setting workspace_slug to empty string",
     fn: () => {
-      const current = { environment_id: "env_1", environment_key: "dev", environment_slug: "x" }
-      const err = assertEnvironmentImmutability(current, { environment_slug: "" })
-      assert(err?.includes("cannot be unset") === true, "rejects empty env_slug")
+      const current = { workspace_id: "ws_1", workspace_key: "dev", workspace_slug: "x" }
+      const err = assertWorkspaceImmutability(current, { workspace_slug: "" })
+      assert(err?.includes("cannot be unset") === true, "rejects empty workspace_slug")
     },
   },
   {
-    name: "requireEnvFieldsForDestroy: throws when environment_id missing",
+    name: "requireEnvFieldsForDestroy: throws when workspace_id missing",
     fn: () => {
-      const req = { id: "r1", environment_key: "dev", environment_slug: "x" }
+      const req = { id: "r1", workspace_key: "dev", workspace_slug: "x" }
       let threw = false
       try {
         requireEnvFieldsForDestroy(req)
       } catch {
         threw = true
       }
-      assert(threw === true, "throws when env_id missing")
+      assert(threw === true, "throws when workspace_id missing")
     },
   },
   {
-    name: "requireEnvFieldsForDestroy: throws when environment_key missing",
+    name: "requireEnvFieldsForDestroy: throws when workspace_key missing",
     fn: () => {
-      const req = { id: "r1", environment_id: "env_1", environment_slug: "x" }
+      const req = { id: "r1", workspace_id: "ws_1", workspace_slug: "x" }
       let threw = false
       try {
         requireEnvFieldsForDestroy(req)
       } catch {
         threw = true
       }
-      assert(threw === true, "throws when env_key missing")
+      assert(threw === true, "throws when workspace_key missing")
     },
   },
   {
-    name: "requireEnvFieldsForDestroy: throws when environment_slug empty",
+    name: "requireEnvFieldsForDestroy: throws when workspace_slug empty",
     fn: () => {
-      const req = { id: "r1", environment_id: "env_1", environment_key: "dev", environment_slug: "" }
+      const req = { id: "r1", workspace_id: "ws_1", workspace_key: "dev", workspace_slug: "" }
       let threw = false
       try {
         requireEnvFieldsForDestroy(req)
       } catch {
         threw = true
       }
-      assert(threw === true, "throws when env_slug empty")
+      assert(threw === true, "throws when workspace_slug empty")
     },
   },
   {
-    name: "requireEnvFieldsForDestroy: does not throw when all env fields present",
+    name: "requireEnvFieldsForDestroy: does not throw when all workspace fields present",
     fn: () => {
-      const req = { id: "r1", environment_id: "env_1", environment_key: "dev", environment_slug: "ai-agent" }
+      const req = { id: "r1", workspace_id: "ws_1", workspace_key: "dev", workspace_slug: "ai-agent" }
       requireEnvFieldsForDestroy(req)
     },
   },
   {
-    name: "isMissingEnvField: returns false for request with all env fields",
+    name: "isMissingEnvField: returns false for request with all workspace fields",
     fn: () => {
-      const req = { id: "r1", environment_id: "env_1", environment_key: "dev", environment_slug: "ai-agent" }
+      const req = { id: "r1", workspace_id: "ws_1", workspace_key: "dev", workspace_slug: "ai-agent" }
       assert(isMissingEnvField(req) === false, "complete request not missing")
     },
   },
   {
-    name: "isMissingEnvField: returns true for request missing environment_id",
+    name: "isMissingEnvField: returns true for request missing workspace_id",
     fn: () => {
-      const req = { id: "r1", environment_key: "dev", environment_slug: "x" }
-      assert(isMissingEnvField(req) === true, "missing env_id")
+      const req = { id: "r1", workspace_key: "dev", workspace_slug: "x" }
+      assert(isMissingEnvField(req) === true, "missing workspace_id")
     },
   },
   {
-    name: "getRequestIdsMissingEnv: returns empty list when all requests have env fields",
+    name: "getRequestIdsMissingEnv: returns empty list when all requests have workspace fields",
     fn: () => {
       const requests = [
-        { id: "r1", environment_id: "env_1", environment_key: "dev", environment_slug: "x" },
-        { id: "r2", environment_id: "env_2", environment_key: "prod", environment_slug: "payments" },
+        { id: "r1", workspace_id: "ws_1", workspace_key: "dev", workspace_slug: "x" },
+        { id: "r2", workspace_id: "ws_2", workspace_key: "prod", workspace_slug: "payments" },
       ]
       const missing = getRequestIdsMissingEnv(requests)
       assert(missing.length === 0, "empty list in normal case")
     },
   },
   {
-    name: "getRequestIdsMissingEnv: returns ids of requests missing env fields",
+    name: "getRequestIdsMissingEnv: returns ids of requests missing workspace fields",
     fn: () => {
       const requests = [
-        { id: "r1", environment_id: "env_1", environment_key: "dev", environment_slug: "x" },
-        { id: "r2", environment_key: "dev", environment_slug: "x" },
-        { id: "r3", environment_id: "env_3", environment_key: "dev", environment_slug: "" },
+        { id: "r1", workspace_id: "ws_1", workspace_key: "dev", workspace_slug: "x" },
+        { id: "r2", workspace_key: "dev", workspace_slug: "x" },
+        { id: "r3", workspace_id: "ws_3", workspace_key: "dev", workspace_slug: "" },
       ]
       const missing = getRequestIdsMissingEnv(requests)
       assert(missing.length === 2 && missing.includes("r2") && missing.includes("r3"), "filters correctly")
@@ -137,10 +137,10 @@ export const tests = [
   {
     name: "getMissingEnvFields: returns REQUEST_MISSING_ENV_FIELDS-style list",
     fn: () => {
-      const req = { id: "r1", environment_slug: "x" }
+      const req = { id: "r1", workspace_slug: "x" }
       const missing = getMissingEnvFields(req)
-      assert(missing.includes("environment_id") && missing.includes("environment_key"), "lists missing")
-      assert(!missing.includes("environment_slug"), "slug present")
+      assert(missing.includes("workspace_id") && missing.includes("workspace_key"), "lists missing")
+      assert(!missing.includes("workspace_slug"), "workspace_slug present")
     },
   },
 ]

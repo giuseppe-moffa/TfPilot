@@ -1,11 +1,11 @@
 /**
- * Bootstrap PR for Model 2 Environments.
+ * Bootstrap PR for Model 2 Workspaces.
  * Creates envs/<key>/<slug>/ with backend.tf, providers.tf, versions.tf, tfpilot/base.tf, tfpilot/requests/.gitkeep.
- * PR-native: no direct pushes to main.
+ * PR-native: no direct pushes to main. envs/ path convention intentionally preserved.
  */
 
 import { gh, ghResponse } from "@/lib/github/client"
-import { computeEnvRoot } from "@/lib/environments/helpers"
+import { computeWorkspaceRoot } from "@/lib/workspaces/helpers"
 
 export type BootstrapTarget = {
   owner: string
@@ -14,6 +14,8 @@ export type BootstrapTarget = {
 }
 
 export type BootstrapResult = {
+  workspace: { workspace_id: string; workspace_key: string; workspace_slug: string }
+  /** @deprecated Use workspace */
   environment: { environment_id: string; environment_key: string; environment_slug: string }
   prNumber: number
   prUrl: string
@@ -79,34 +81,41 @@ function versionsTfContent(): string {
 }
 
 function tfpilotBaseTfContent(): string {
-  return `# Model 2 environment root. Request files go in tfpilot/requests/
+  return `# Model 2 workspace root. Request files go in tfpilot/requests/
 `
 }
 
 /**
- * Create bootstrap PR for an environment.
+ * Create bootstrap PR for a workspace.
  * If env root already exists on base branch, returns alreadyBootstrapped and does not create PR.
  */
 export async function createBootstrapPr(
   token: string,
   target: BootstrapTarget,
   params: {
-    environment_id: string
+    workspace_id: string
     project_key: string
-    environment_key: string
-    environment_slug: string
+    workspace_key: string
+    workspace_slug: string
+    /** @deprecated Use workspace_id */
+    environment_id?: string
+    /** @deprecated Use workspace_key */
+    environment_key?: string
+    /** @deprecated Use workspace_slug */
+    environment_slug?: string
   }
 ): Promise<BootstrapResult> {
-  const envRoot = computeEnvRoot(params.environment_key, params.environment_slug)
+  const wsId = params.workspace_id ?? params.environment_id ?? ""
+  const wsKey = params.workspace_key ?? params.environment_key ?? ""
+  const wsSlug = params.workspace_slug ?? params.environment_slug ?? ""
+  const envRoot = computeWorkspaceRoot(wsKey, wsSlug)
   const backendPath = `${envRoot}/backend.tf`
   const alreadyExists = await checkPathExists(token, target.owner, target.repo, backendPath, target.base)
   if (alreadyExists) {
+    const wsObj = { workspace_id: wsId, workspace_key: wsKey, workspace_slug: wsSlug }
     return {
-      environment: {
-        environment_id: params.environment_id,
-        environment_key: params.environment_key,
-        environment_slug: params.environment_slug,
-      },
+      workspace: wsObj,
+      environment: { environment_id: wsId, environment_key: wsKey, environment_slug: wsSlug },
       prNumber: 0,
       prUrl: "",
       branchName: "",
@@ -115,10 +124,10 @@ export async function createBootstrapPr(
     }
   }
 
-  const branchName = `bootstrap/env/${params.environment_key}-${params.environment_slug}`
+  const branchName = `bootstrap/env/${wsKey}-${wsSlug}`
   const files: Array<{ path: string; content: string }> = [
     { path: `${envRoot}/backend.tf`, content: backendTfContent() },
-    { path: `${envRoot}/providers.tf`, content: providersTfContent(params.project_key, params.environment_key) },
+    { path: `${envRoot}/providers.tf`, content: providersTfContent(params.project_key, wsKey) },
     { path: `${envRoot}/versions.tf`, content: versionsTfContent() },
     { path: `${envRoot}/tfpilot/base.tf`, content: tfpilotBaseTfContent() },
     { path: `${envRoot}/tfpilot/requests/.gitkeep`, content: "" },
@@ -173,7 +182,7 @@ export async function createBootstrapPr(
   const commitRes = await gh(token, `/repos/${target.owner}/${target.repo}/git/commits`, {
     method: "POST",
     body: JSON.stringify({
-      message: `chore: bootstrap env ${params.environment_key}/${params.environment_slug}`,
+      message: `chore: bootstrap env ${wsKey}/${wsSlug}`,
       tree: treeJson.sha,
       parents: [baseSha],
     }),
@@ -189,21 +198,19 @@ export async function createBootstrapPr(
   const prRes = await gh(token, `/repos/${target.owner}/${target.repo}/pulls`, {
     method: "POST",
     body: JSON.stringify({
-      title: `Bootstrap environment ${params.environment_key}/${params.environment_slug}`,
+      title: `Bootstrap workspace ${wsKey}/${wsSlug}`,
       head: branchName,
       base: target.base,
-      body: `Environment bootstrap for ${params.project_key}/${params.environment_key}/${params.environment_slug}.\n\nCreates:\n- ${envRoot}/backend.tf (generic s3 backend)\n- ${envRoot}/providers.tf\n- ${envRoot}/versions.tf\n- ${envRoot}/tfpilot/base.tf\n- ${envRoot}/tfpilot/requests/.gitkeep`,
+      body: `Workspace bootstrap for ${params.project_key}/${wsKey}/${wsSlug}.\n\nCreates:\n- ${envRoot}/backend.tf (generic s3 backend)\n- ${envRoot}/providers.tf\n- ${envRoot}/versions.tf\n- ${envRoot}/tfpilot/base.tf\n- ${envRoot}/tfpilot/requests/.gitkeep`,
     }),
   })
   const prJson = (await prRes.json()) as { number?: number; html_url?: string }
   if (!prJson.number || !prJson.html_url) throw new Error("Failed to open PR")
 
+  const wsObj = { workspace_id: wsId, workspace_key: wsKey, workspace_slug: wsSlug }
   return {
-    environment: {
-      environment_id: params.environment_id,
-      environment_key: params.environment_key,
-      environment_slug: params.environment_slug,
-    },
+    workspace: wsObj,
+    environment: { environment_id: wsId, environment_key: wsKey, environment_slug: wsSlug },
     prNumber: prJson.number,
     prUrl: prJson.html_url,
     branchName,

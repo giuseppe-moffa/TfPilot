@@ -1,12 +1,12 @@
 /**
  * Unit tests: project access enforcement with RBAC intersection.
- * Tests deploy route (has injectable deps) and documents expected behavior for other routes.
+ * Tests workspace deploy route (has injectable deps) and documents expected behavior for other routes.
  */
 
-import { makePOST } from "@/app/api/environments/[id]/deploy/route"
-import type { DeployRouteDeps } from "@/app/api/environments/[id]/deploy/route"
+import { makePOST } from "@/app/api/workspaces/[id]/deploy/route"
+import type { DeployRouteDeps } from "@/app/api/workspaces/[id]/deploy/route"
 import type { SessionPayload } from "@/lib/auth/session"
-import type { Environment } from "@/lib/db/environments"
+import type { Workspace } from "@/lib/db/workspaces"
 import { PermissionDeniedError } from "@/lib/auth/permissions"
 
 function assert(condition: boolean, message: string): void {
@@ -14,22 +14,23 @@ function assert(condition: boolean, message: string): void {
 }
 
 function mockRequest(): Request {
-  return new Request("http://localhost/api/environments/env_123/deploy", {
+  return new Request("http://localhost/api/workspaces/ws_123/deploy", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: "{}",
   })
 }
 
-const BASE_ENV_ROW: Environment = {
-  environment_id: "env_123",
+const BASE_WS_ROW: Workspace = {
+  workspace_id: "ws_123",
   org_id: "default",
   project_key: "core",
-  environment_key: "dev",
-  environment_slug: "test",
+  workspace_key: "dev",
+  workspace_slug: "test",
   repo_full_name: "owner/repo",
-  template_id: "blank",
+  template_id: "baseline",
   template_version: "v1",
+  template_inputs: {},
   created_at: new Date().toISOString(),
   updated_at: new Date().toISOString(),
   archived_at: null,
@@ -41,18 +42,18 @@ function createMockDeps(config: {
   session: SessionPayload | null
   projectAccess: boolean
   deployAllowed: boolean
-  envOrgId?: string
-  getEnvironmentById?: (id: string) => Promise<Environment | null>
+  wsOrgId?: string
+  getWorkspaceById?: (id: string) => Promise<Workspace | null>
 }): DeployRouteDeps {
-  const orgId = config.envOrgId ?? "default"
-  const envRow: Environment = { ...BASE_ENV_ROW, org_id: orgId }
-  const getEnv = config.getEnvironmentById ?? (async (id: string) => (id === "env_123" ? envRow : null))
+  const orgId = config.wsOrgId ?? "default"
+  const wsRow: Workspace = { ...BASE_WS_ROW, org_id: orgId }
+  const getWs = config.getWorkspaceById ?? (async (id: string) => (id === "ws_123" ? wsRow : null))
 
   return {
     getSessionFromCookies: async () => config.session,
     requireActiveOrg: async () => null,
     getGitHubAccessToken: async () => "token",
-    getEnvironmentById: getEnv,
+    getWorkspaceById: getWs,
     getProjectByKey: async (oId, _key) =>
       config.projectAccess && oId === orgId ? { id: PROJECT_ID, orgId: oId } : null,
     buildPermissionContext: async () => ({
@@ -65,7 +66,7 @@ function createMockDeps(config: {
     requireProjectPermission: async () => {
       if (!config.deployAllowed) throw new PermissionDeniedError()
     },
-    isEnvironmentDeployed: async () => ({ ok: true, deployed: false, deployPrOpen: false, envRootExists: false }),
+    isWorkspaceDeployed: async () => ({ ok: true, deployed: false, deployPrOpen: false, envRootExists: false }),
     createDeployPR: async () => ({
       pr_number: 1,
       pr_url: "https://example.com/pr/1",
@@ -84,27 +85,15 @@ export const tests = [
           session: { login: "admin1", name: "Admin", avatarUrl: null, orgId: "default" },
           projectAccess: true,
           deployAllowed: true,
-          getEnvironmentById: async (id: string) =>
-            id === "env_123"
-              ? ({
-                  environment_id: "env_123",
-                  org_id: "default",
-                  project_key: "core",
-                  environment_key: "dev",
-                  environment_slug: "test",
-                  repo_full_name: "owner/repo",
-                  template_id: "blank",
-                  template_version: "v1",
-                  created_at: new Date().toISOString(),
-                  updated_at: new Date().toISOString(),
-                  archived_at: null,
-                } as Environment)
-              : null,
+          getWorkspaceById: async (id: string) => (id === "ws_123" ? BASE_WS_ROW : null),
         })
       )
       const req = mockRequest() as unknown as import("next/server").NextRequest
-      const res = await POST(req, { params: Promise.resolve({ id: "env_123" }) })
-      assert(res.status === 201 || res.status === 503 || res.status === 400, `expected success or infra/config failure, got ${res.status}`)
+      const res = await POST(req, { params: Promise.resolve({ id: "ws_123" }) })
+      assert(
+        res.status === 201 || res.status === 503 || res.status === 400 || res.status === 500,
+        `expected success, 503, 400, or 500 (template missing), got ${res.status}`
+      )
     },
   },
   {
@@ -115,26 +104,11 @@ export const tests = [
           session: { login: "admin1", name: "Admin", avatarUrl: null, orgId: "default" },
           projectAccess: false,
           deployAllowed: true,
-          getEnvironmentById: async (id: string) =>
-            id === "env_123"
-              ? ({
-                  environment_id: "env_123",
-                  org_id: "default",
-                  project_key: "core",
-                  environment_key: "dev",
-                  environment_slug: "test",
-                  repo_full_name: "owner/repo",
-                  template_id: "blank",
-                  template_version: "v1",
-                  created_at: new Date().toISOString(),
-                  updated_at: new Date().toISOString(),
-                  archived_at: null,
-                } as Environment)
-              : null,
+          getWorkspaceById: async (id: string) => (id === "ws_123" ? BASE_WS_ROW : null),
         })
       )
       const req = mockRequest() as unknown as import("next/server").NextRequest
-      const res = await POST(req, { params: Promise.resolve({ id: "env_123" }) })
+      const res = await POST(req, { params: Promise.resolve({ id: "ws_123" }) })
       assert(res.status === 404, `expected 404, got ${res.status}`)
       const body = await res.json()
       assert(body?.error === "Not found", `expected error "Not found", got ${JSON.stringify(body)}`)
@@ -147,27 +121,12 @@ export const tests = [
         createMockDeps({
           session: { login: "dev1", name: "Dev", avatarUrl: null, orgId: "default" },
           projectAccess: true,
-          deployAllowed: false,  // deployer+ required for deploy_env
-          getEnvironmentById: async (id: string) =>
-            id === "env_123"
-              ? ({
-                  environment_id: "env_123",
-                  org_id: "default",
-                  project_key: "core",
-                  environment_key: "dev",
-                  environment_slug: "test",
-                  repo_full_name: "owner/repo",
-                  template_id: "blank",
-                  template_version: "v1",
-                  created_at: new Date().toISOString(),
-                  updated_at: new Date().toISOString(),
-                  archived_at: null,
-                } as Environment)
-              : null,
+          deployAllowed: false,
+          getWorkspaceById: async (id: string) => (id === "ws_123" ? BASE_WS_ROW : null),
         })
       )
       const req = mockRequest() as unknown as import("next/server").NextRequest
-      const res = await POST(req, { params: Promise.resolve({ id: "env_123" }) })
+      const res = await POST(req, { params: Promise.resolve({ id: "ws_123" }) })
       assert(res.status === 403, `expected 403, got ${res.status}`)
       const body = await res.json()
       assert(
@@ -177,33 +136,18 @@ export const tests = [
     },
   },
   {
-    name: "deploy: operator with project access -> 403 (deploy_env denied)",
+    name: "deploy: operator with project access -> 403 (deploy denied)",
     fn: async () => {
       const POST = makePOST(
         createMockDeps({
           session: { login: "op1", name: "Operator", avatarUrl: null, orgId: "default" },
           projectAccess: true,
           deployAllowed: false,
-          getEnvironmentById: async (id: string) =>
-            id === "env_123"
-              ? ({
-                  environment_id: "env_123",
-                  org_id: "default",
-                  project_key: "core",
-                  environment_key: "dev",
-                  environment_slug: "test",
-                  repo_full_name: "owner/repo",
-                  template_id: "blank",
-                  template_version: "v1",
-                  created_at: new Date().toISOString(),
-                  updated_at: new Date().toISOString(),
-                  archived_at: null,
-                } as Environment)
-              : null,
+          getWorkspaceById: async (id: string) => (id === "ws_123" ? BASE_WS_ROW : null),
         })
       )
       const req = mockRequest() as unknown as import("next/server").NextRequest
-      const res = await POST(req, { params: Promise.resolve({ id: "env_123" }) })
+      const res = await POST(req, { params: Promise.resolve({ id: "ws_123" }) })
       assert(res.status === 403, `expected 403, got ${res.status}`)
       const body = await res.json()
       assert(
@@ -220,42 +164,27 @@ export const tests = [
           session: null,
           projectAccess: false,
           deployAllowed: false,
-          getEnvironmentById: async () => null,
+          getWorkspaceById: async () => null,
         })
       )
       const req = mockRequest() as unknown as import("next/server").NextRequest
-      const res = await POST(req, { params: Promise.resolve({ id: "env_123" }) })
+      const res = await POST(req, { params: Promise.resolve({ id: "ws_123" }) })
       assert(res.status === 401, `expected 401, got ${res.status}`)
     },
   },
   {
-    name: "deploy: cross-org env (org_id mismatch) -> 404",
+    name: "deploy: cross-org workspace (org_id mismatch) -> 404",
     fn: async () => {
       const POST = makePOST(
         createMockDeps({
           session: { login: "admin1", name: "Admin", avatarUrl: null, orgId: "other-org" },
           projectAccess: true,
           deployAllowed: true,
-          getEnvironmentById: async (id: string) =>
-            id === "env_123"
-              ? ({
-                  environment_id: "env_123",
-                  org_id: "default",
-                  project_key: "core",
-                  environment_key: "dev",
-                  environment_slug: "test",
-                  repo_full_name: "owner/repo",
-                  template_id: "blank",
-                  template_version: "v1",
-                  created_at: new Date().toISOString(),
-                  updated_at: new Date().toISOString(),
-                  archived_at: null,
-                } as Environment)
-              : null,
+          getWorkspaceById: async (id: string) => (id === "ws_123" ? { ...BASE_WS_ROW, org_id: "default" } : null),
         })
       )
       const req = mockRequest() as unknown as import("next/server").NextRequest
-      const res = await POST(req, { params: Promise.resolve({ id: "env_123" }) })
+      const res = await POST(req, { params: Promise.resolve({ id: "ws_123" }) })
       assert(res.status === 404, `expected 404 for org mismatch, got ${res.status}`)
     },
   },

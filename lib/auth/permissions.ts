@@ -12,7 +12,7 @@ import {
   userCanApprove,
   userCanApply,
   userCanDestroy,
-  userCanDeployEnv,
+  userCanDeploy,
   userCanManageProjectAccess,
   type PermissionContext,
   type ProjectRole,
@@ -36,7 +36,7 @@ export type ProjectPermission =
   | "approve"
   | "apply"
   | "destroy"
-  | "deploy_env"
+  | "deploy"
   | "manage_access"
 
 export type PermissionsDeps = {
@@ -83,7 +83,7 @@ const PERMISSION_CHECKERS: Record<
   approve: userCanApprove,
   apply: userCanApply,
   destroy: userCanDestroy,
-  deploy_env: userCanDeployEnv,
+  deploy: userCanDeploy,
   manage_access: userCanManageProjectAccess,
 }
 

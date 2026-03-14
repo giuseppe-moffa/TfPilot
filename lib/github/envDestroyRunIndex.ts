@@ -1,11 +1,13 @@
 /**
- * S3 index for environment destroy runs: runId <-> environment_id.
- * - run-<runId>.json: { runId, environment_id } — webhook correlates destroy completion to env
- * - pending-<environment_id>.json: { runId, dispatchedAt } — check if env destroy in progress
+ * S3 index for workspace destroy runs: runId <-> workspace_id.
+ * - run-<runId>.json: { runId, environment_id } — webhook correlates destroy completion to workspace
+ * - pending-<workspaceId>.json: { runId, dispatchedAt } — check if workspace destroy in progress
  *
  * FACTS-ONLY ETHOS: These indexes are correlation caches, never authoritative. They are
  * derivable (from GitHub run status + inputs) and repairable (index miss → fetch run, derive,
  * or manual archive). Authoritative state: Postgres archived_at, GitHub run status.
+ *
+ * S3 key paths intentionally unchanged for backward compat with existing index objects.
  */
 
 import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3"
@@ -143,3 +145,11 @@ export async function deleteEnvDestroyPending(
     // Ignore; object may not exist
   }
 }
+
+/** Workspace-named aliases */
+export const putWorkspaceDestroyRunIndex = putEnvDestroyRunIndex
+export const getWorkspaceIdByDestroyRunId = getEnvironmentIdByEnvDestroyRunId
+export const putWorkspaceDestroyPending = putEnvDestroyPending
+export const getWorkspaceDestroyPending = getEnvDestroyPending
+export const deleteWorkspaceDestroyPending = deleteEnvDestroyPending
+export type WorkspaceDestroyPending = EnvDestroyPending

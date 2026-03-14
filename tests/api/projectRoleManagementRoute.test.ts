@@ -80,6 +80,18 @@ function teamsAccessDeps(overrides: Partial<TeamsAccessDeps> = {}): TeamsAccessD
 
 // --- Project roles deps ---
 
+const mockResolveProject = async (orgId: string, projectIdOrKey: string) => {
+  if (projectIdOrKey === PROJECT_ID && orgId === ORG_ID) return { id: PROJECT_ID, orgId: ORG_ID }
+  if (projectIdOrKey === "proj_other" && orgId === OTHER_ORG) return { id: "proj_other", orgId: OTHER_ORG }
+  return null
+}
+
+const mockResolveProjectWithKey = async (orgId: string, projectIdOrKey: string) => {
+  if (projectIdOrKey === PROJECT_ID && orgId === ORG_ID) return { id: PROJECT_ID, orgId: ORG_ID, projectKey: "myproj" }
+  if (projectIdOrKey === "proj_other" && orgId === OTHER_ORG) return { id: "proj_other", orgId: OTHER_ORG, projectKey: "other" }
+  return null
+}
+
 function projectRolesDeps(overrides: Partial<ProjectRolesRouteDeps> = {}): ProjectRolesRouteDeps {
   const projectRoleCache = new Map<string, ProjectRoleDb | null>()
   const mockCtx = {
@@ -94,7 +106,7 @@ function projectRolesDeps(overrides: Partial<ProjectRolesRouteDeps> = {}): Proje
     requireActiveOrg: async () => null,
     buildPermissionContext: async () => mockCtx,
     requireProjectPermission: async () => null,
-    getProjectById: async (id) => (id === PROJECT_ID ? { orgId: ORG_ID } : null),
+    resolveProject: mockResolveProject,
     listProjectUserRolesByProject: async () => [
       { userLogin: "bob", projectId: PROJECT_ID, role: "deployer" },
     ],
@@ -120,8 +132,7 @@ function projectUsersDeps(overrides: Partial<ProjectUsersRouteDeps> = {}): Proje
       projectRoleCache,
     }),
     requireProjectPermission: async () => null,
-    getProjectById: async (id) =>
-      id === PROJECT_ID ? { orgId: ORG_ID, projectKey: "myproj" } : null,
+    resolveProject: mockResolveProjectWithKey,
     upsertProjectUserRole: async () => true,
     isValidProjectRole,
     writeAuditEvent: async () => {},
@@ -147,8 +158,7 @@ function projectUserDeleteDeps(
     requireActiveOrg: async () => null,
     buildPermissionContext: async () => mockCtx,
     requireProjectPermission: async () => null,
-    getProjectById: async (id) =>
-      id === PROJECT_ID ? { orgId: ORG_ID, projectKey: "myproj" } : null,
+    resolveProject: mockResolveProjectWithKey,
     deleteProjectUserRole: async () => true,
     writeAuditEvent: async () => {},
     ...overrides,
@@ -410,7 +420,8 @@ export const tests = [
     name: "GET projects/roles: cross-org project returns 404",
     fn: async () => {
       const deps = projectRolesDeps({
-        getProjectById: async () => ({ orgId: OTHER_ORG }),
+        resolveProject: async (_orgId, idOrKey) =>
+          idOrKey === "proj_other" ? { id: "proj_other", orgId: OTHER_ORG } : null,
       })
       const res = await callProjectRolesGET(deps, "proj_other")
       assert(res.status === 404, `expected 404, got ${res.status}`)
@@ -420,7 +431,8 @@ export const tests = [
     name: "POST projects/users: cross-org project returns 404",
     fn: async () => {
       const deps = projectUsersDeps({
-        getProjectById: async () => ({ orgId: OTHER_ORG, projectKey: "other" }),
+        resolveProject: async (_orgId, idOrKey) =>
+          idOrKey === "proj_other" ? { id: "proj_other", orgId: OTHER_ORG, projectKey: "other" } : null,
       })
       const res = await callProjectUsersPOST(deps, "proj_other", {
         login: "bob",

@@ -18,7 +18,7 @@ function defaultGenerateId(): string {
 }
 
 const INSERT_SQL = `
-  INSERT INTO audit_events (id, org_id, actor_login, source, event_type, entity_type, entity_id, metadata, request_id, environment_id, project_key)
+  INSERT INTO audit_events (id, org_id, actor_login, source, event_type, entity_type, entity_id, metadata, request_id, workspace_id, project_key)
   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 `
 
@@ -45,7 +45,7 @@ export async function writeAuditEvent(
     input.entity_id,
     input.metadata ?? null,
     input.request_id ?? null,
-    input.environment_id ?? null,
+    input.workspace_id ?? null,
     input.project_key ?? null,
   ]
 

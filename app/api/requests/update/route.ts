@@ -6,7 +6,6 @@ import { getGitHubAccessToken } from "@/lib/github/auth"
 import { githubRequest } from "@/lib/github/rateAware"
 import { getModuleType } from "@/lib/infra/moduleType"
 import { computeRequestTfPath, generateModel2RequestFile } from "@/lib/renderer/model2"
-import { resolveInfraRepo } from "@/config/infra-repos"
 import { env } from "@/lib/config/env"
 import { moduleRegistry, type ModuleRegistryEntry, type ModuleField } from "@/config/module-registry"
 import { getRequest, saveRequest, updateRequest } from "@/lib/storage/requestsStore"
@@ -28,7 +27,7 @@ import { normalizeName, validateResourceName } from "@/lib/validation/resourceNa
 import { injectServerAuthoritativeTags, assertRequiredTagsPresent } from "@/lib/requests/tags"
 import { deriveLifecycleStatus } from "@/lib/requests/deriveLifecycleStatus"
 import { ensureAssistantState } from "@/lib/assistant/state"
-import { assertEnvironmentImmutability } from "@/lib/requests/assertEnvironmentImmutability"
+import { assertWorkspaceImmutability } from "@/lib/requests/assertWorkspaceImmutability"
 
 const PLAN_WORKFLOW = env.GITHUB_PLAN_WORKFLOW_FILE
 const RENDERER_VERSION = "tfpilot-renderer@1"
@@ -451,7 +450,7 @@ export async function POST(req: NextRequest) {
     )
     if (permRes) return permRes
 
-    const immutErr = assertEnvironmentImmutability(current, body.patch as Record<string, unknown>)
+    const immutErr = assertWorkspaceImmutability(current, body.patch as Record<string, unknown>)
     if (immutErr) {
       return NextResponse.json({ success: false, error: immutErr }, { status: 400 })
     }
@@ -539,13 +538,16 @@ export async function POST(req: NextRequest) {
     if (!envKey || envSlug === undefined) {
       return NextResponse.json({ success: false, error: "Request missing environment_key or environment_slug" }, { status: 400 })
     }
-    const targetOwner = current.targetOwner ?? resolveInfraRepo(current.project_key, envKey)?.owner
-    const targetRepo = current.targetRepo ?? resolveInfraRepo(current.project_key, envKey)?.repo
-    const targetBase = current.targetBase ?? resolveInfraRepo(current.project_key, envKey)?.base
+    const targetOwner = current.targetOwner
+    const targetRepo = current.targetRepo
+    const targetBase = current.targetBase
     const targetEnvPath = current.targetEnvPath ?? `envs/${envKey}/${envSlug}`
 
     if (!targetOwner || !targetRepo || !targetBase || !targetEnvPath) {
-      return NextResponse.json({ success: false, error: "Missing target repo metadata on request" }, { status: 400 })
+      return NextResponse.json(
+        { success: false, error: "Missing target repo metadata on request (targetOwner, targetRepo, targetBase are required and set at request create time)" },
+        { status: 400 }
+      )
     }
 
     const finalConfig = buildModuleConfig(regEntry, mergedInputs, {

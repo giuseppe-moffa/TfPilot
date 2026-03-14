@@ -1,10 +1,11 @@
 /**
- * S3 index for env-scoped drift plan runs: runId -> environment_id.
- * Used to correlate drift runs (dispatched from env detail page) with environments
+ * S3 index for workspace-scoped drift plan runs: runId -> workspace_id.
+ * Used to correlate drift runs (dispatched from workspace detail page) with workspaces
  * for "last drift" display. Facts-only; derivable from GitHub.
  *
- * Pruning: TTL 30 days. On each write, best-effort prune older entries for that env.
+ * Pruning: TTL 30 days. On each write, best-effort prune older entries for that workspace.
  * Fail-open: pruning never blocks the main write.
+ * S3 key paths intentionally unchanged for backward compat with existing index objects.
  */
 
 import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3"
@@ -118,3 +119,8 @@ export async function getEnvironmentIdByEnvDriftRunId(
 
 /** TTL in days for drift index pruning. Export for docs/tests. */
 export const ENV_DRIFT_PRUNING_TTL_DAYS = PRUNING_TTL_DAYS
+
+/** Workspace-named aliases */
+export const putWorkspaceDriftRunIndex = putEnvDriftRunIndex
+export const getWorkspaceIdByDriftRunId = getEnvironmentIdByEnvDriftRunId
+export const WORKSPACE_DRIFT_PRUNING_TTL_DAYS = PRUNING_TTL_DAYS

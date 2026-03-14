@@ -1,13 +1,13 @@
 /**
  * Request create body validation. Extract for testability.
- * Accepts: environment_id | (project_key, environment_key, environment_slug) | (project, environment)
+ * Workspace-first: workspace_id or (project_key, workspace_key, workspace_slug).
  */
 
 export type CreateBodyInput = {
-  environment_id?: string
+  workspace_id?: string
+  workspace_key?: string
+  workspace_slug?: string
   project_key?: string
-  environment_key?: string
-  environment_slug?: string
   project?: string
   environment?: string
   module?: string
@@ -17,17 +17,21 @@ export type CreateBodyInput = {
 export function validateCreateBody(body: CreateBodyInput): string[] {
   const errors: string[] = []
 
-  const hasEnvId = typeof body.environment_id === "string" && body.environment_id.trim() !== ""
+  const wsId = body.workspace_id
+  const wsKey = body.workspace_key
+  const wsSlug = body.workspace_slug
+
+  const hasId = typeof wsId === "string" && wsId.trim() !== ""
   const hasKeySlug =
     typeof body.project_key === "string" &&
     body.project_key.trim() !== "" &&
-    typeof body.environment_key === "string" &&
-    body.environment_key.trim() !== "" &&
-    typeof body.environment_slug === "string" &&
-    body.environment_slug.trim() !== ""
+    typeof wsKey === "string" &&
+    wsKey.trim() !== "" &&
+    typeof wsSlug === "string" &&
+    wsSlug.trim() !== ""
 
-  if (!hasEnvId && !hasKeySlug) {
-    errors.push("Provide environment_id or (project_key, environment_key, environment_slug)")
+  if (!hasId && !hasKeySlug) {
+    errors.push("Provide workspace_id or (project_key, workspace_key, workspace_slug)")
   }
 
   if (!body.module || typeof body.module !== "string") {

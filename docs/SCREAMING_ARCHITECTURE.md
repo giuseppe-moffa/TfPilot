@@ -37,11 +37,15 @@ The codebase is organized so that **top-level folders and route shapes reflect t
 - **`app/api/stream/`** — SSE: server pushes requestId/updatedAt so UI can revalidate.
 - **`app/api/modules/`** — Module catalog and schema (Terraform modules).
 - **`app/api/request-templates/`** — Request templates (admin/seed, CRUD).
-- **`app/api/environment-templates/`** — Environment templates (static config from `config/environment-templates.ts`).
-- **`app/api/environments/`** — Environment CRUD, deploy (POST `:id/deploy`), deploy status (GET `:id` returns `deployed`, `deployPrOpen`, `deployPrUrl`), activity (GET `:id/activity`).
+- **`app/api/workspace-templates/`** — Workspace template list and by-id (S3 index + documents). Admin list/read/seed; no legacy environment-templates.
+- **`app/projects/`** — Project list (`/projects`), create (`/projects/new`), detail with Workspaces/Settings/Access tabs (`/projects/[projectId]`), settings (`/projects/[projectId]/settings`), access (`/projects/[projectId]/access`), workspaces (`/projects/[projectId]/workspaces/new`, `…/workspaces/[workspaceId]`).
+- **`app/api/projects/`** — Project CRUD: GET/POST `/api/projects`, GET/PATCH `/api/projects/[projectId]` (accepts project_key or id).
+- **`app/api/workspaces/`** — Workspace list (GET), create (POST; reads repo from projects table).
+- **`app/api/admin/audit/workspaces-missing-project/`** — Orphaned workspace audit (platform-admin).
+- **`app/api/workspaces/[id]/`** — Workspace deploy (POST `:id/deploy`), destroy (POST `:id/destroy`); workspace deploy status and activity are served via workspace list/detail flows.
 - **`app/api/health/`**, **`app/api/infra/`** — Health and infra checks.
 - **`app/login/`**, **`app/aws/connect/`** — Login; AWS account connection (connect UI under aws).
-- **`app/catalogue/`**, **`app/insights/`**, **`app/environments/`** — Module catalogue, Insights dashboard, environments.
+- **`app/catalogue/`**, **`app/insights/`**, **`app/workspaces/new/`** — Module catalogue, Insights dashboard, new workspace (project-scoped).
 
 ### `lib/` — Domain and shared logic (no UI)
 
@@ -57,10 +61,11 @@ The codebase is organized so that **top-level folders and route shapes reflect t
 - **`lib/validation/`** — e.g. resource naming.
 - **`lib/observability/`** — Ops metrics (request aggregates, cached), GitHub API usage (in-memory: windows, top/hot routes, rate-limit events, kindGuess). Hooks for Insights dashboard. Logging, correlation.
 
-**Deploy route dependency injection:** `app/api/environments/[id]/deploy/route.ts` uses `makePOST(deps)` for testability. Production export: `export const POST = makePOST(realDeps)`. This removes test hooks and enables pure dependency-injection testing (see `tests/api/environmentDeployErrorsRoute.test.ts`).
+**Deploy route dependency injection:** `app/api/workspaces/[id]/deploy/route.ts` uses `makePOST(deps)` for testability. Production export: `export const POST = makePOST(realDeps)`. Enables dependency-injection testing (see `tests/unit/projectAccessEnforcement.test.ts`).
 - **`lib/logs/`** — Lifecycle logs.
 - **`lib/infra/`** — e.g. module type.
-- **`lib/environments/`** — Deploy detection (`isEnvironmentDeployed`, `getEnvironmentDeployStatus`), env skeleton (`envSkeleton`), template validation (`validateTemplateId`), deploy PR (`createDeployPR`), activity builder (`buildEnvironmentActivity`).
+- **`lib/db/projects.ts`** — Project CRUD: `createProject`, `updateProject`, `getProjectByKey`, `getProjectById`, `resolveProjectByIdOrKey`, `listOrphanedWorkspaceProjectKeys`.
+- **`lib/workspaces/`** — Deploy detection (`isWorkspaceDeployed`, `getWorkspaceDeployStatus`), workspace skeleton (`workspaceSkeleton`), template validation (`validateTemplateId`), deploy PR, activity builder (`buildWorkspaceActivity`).
 - **`lib/notifications/`**, **`lib/services/`** — Notifications and shared services.
 
 ### `components/` — UI building blocks
